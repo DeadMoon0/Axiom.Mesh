@@ -1,6 +1,7 @@
 # Axiom Mesh Local Protocol, Version 1 (axiom-mesh-local/1)
 
-**Status:** Draft 1, 2026-10-28. Normative for the first implementation. Where this document and
+**Status:** Draft 2, 2026-10-28, after an adversarial review of draft 1 (43 findings, all addressed; the ones
+that needed AMP/1 to change are in SPEC.md draft 3). Normative for the first implementation. Where this document and
 [DESIGN.md](DESIGN.md) §10 differ, this document wins. Where it restates a rule of [SPEC.md](SPEC.md) (AMP/1),
 SPEC.md wins and this document only says how that rule is reached over the pipe.
 
@@ -10,7 +11,8 @@ system authenticates, carries typed binary frames with the framing and types of 
 responses by a correlation id, pushes events on subscriptions so that no client polls, reports long-running work
 as operations, and has two roles: **user**, for the app, the command line and any local tool, and **service**,
 for the programs that define a Package kind. A service never touches the wire, a key or the database; it writes
-Entries the Host signs, stores and replicates, and reads verified objects from the store directory.
+Entries the Host signs, stores and replicates, and reads verified objects from the store directory. The pipe
+trusts the operating system's user: a process of the Host's user is that user, as with ssh-agent and Docker.
 
 ## Table of contents
 
@@ -55,7 +57,9 @@ interpreted as described in RFC 2119 and RFC 8174 when, and only when, they appe
 | **Subscription** | A client's standing request for the events of one topic, with a filter (§7). |
 | **Operation** | Long-running work the Host does for a client, reported by events until it ends (§8). |
 | **Store sequence** | A counter the Host increments by one for every Entry it stores; every stored Entry carries the value it got (§5.6). |
-| **Held**, **Stored**, **Object**, **Entry**, **Head**, **Package**, **Grant**, **Roster**, **Known user**, **Followed Package** | As in SPEC.md §1.2. |
+| **Store epoch** | A random id created with the Host's database and changed whenever the database is restored, reset or recreated; it tells a client that store sequences started over (§4.2, §9.3). |
+| **Process identity** | What the operating system tells the Host about the process at the other end of a connection: its OS user, its process id and, where the platform provides it, its executable path (§2.2). |
+| **Held**, **Stored**, **Object**, **Entry**, **Head**, **Package**, **Grant**, **Roster**, **Known user**, **Followed Package**, **Listed Package** | As in SPEC.md §1.2. In this document **held** means only "in the held buffer"; where the text says a Host or client *holds* an object, it means the object is stored. |
 
 ### 1.3 Notation
 
@@ -90,6 +94,9 @@ interoperate, and the reverse:
 - a frame whose message id is in the session range and unknown, or in no range at all, is a violation (§11.3);
 - an unknown capability flag is ignored; an unknown topic, operation kind, pin reason or enumerated value in a
   request is answered with status `Invalid`;
+- an enumerated value a client does not know in a `Response`, `Event` or `Callback` (a change kind, a pin
+  reason, a peer state, an operation kind, a status code) MUST be tolerated: the client reads the message, treats
+  the value as "other" and keeps the connection; only a structural bound (§3.2) is a Host defect;
 - a field is never added to an existing layout; a changed layout is a new message with a new id.
 
 Anything that changes the meaning of an existing byte is version 2.
@@ -106,14 +113,18 @@ brought in line:
 3. **A service gets its Entry stream through subscriptions** (§9.3), the same mechanism user clients use, with a
    **store sequence** (§5.6) for catch-up after a restart or a lapsed subscription. The `Entries` table of
    DESIGN.md §13 gains a `storeSeq` column, unique and increasing.
-4. **A fourth pin reason, `Service`** (§9.6, §14.8), for objects a service put or asked to keep. DESIGN.md §7.3
-   and SPEC.md §11.2 list three.
-5. **Payload validation is a callback** (§9.8): the Host stores an Entry of a registered kind only after the
-   kind's service found the payload well-formed; while no service for the kind is connected, such Entries are
-   held like unverifiable objects (SPEC.md §10.6).
-6. **Parents when the service names none** (§9.4): the device's own Head; when the device has no Head but holds
-   Entries of the Package, the Entry highest in the total order. SPEC.md §9.3 does not say what a device that
-   holds Entries but never wrote names as parent; this document does.
+4. **A fourth pin reason, `Service`** (§9.6, §14.8), for objects a service put or asked to keep, and a fifth,
+   `Outbound`, held by the Host on the objects an Entry written here references until a peer has fetched them
+   (§9.4, decision 22).
+5. **The Host parses the built-in payload layouts itself** (§9.4, §9.8): for Entry kinds 1 to 3 it checks the
+   layout of SPEC.md §8.5 parses exactly to its end and takes the objects the payload references from that
+   parse; a payload that does not parse is faulty content (SPEC.md §8.5, §12.2) and never stored. No service is
+   asked to validate a payload, no Entry waits for a service, and an Entry of an extension kind is stored
+   opaquely with the references its writer named in `WriteEntry`. Draft 1's `ValidatePayload` callback is gone;
+   its id stays reserved (§14.1).
+6. **Parents when the service names none** (§9.4): the rule of SPEC.md §9.3, which this document only restates:
+   the device's own Head; when the device has no Head but holds Entries of the Package, the Entry highest in
+   the total order; a second parent when the clock gap rule of SPEC.md §8.6 would otherwise be broken.
 7. **Manifests, Grants and Rosters need the user key**, which lives on one device (DESIGN.md §5.1). A request that
    needs it on a device that lacks it fails with `UserKeyAbsent` (§11), and the app directs the user to the
    device that holds it.
@@ -127,11 +138,11 @@ brought in line:
     quiet; a client that does not answer within 30 seconds is.
 12. **Telemetry keys** are strings of at most 192 bytes so that a peer and a Package fit in one key; gauges have
     no lifetime total, `GetTotal` returns their last value (§10).
-13. **The Host does not interpret payloads**, so `GetEntry` returns the payload of a withdrawn `Message` too; the
-    "MUST NOT show" of SPEC.md §9.4 is met by the Chat service in its own namespace, which is what the app
-    renders.
-14. **Topics `users` and `store`** exist beside the ones DESIGN.md §10.4 names, because the app shows known users,
-    rosters and the store budget live.
+13. **The Host interprets the built-in layouts and nothing else** (decision 5). It applies `Redaction`s itself
+    and marks a withdrawn `Message` with `Entry.redacted` (§5.6); `GetEntry` and `ListHistory` still return the
+    payload bytes, and every user client MUST honour the flag, which is how the "MUST NOT show" of SPEC.md §9.4
+    is met for the CLI and for any script, not only for the app.
+14. **Topics `users` and `store`** exist because the app shows known users, rosters and the store budget live.
 15. **Objects on demand** (DESIGN.md §7.3) are fetched by the `Fetch` operation (§6.4, §8.6); `Materialise`
     fetches what it lacks itself.
 16. **A Package of any kind may be created**, with or without a service for that kind; the Host carries unknown
@@ -141,6 +152,21 @@ brought in line:
     with 0 meaning "the Manifest's value, else the device class" (§14.14).
 19. **Live telemetry is per minute by default**; a client that sets capability bit 0 also receives partial
     samples of the current minute at most once per second (§10.4).
+20. **A listed Package is a state of its own** (§5.4, §14.12): a Package a peer listed to this node but that it
+    does not follow has `state` Listed and, once the Host fetched its Manifest (SPEC.md §10.6, draft 3), a name
+    and a kind the user can decide on; `PackageChanged(Listed)` tells the app it appeared.
+21. **Rosters are pushed** (§6.1, §6.3): a new Roster of the own user reaches every established peer as an
+    unsolicited `Object` (SPEC.md §7.6, draft 3), not only on the next `Hello`.
+22. **A fifth pin reason, `Outbound`** (§9.4, §14.8): the Host keeps every object an Entry written on this device
+    references until it has sent the object to at least one peer, whatever the retention policy, so that a
+    phone cannot evict an attachment nobody else has yet.
+23. **The pipe checks process identity** (§2.2): the Host refuses a connection whose OS user is not the user it
+    serves, logs user, process id and executable of every connection, MAY confine the user-key requests (§6) to
+    configured executables, and resolves every path a client names as that client's user (§13). A spawned
+    out-of-process service proves it was spawned with `Hello.token` (§4.2); an in-process service's name is never
+    granted on the pipe.
+24. **The store has an epoch** (§4.2, §9.3): `HelloAck.storeEpoch` changes when the database was restored or
+    recreated, so a client that kept its own index knows that store sequences started over.
 
 ## 2. Transport
 
@@ -158,17 +184,45 @@ On Windows, Linux and macOS the environment variable `AXIOM_MESH_PIPE`, when set
 and the client's environment, replaces the name in the table; both MUST honour it. A client MUST NOT guess any
 other name. The pipe carries bytes in both directions with no framing of its own; §3 defines the framing.
 
+The Host creates the pipe so that nobody else can stand in for it, and so that it is reachable from this
+machine only:
+
+- on Windows the named pipe MUST be created with `FILE_FLAG_FIRST_PIPE_INSTANCE` and `PIPE_REJECT_REMOTE_CLIENTS`;
+  a Host whose creation fails because the name exists MUST NOT start, and MUST log it;
+- on Linux and macOS a socket file left by a crashed Host is removed before binding only after a connection
+  attempt to it was refused; a file that answers belongs to a running Host, and the new one MUST NOT start;
+- a client SHOULD verify, where the platform offers it (`GetNamedPipeServerProcessId`, `SO_PEERCRED`,
+  `LOCAL_PEERCRED`), that the process serving the pipe runs as the user the client expects, and MUST treat a
+  pipe name taken from `AXIOM_MESH_PIPE` as exactly as trusted as whoever set that variable.
+
 ### 2.2 Authentication
 
-The operating system authenticates: the named pipe's access control list, or the socket file's owner and mode,
-admit the OS user the Host serves and nobody else, and the Host MUST obtain and log the connecting process id
-where the platform provides it. There is no token, no password and no network port, and a connection that the
-operating system admitted is trusted as that user for everything the user role may do.
+The operating system authenticates. The named pipe's access control list, or the socket file's owner and mode,
+admit the OS user the Host serves and nobody else, and the Host MUST, for every connection, obtain the
+**process identity** of the peer where the platform provides it: its OS user, its process id and its executable
+path (Windows: `GetNamedPipeClientProcessId` and the image path of that process; Linux: `SO_PEERCRED` and
+`/proc/<pid>/exe`; macOS: `LOCAL_PEERCRED` and `LOCAL_PEERPID` with `proc_pidpath`). The Host MUST refuse the
+connection, by closing it before `Hello` is answered, when the peer's OS user is not the user the Host serves,
+or, for a Host that runs as a system service, not a user in its configured allow list; the access control list
+is the first fence, this check is the second.
+
+A process of the same OS user is trusted as that user for everything the user role may do, as with ssh-agent
+and Docker Desktop: the protocol adds no finer right, and claims none. There is no password and no network
+port, and the one token there is (§4.2) proves that a service was spawned by the Host, not who the user is.
+
+Two things are built on the process identity beyond admission. The requests that need the user's private key
+(§6: `ConfirmPairing` in modes `ShowUser`, `JoinUser` and `AddDevice`, `SetGrant`, `RevokeGrant`, `RemoveDevice`
+and `ForgetUser`) are the **user-key requests**; the Host's configuration MAY confine them to listed executable
+paths, and a user-key request from any other process is answered `NotPermitted`. Every user-key request MUST
+be logged with the process id and path of the connection that sent it, whether it succeeded or not. And every
+path a client names (§13) is resolved as that client's user.
 
 ### 2.3 Connection lifetime
 
 A connection begins when the client connected to the pipe and ends when either side closes it. The client MUST
-send `Hello` within 10 seconds of connecting; the Host closes the connection otherwise. When a connection ends,
+send `Hello` within 10 seconds of connecting; the Host closes the connection without a frame otherwise. The Host
+MUST NOT keep more than 16 connections waiting for `Hello` at once; when a 17th arrives it closes the one that
+has waited longest. When a connection ends,
 for whatever reason, everything tied to it ends with it: outstanding requests are never answered, subscriptions
 are gone, running operations are cancelled (§8.5), outstanding callbacks are abandoned, and a service's
 registered kinds are released (§9.2). Nothing of a connection survives it; the Host keeps no session state
@@ -176,13 +230,16 @@ across connections.
 
 A client that loses its connection SHOULD reconnect, waiting 1 second after the first failure and doubling up to
 30 seconds, and then re-establish what it needs: subscriptions, and for a service its registration (§9.2). The
-Host MUST accept up to 64 user connections at once and one connection per configured service name (§12).
+Host MUST accept up to 64 user connections at once and one connection per configured service name (§12). A
+service whose `Response` to `WriteEntry` was lost with the connection MUST catch up (§9.3) before it retries
+the write: `WriteEntry` is not idempotent, and the same payload written twice is two Entries.
 
 ### 2.4 Permissions
 
 The exact access control list of the named pipe, the owner and mode of the socket file and its directory, the
-account the Host serves when it runs as a Windows service, and the configuration keys that set all of these
-are specified in a separate document, `PIPE-ACCESS.md`; this document requires only the effect stated in §2.2.
+account the Host serves when it runs as a Windows service, its allow list of users (§2.2), and the configuration
+keys that set all of these are specified in a separate document, `PIPE-ACCESS.md` (to be written); this document
+requires the effect stated in §2.1 and §2.2 and nothing of the form.
 
 ## 3. Framing, encoding and envelopes
 
@@ -215,14 +272,18 @@ The types of SPEC.md §5.2 (`u8` to `u64`, `bool`, `bytes<n>`, `hash`, `id`, `pu
 | `time` | `u64`, milliseconds since the Unix epoch; 0 means "unknown" where a field says so |
 | `optional<T>` | `u8` 0 or 1, then `T` only when the byte is 1; any other first byte is malformed |
 | `path` | `string(4096)`; an absolute path in the platform's native form; MUST NOT be empty or relative |
-| `name` | `string(64)` of ASCII letters, digits, `.`, `-` and `_`, never empty; a client, service, method, event or series name |
+| `name` | `string(64)` of ASCII letters, digits, `.`, `-` and `_`, never empty; a client, service, method, event or series name. A service name is at most 32 bytes (§4.2, §9.9) |
 | `object` | `blob(4194304)`; the bytes of one SPEC.md §8 object |
-| `payload` | `blob(1048576)`; bytes the Host carries without interpreting them |
+| `payload` | `blob(1048576)`; the payload bytes of one Entry (SPEC.md §8.5), or bytes of a service's own that the Host carries uninterpreted |
 
-A value outside its bounds in a request or a `Reply` is a violation (§11.3); in a `Response`, `Event` or
-`Callback` it is a Host defect the client treats as a lost connection. The canonical form of SPEC.md §5.3
-applies: fixed field order, no padding, every list in the order its definition states, and `optional<T>` is the
-only conditional field.
+A type's **bounds** are its length, count and width, the `0`/`1` of a `bool` and of an `optional<T>`'s first
+byte, and valid UTF-8 in a `string`. A value outside its bounds in a request or a `Reply` is a violation
+(§11.3); in a `Response`, `Event` or `Callback` it is a Host defect the client treats as a lost connection.
+What a type says beyond its bounds (the character set of a `name`, that a `path` is absolute, that an
+enumerated field holds a defined value) is **substance**: a request that breaks it is answered `Invalid`, and
+a client that receives an enumerated value it does not know tolerates it (§1.5). The canonical form of
+SPEC.md §5.3 applies: fixed field order, no padding, every list in the order its definition states, and
+`optional<T>` is the only conditional field.
 
 ### 3.3 Message classes
 
@@ -235,7 +296,7 @@ knows the message:
 | Response | 32 | Host | `correlation: correlation  status: u16  body` |
 | Reply | 33 | a service | `callback: callback  status: u16  body` |
 | (reserved) | 34 to 255 | — | a violation when received |
-| Request | 256 to 1023: user requests 256 to 511, service requests 512 to 767, extensions 768 to 1023 | a client | `correlation: correlation  body` |
+| Request | 256 to 1023: general requests 256 to 511 (§6, §7, §8, §10; each states its roles), service requests 512 to 767 (§9), extensions 768 to 1023 | a client | `correlation: correlation  body` |
 | Event | 1024 to 1535 | Host | `subscription: subscription  body` |
 | Callback | 1536 to 2047 | Host | `callback: callback  body` |
 | (never assigned) | 2048 to 65535 | — | a violation when received |
@@ -248,7 +309,8 @@ Request or a Reply. A frame of a class its sender may not send is a violation.
 A request is a frame in the request range whose payload is a `correlation` followed by the body its section in
 §6, §7, §8, §9 or §10 states. The Host answers every request with exactly one `Response` (32) carrying the same
 `correlation`: with `status` 0 (`OK`) and the OK body the request's section states, or with a non-zero `status`
-from §14.9 and an `Error` record (§5.14) as the body. A request that fails has no effect.
+from §14.9 and an `Error` record (§5.14) as the body. A request that fails has no effect on the Host's state;
+`ServiceCall` (§6.7) is the exception, since the Host cannot undo what a service did before it answered.
 
 Rules:
 
@@ -260,9 +322,13 @@ Rules:
   that write to the same Package are applied in the order they were received. A client that needs one request's
   effect to be visible to another MUST wait for the first `Response`.
 - A request whose message id is in the request range but unknown to the Host is answered with
-  `UnknownRequest`; one that the connection's role may not send, with `NotPermitted` (§6 states the roles).
+  `UnknownRequest`; one that the connection's role may not send, with `NotPermitted` (each request's section
+  states the roles).
 - The Host SHOULD send the `Response` within 10 seconds; work that can take longer is an operation (§8), whose
-  starting request is answered at once.
+  starting request is answered at once, and before the first event of that operation (§7.2).
+- Nothing is stated about the order between a `Response` and the events on the same connection, except the two
+  rules above and those of §7.1. A client that wants a complete picture subscribes first, then lists, and
+  reconciles the listing with the events by `manifestSeq`, `rosterSeq`, `storeSeq` or the hashes they carry.
 - While the session is Draining (§4.5) the Host answers every new request with `Draining`, except
   `Unsubscribe`, `CancelOperation`, `GetOperation` and `ListOperations`, which it still serves.
 
@@ -279,8 +345,10 @@ A callback is a frame in the callback range from the Host to a service, whose pa
 Host chose, unique among the callbacks outstanding on that connection, followed by the body its section in
 §9.8 states. The service MUST answer each callback with exactly one `Reply` (33) carrying the same id, a
 `status` from §14.9 (0 for success) and the reply body the callback's section states, or an `Error` record
-(§5.14) when `status` is not 0. A `Reply` whose `callback` names no outstanding callback is a violation. The
-Host MUST NOT have more than 64 callbacks outstanding toward one service; §9.8 says what it does past that.
+(§5.14) when `status` is not 0. Every callback has a deadline its section states; at the deadline it leaves the
+outstanding set and the Host acts as if it had failed. A `Reply` naming a callback that expired within the last
+5 minutes is ignored; a `Reply` naming an id the Host never issued on this connection is a violation. The Host
+MUST NOT have more than 64 callbacks outstanding toward one service; §9.8 says what it does past that.
 
 ## 4. Session
 
@@ -294,8 +362,9 @@ Connected ───────────────────► Ready ─
 ```
 
 - **Connected:** the pipe connection exists. The client MUST send `Hello` as its first frame; the Host accepts
-  nothing else from it, and sends nothing before `Hello` arrived. Any other first frame, or no `Hello` within
-  10 seconds of the connection, is a violation. The Host answers `HelloAck` or `Bye`.
+  nothing else from it but `Bye`, and sends nothing before `Hello` arrived. Any other first frame is a
+  violation; no `Hello` within 10 seconds of the connection closes it without a frame (§2.3). The Host answers
+  `HelloAck` or `Bye`.
 - **Ready:** `HelloAck` was sent. Requests, responses, events, callbacks, replies, `Ping`, `Pong` and `Bye` may
   flow. A second `Hello` is a violation.
 - **Draining:** the Host sent `Drain` (§4.5). Everything of Ready still flows under the rule of §3.4; the
@@ -312,29 +381,41 @@ Hello:
   name:           name            service role: the service's name; user role: the client's name, for logs
   clientVersion:  string(64)      for logs; MUST NOT be interpreted
   capabilities:   u32             bit flags, §14.4 (client flags)
+  token:          bytes<32>       service role, spawned by the Host: the token it was given; else all zero
 HelloAck:
   version:        u16             = 1
   hostVersion:    string(64)      for logs; MUST NOT be interpreted
   role:           u8              the role granted; equals Hello.role
-  capabilities:   u32             bit flags, §14.4 (Host flags)
+  capabilities:   u32             bit flags, §14.4 (Host flags), bits 0 and 1 as they hold for this connection
   identity:       Identity        §5.1; present = false before CreateIdentity or enrolment
+  storeEpoch:     id              the store epoch (§1.2, §9.3)
   storeSeq:       u64             the store sequence of the newest stored Entry; 0 when none
 ```
+
+The Host's configuration lists every service by **name** (at most 32 bytes, §3.2), with the Package kinds and
+Entry kinds it may register (§9.2), whether it runs **in-process** (DESIGN.md §10.3) and, for an out-of-process
+service, the executable the Host **spawns** and supervises. When the Host spawns a service it puts a fresh
+random token of 32 bytes into the child's environment as `AXIOM_MESH_SERVICE_TOKEN`, 64 lowercase hex
+characters, and expects it back in `Hello.token`; a token is valid for one connection of that child and until
+the child exits. In-process services connect to the local port over an in-memory stream pair before the Host
+opens the pipe, with `token` all zero.
 
 On `Hello` the Host checks, in this order, and on the first failure sends `Bye` with the stated reason and
 closes:
 
 1. `version` is 1; else `Bye(Refused, "version")`.
 2. `role` is 1 or 2; else a violation, `Bye(Violation)`.
-3. For role 2, `name` is a service name the Host's configuration lists; else `Bye(Refused, "service")`. A
-   client the configuration does not list can only be a user client, whatever it asks for; the Host MUST NOT
-   grant a role other than the one asked for.
+3. For role 2, `name` is a service name the Host's configuration lists, the name is not configured as
+   in-process unless the connection *is* the in-memory pair of that in-process service, and for a service the
+   Host spawns `token` equals the token it gave that child; else `Bye(Refused, "service")`. A client the
+   configuration does not list, or that cannot prove the name, is refused: the Host MUST NOT grant a role other
+   than the one asked for.
 4. For role 2, no other connection with the same `name` is in Ready or Draining; else `Bye(Duplicate)`. The
    live connection is kept.
 5. The connection limits of §12 hold; else `Bye(Refused, "busy")`.
 
-Then the Host sends `HelloAck` and the session is Ready. In-process services (DESIGN.md §10.3) connect through
-the same `Hello`; the Host treats them exactly like a program on the pipe.
+Then the Host sends `HelloAck` and the session is Ready. Apart from step 3, an in-process service is treated
+exactly like a program on the pipe.
 
 ### 4.3 `Bye` (3)
 
@@ -416,6 +497,7 @@ lastSeen:       time            the end of the last established session with it;
 
 ```
 packageId:      id
+state:          u8              1 Listed: a peer lists it to this node, it is not followed; 2 Followed
 ownerId:        id
 kind:           u16             SPEC.md §14.8; unknown kinds are carried
 name:           string(255)     from the current Manifest
@@ -424,15 +506,20 @@ retention:      u8              from the current Manifest: 0 default, 1 everythi
 manifestSeq:    u64
 manifestHash:   hash
 branches:       list<Branch>(64)    SPEC.md §8.7, ascending by name
-followed:       bool
+listedBy:       u16             established peers that currently list the Package to this node
 policy:         u8              the local retention policy, §14.14
 rights:         u8              this user's rights: 2 for the owner, else the current Grant's rights, else 0
-heads:          list<Head>(256) SPEC.md §7.2, ascending by deviceId; the Heads this Host holds
+heads:          list<Head>(256) SPEC.md §7.2, ascending by deviceId; the Heads this Host has stored
 entries:        u64             stored Entries of this Package
 latestClock:    u64             the highest clock among them; 0 when none
 ```
 
-`Branch` and `Head` are the structures of SPEC.md §8.7 and §7.2, encoded as there.
+`Branch` and `Head` are the structures of SPEC.md §8.7 and §7.2, encoded as there. A Package in state Listed
+whose Manifest the Host has not yet fetched (SPEC.md §10.6) has `ownerId` all zero, `kind` 0, `name` empty,
+`created` 0, `retention` 0, `manifestSeq` 0, `manifestHash` all zero and `branches` empty; once the Manifest
+is held, those fields are filled and `rights` is known. `heads`, `entries` and `latestClock` are those of the
+objects stored here, which for a Listed Package are the leftovers of an earlier follow, or nothing. A Package
+the own user owns is always Followed.
 
 ### 5.5 `Grant`
 
@@ -456,7 +543,8 @@ Entry:
   clock:        u64
   parents:      list<hash>(2)   ascending as byte strings, as in the object
   kind:         u16             SPEC.md §14.7
-  payload:      payload         the Entry's payload bytes, uninterpreted
+  payload:      payload         the Entry's payload bytes, as in the object
+  redacted:     bool            a stored Redaction that SPEC.md §9.4 honours names this Entry
 EntryKey:
   clock:        u64
   deviceId:     id
@@ -465,7 +553,10 @@ EntryKey:
 
 An `EntryKey` is the position of an Entry in the total order of SPEC.md §9.3, `(clock, deviceId, hash)`
 ascending. The store sequence is the position in the order this Host stored Entries, across every Package; it
-is unique, increasing, never reused, and the Host MUST persist it with the Entry.
+is unique, increasing, never reused, and the Host MUST persist it with the Entry. An Entry that was evicted
+and is stored again gets a new store sequence, so one hash can appear twice in a store-sequence walk; a client
+that indexes Entries MUST de-duplicate by `hash`. `redacted` is set by the Host from the Redactions it holds
+(decision 13); a user client MUST NOT display the payload of a redacted Entry.
 
 ### 5.7 `Peer`
 
@@ -529,7 +620,7 @@ heldBytes:      u64             bytes in the held buffer (SPEC.md §10.6)
 Pin:
   hash:         hash
   reason:       u8              §14.8
-  source:       id              Head, Policy: the Package id; User: all zero; Service: H(service name) over the name's UTF-8 bytes
+  source:       id              Head, Policy, Outbound: the Package id (Head on a Roster: the user id); User: all zero; Service: H(service name) over the name's UTF-8 bytes
   since:        time
   size:         u64             the object's size; 0 when the object is not stored
 PinKey:
@@ -547,8 +638,9 @@ name:           name
 connected:      bool
 inProcess:      bool
 version:        string(64)      from its Hello; empty when not connected
-kinds:          list<u16>(16)   Package kinds it registered, ascending
-entryKinds:     list<u16>(64)   Entry kinds it registered, ascending
+spawned:        bool            the Host spawns and supervises it (§4.2)
+kinds:          list<u16>(16)   Package kinds its configuration lets it register, ascending
+entryKinds:     list<u16>(64)   Entry kinds its configuration lets it register, ascending
 ```
 
 ### 5.13 `Operation`
@@ -561,9 +653,9 @@ started:        time
 updated:        time            the last change of any field below
 done:           u64             progress, in units
 total:          u64             0 when unknown
-unit:           u8              1 bytes, 2 objects, 3 files
+unit:           u8              1 bytes, 2 objects
 message:        string(256)     for display; MUST NOT be interpreted
-status:         u16             §14.9: the reason when state is Failed; else 0
+status:         u16             §14.9: the reason when state is Failed, Cancelled when state is Cancelled; else 0
 result:         blob(4096)      the kind's result body (§8.6) once state is Done; else empty
 ```
 
@@ -637,11 +729,19 @@ Which fields a topic reads is stated in §7.2; a field a topic does not read MUS
 ## 6. User requests
 
 Every request below lists its message id and the roles that may send it: **U** the user role, **S** the service
-role. A request sent by a role not listed is answered `NotPermitted`. Every request may fail with
-`UnknownRequest`, `Draining`, `Busy` (§12) or `Invalid` (a value that is in bounds but wrong in substance, named
-in `Error.detail`); only further errors are listed. Requests that need an identity fail with `NoIdentity`
-before any other check when `Identity.present` is false; those are `StartPairing` in every mode but `ShowDevice`,
-`ForgetUser`, every request of §6.3 and §6.4, `Pin`, `Unpin`, `Dial`, `ServiceCall`, and `WriteEntry` (§9.4).
+role. A request sent by a role not listed is answered `NotPermitted`. Every request may fail with `Draining`,
+`Busy` (§12) or `Invalid` (a value that is in bounds but wrong in substance, named in `Error.detail`); only
+further errors are listed. Requests that need an identity fail with `NoIdentity` before any other check when
+`Identity.present` is false; those are `RenameDevice`, `StartPairing` in every mode but `ShowDevice`,
+`ForgetUser`, every request of §6.3 and §6.4, `Pin`, `Unpin`, `ReleasePins`, `Dial`, `ServiceCall`, and
+`WriteEntry` (§9.4). The **user-key requests** of §2.2 (`ConfirmPairing` in modes `ShowUser`, `JoinUser` and
+`AddDevice`, `SetGrant`, `RevokeGrant`, `RemoveDevice`, `ForgetUser`) are logged with the connection's process
+identity and may be confined by configuration to listed executables (`NotPermitted` from any other).
+
+Lists that have no cursor (`ListKnownUsers`, `ListDevices`, `ListGrants`, `ListPeers`, `ListSessions`,
+`ListDiscovered`, `ListStaticPeers`, `ListServices`, `ListSeries`) hold the first elements in their stated
+order, cut to the list maximum and to the frame limit of §3.1; a Host that had to cut SHOULD log it. Lists
+with a cursor (`after`) are cut the same way and say so with `more`.
 
 ### 6.1 Identity
 
@@ -660,14 +760,17 @@ RenameDevice (258), U:
   OK:   device: Device
 ```
 
-`CreateIdentity` creates the user key, the device key, a Roster with `seq` 1 holding this device, and the
-device certificate (SPEC.md §2.4). It fails with `AlreadyExists` when an identity is present; a device that is
-to join an existing user enrols instead (§6.2). `RenameDevice` produces a new Roster with `seq` one higher and
-replicates it; it needs the user key (`UserKeyAbsent`) and fails with `NotFound` for a device that is not the
-own user's.
+`CreateIdentity` creates the user key, a Roster with `seq` 1 holding this device, and the device certificate
+(SPEC.md §2.4); it creates the device key too unless an earlier `ShowDevice` pairing (§6.2) already created
+one, which it then uses. It fails with `AlreadyExists` when an identity is present; a device that is to join
+an existing user enrols instead (§6.2). `RenameDevice` produces a new Roster with `seq` one higher and pushes
+it to every established peer as SPEC.md §7.6 allows for the own user's Roster; it needs the user key
+(`UserKeyAbsent`), fails with `NotFound` for a device that is not the own user's and with `Invalid` for a
+removed device.
 
 Backing up the user key and restoring it on another device are not requests of this protocol; the key backup
-format and the requests that export and import it are specified in a separate document, `KEY-BACKUP.md`.
+format and the requests that export and import it are specified in a separate document, `KEY-BACKUP.md` (to be
+written).
 
 ### 6.2 Pairing, enrolment and known users
 
@@ -707,19 +810,24 @@ user compares it with the other side and calls `ConfirmPairing` or `CancelPairin
 confirmed, the other has not yet), then `Paired`, `Failed` or `Cancelled`. A pairing `expires` 10 minutes after
 `StartPairing`, which is a failure. Every change is an event on topic `pairing` (§7.3); the `OK` body shows the
 state at the time of the answer. `ConfirmPairing` and `CancelPairing` fail with `NotFound` for a pairing that is
-not the current one and with `Invalid` for a `ConfirmPairing` outside state `Confirm`.
+not the current one or has ended; `ConfirmPairing` is `Invalid` in state `Waiting`, and in state `Confirming`
+it is `OK` and changes nothing.
 
 Modes `ShowUser` and `JoinUser` need an identity and end, when `Paired`, with the other user known: their key and
-current Roster stored, which is a `UserChanged` event. Mode `ShowDevice` requires that no identity is present;
-the Host creates the device key and shows it in `code`, and when `Paired` this device holds the user's id, key,
-current Roster and its own place in it, so `Identity.present` becomes true with `userKeyPresent` false. Mode
-`AddDevice` needs the user key (`UserKeyAbsent`) and, when `Paired`, has produced a Roster with `seq` one higher
-that includes the new device.
+current Roster stored, which is a `UserChanged` event. Mode `ShowDevice` requires that no identity is present
+(`AlreadyExists` otherwise); the Host creates the device key, if this device has none yet, and shows it in
+`code`, and when `Paired` this device holds the user's id, key, current Roster and its own place in it, so
+`Identity.present` becomes true with `userKeyPresent` false. A `ShowDevice` pairing that fails or is cancelled
+keeps the device key for the next attempt or for `CreateIdentity`. Mode `AddDevice` needs the user key
+(`UserKeyAbsent`) and, when `Paired`, has produced a Roster with `seq` one higher that includes the new device,
+pushed to every established peer (SPEC.md §7.6).
 
-`ForgetUser` withdraws known-user status: the Host closes every session with the user's devices, deletes the
-Roster it holds, unfollows every Package the user owns and releases those Packages' pins, and stops listing it;
-Grants the own user issued to that user stay until revoked. It fails with `Invalid` for the own user and with
-`NotFound` for a user that is not known.
+`ForgetUser` withdraws pairing status: the Host closes every session with the user's devices, deletes the
+Roster it holds, and stops listing the user. It is `Invalid` for the own user, for a user who holds a current
+Grant from the own user (the app revokes first, §6.4), and for a user who is the owner or a current grantee of
+any followed Package the own user does not own, since SPEC.md §1.2 keeps such a user known whatever this
+request says; and `NotFound` for a user that is not known. A user known only through a Manifest or a Grant
+cannot be forgotten; they stop being known when the Package is unfollowed or the Grant revoked.
 
 ### 6.3 Devices
 
@@ -734,7 +842,8 @@ RemoveDevice (289), U:
 ```
 
 `RemoveDevice` produces a Roster with `seq` one higher that marks the device removed, closes its sessions with
-`Bye(Unauthorized)` (SPEC.md §8.8) and replicates the Roster. It needs the user key (`UserKeyAbsent`) and fails
+`Bye(Unauthorized)` (SPEC.md §8.8) and pushes the Roster to every established peer as an unsolicited `Object`
+(SPEC.md §7.6). It needs the user key (`UserKeyAbsent`) and fails
 with `Invalid` for this device and with `NotFound` for a device that is not the own user's. `ListDevices` fails
 with `NotFound` for a user that is not known.
 
@@ -813,20 +922,21 @@ GetObject (316), U S:
   OK:   object: object
 
 Materialise (317), U S:
-  packageId:    id              a followed Package through which the object is held
+  packageId:    id              a followed Package whose Entries reference the object
   hash:         hash            a Tree or a ChunkList
   path:         path            the directory to write the Tree into, or the file to write the ChunkList to
   existing:     u8              1 fail when path exists, 2 replace it, 3 write into it, keeping what is not in the Tree
   OK:   operation: operation            kind Materialise, §8.6
 
 Fetch (318), U S:
-  packageId:    id              a followed Package through which the object is held
+  packageId:    id              a followed Package whose Entries reference the object
   hash:         hash
   recursive:    bool            also the objects it references, through Trees and ChunkLists
   pin:          bool            pin what was fetched with reason User (user role) or Service (service role)
   OK:   operation: operation            kind Fetch, §8.6
 
 ListStored (319), U S:
+  packageId:    id              all zero = every Package
   kinds:        list<u16>(16)   Entry kinds; empty = every kind in the user role, the registered kinds in the service role
   fromSeq:      u64             the first store sequence to return; 0 reads as 1
   limit:        u16             1 to 64
@@ -836,34 +946,48 @@ ListStored (319), U S:
 
 Rules:
 
+- `ListPackages` lists every Package the Host knows, Listed and Followed (§5.4), unless `followedOnly`. A page
+  is cut so that its frame stays within §3.1; the list maximum of 256 bounds the count, it does not guarantee
+  fit.
 - `CreatePackage` produces a Manifest with `seq` 1 for a new Package id derived as SPEC.md §2.3 says, owned by
   the own user, followed, with `policy` 0. It needs the user key (`UserKeyAbsent`). Any `kind` is allowed
   (§1.6, decision 16).
 - `UpdatePackage` produces a Manifest with `seq` one higher carrying the given fields and the current values of
   the others; an absent field is unchanged. The owner only (`NotOwner`), with the user key (`UserKeyAbsent`).
   `branches` names a head per branch as the owner's declaration (SPEC.md §9.5).
-- `FollowPackage` applies to a Package this Host knows through a listing of a peer and is granted; a Package
-  the Host knows nothing of is `NotFound`. `UnfollowPackage` releases the Package's `Head` and `Policy` pins; its
-  Entries and objects become evictable. A Package the own user owns is always followed; `UnfollowPackage` on it
-  is `Invalid`.
+- `FollowPackage` applies to a Package in state Listed (§5.4, decision 20): the Host then wants its Manifest if
+  it does not hold it yet, Grants, Heads and history as SPEC.md §10.2 says, and the record moves to Followed
+  with a `PackageChanged(Followed)`. A Package the Host knows nothing of is `NotFound`; on a Followed Package
+  the request is `OK`, sets `policy` and changes nothing else. `UnfollowPackage` releases the Package's `Head`
+  and `Policy` pins; its Entries and objects become evictable and the record returns to Listed while a peer
+  lists it, else it is dropped. A Package the own user owns is always followed; `UnfollowPackage` on it is
+  `Invalid`.
 - `SetGrant` and `RevokeGrant` produce a Grant with `seq` one higher than the current Grant for that grantee, or
-  1; `RevokeGrant` is `SetGrant` with `rights` 0. The owner only (`NotOwner`), with the user key
-  (`UserKeyAbsent`); the grantee MUST be a known user (`NotFound`) other than the owner (`Invalid`).
+  1; `RevokeGrant` is `SetGrant` with `rights` 0 and is `NotFound` for a grantee without a current Grant. The
+  owner only (`NotOwner`), with the user key (`UserKeyAbsent`); the grantee MUST be a known user (`NotFound`)
+  other than the owner (`Invalid`). Both are user-key requests (§2.2).
 - `ListHistory` walks the stored Entries of the Package in the total order of SPEC.md §9.3. A page is cut so that
   its frame stays within §3.1; `limit` and the list maximum of 64 bound the count, they do not guarantee fit.
   `after` names an Entry that need not be stored any more; paging continues after its key.
 - `GetEntry` and `GetObject` return only what is stored; a held, evicted or never seen object is `NotFound`.
   `GetObject` returns an object of any tag, Rosters included.
 - `Materialise` writes under the rules of SPEC.md §11.4 and §8.4: it fetches what it lacks through the
-  Package's peers as `Fetch` does, writes a file only when every chunk is held, verifies the ChunkList's `size`,
-  applies executable mode where the file system supports it, and writes symlinks per device policy. With
-  `existing` 1 an existing path fails the operation with `AlreadyExists`; with 2 the path is deleted first;
-  with 3 files in the Tree replace files of the same name and other files stay. Conflicts of SPEC.md §8.4 are
-  counted in the result and named in the operation's `message`.
+  Package's peers as `Fetch` does, writes a file only when every chunk is stored, verifies the ChunkList's
+  `size`, applies executable mode where the file system supports it, and writes symlinks per device policy.
+  The path is opened as the client's user (§13). With `existing` 1 an existing path fails the operation with
+  `AlreadyExists`; with 2 the path is deleted first, but only when it is a directory this Host materialised
+  earlier (it holds a marker file the Host wrote) or a regular file, and never through a symlink or reparse
+  point (`Invalid` otherwise); with 3 files in the Tree replace files of the same name and other files stay.
+  Conflicts of SPEC.md §8.4 are counted in the result and named in the operation's `message`. The operation
+  fails with `Invalid` when `hash` turns out not to be a Tree or a ChunkList, with `IoError` when the file
+  system refuses, and with `NotFound` as `Fetch` does.
 - `Fetch` wants the object and, when `recursive`, everything it references, from peers that may serve it
-  (SPEC.md §10.3, §10.4); objects already stored are counted as done at once.
-- `ListStored` walks Entries across every Package in store-sequence order; it exists so that an indexer
-  catches up after it was away (§9.3).
+  (SPEC.md §10.3, §10.4); objects already stored are counted as done at once and, with `pin`, pinned too. The
+  operation fails with `NotFound` when, for 60 seconds, no established peer is a possible source for an
+  object it still lacks (every source answered `NotFound`, or none is connected); `message` names the hash.
+  Until then it waits, with `message` saying for what.
+- `ListStored` walks Entries across every Package, or one, in store-sequence order; it exists so that an
+  indexer catches up after it was away (§9.3), and so that a lapsed subscription (§7.4) is refilled.
 
 ### 6.5 Pins and the store
 
@@ -880,8 +1004,8 @@ Pin (353), U S:
   OK:   pin: Pin
 
 Unpin (354), U S:
-  hash:         hash
-  OK:   empty
+  hashes:       list<hash>(1024)        ascending as byte strings
+  OK:   removed: u16            pins that existed and were removed
 
 GetStore (355), U S:                    empty
   OK:   store: Store
@@ -889,13 +1013,23 @@ GetStore (355), U S:                    empty
 SetStoreBudget (356), U:
   bytes:        u64             0 = the device default
   OK:   store: Store
+
+ReleasePins (357), U:
+  reason:       u8              §14.8: User or Service
+  source:       id              the pins' source (§5.11); for Service, H(service name)
+  OK:   removed: u32            pins removed
 ```
 
 `Pin` in the user role creates a pin with reason `User` and source all zero; in the service role, reason
-`Service` and the service's source (§5.11); it is idempotent. `Unpin` removes that role's pin on the object and
-is `NotFound` when there is none; pins of other reasons are never removed through the pipe. `Pin` on an object
-that is not stored is `NotFound`. A budget change may start eviction (SPEC.md §11.3) at once; `GetStore` shows
-the result over time, and topic `store` pushes it.
+`Service` and the service's source (§5.11); it is idempotent. `Unpin` removes that role's pin on each object
+and counts what it removed; it never fails for a pin that is not there, and pins of other reasons and
+sources are not touched. `Pin` on an object that is not stored is `NotFound`. `ReleasePins` is the user's way
+to clean up after a service that is gone (§9.6): it removes every pin with that reason and source, and is
+`Invalid` for reasons `Head`, `Policy` and `Outbound`, which the Host alone holds. A budget change may start
+eviction (SPEC.md §11.3) at once; `GetStore` shows the result over time, and topic `store` pushes it. A request
+that would store a new object (`PutObject`, `PutFile`, `WriteEntry`, `Fetch`, `Materialise`) fails with
+`StoreFull` when the bytes of pinned objects plus the new object would exceed the budget; eviction cannot
+help, because pinned objects are not evicted.
 
 ### 6.6 Peers
 
@@ -926,8 +1060,9 @@ Dial (374), U:
   OK:   empty
 ```
 
-`AddStaticPeer` fails with `AlreadyExists` and `RemoveStaticPeer` with `NotFound`; a syntactically wrong address
-is `Invalid`. `Dial` with both fields empty is `Invalid`; with a device that is not known it is `NotFound`;
+`AddStaticPeer` fails with `AlreadyExists`, and with `Busy` when 256 static peers are configured;
+`RemoveStaticPeer` fails with `NotFound`; a syntactically wrong address is `Invalid`. `Dial` with both fields
+empty is `Invalid`; with a device that is not known it is `NotFound`;
 with a device that has an established session it is `AlreadyExists`. `OK` means the dial was started under
 SPEC.md §4.4, backoff included; its outcome is an event on topic `peers`.
 
@@ -947,8 +1082,9 @@ ServiceCall (385), U:
 `ServiceCall` is forwarded to the named service as a `ForwardedCall` callback (§9.8); the service's reply body
 is returned as the OK body, and a non-zero reply status is returned as the response's status with the
 service's `Error` record. The meaning of `method` and both payloads is the service's own, described in that
-service's document. Errors: `ServiceUnavailable` when the service is not configured or not connected,
-`ServiceTimeout` when it did not reply within 60 seconds, `Busy` when 64 callbacks are outstanding toward it.
+service's document. Errors: `ServiceUnavailable` when the service is not configured or not connected, or when
+its connection ends before it replied; `ServiceTimeout` when it did not reply within 60 seconds; `Busy` when 64
+callbacks are outstanding toward it.
 
 ## 7. Subscriptions and events
 
@@ -968,23 +1104,24 @@ Unsubscribe (401), U S:
 
 A `subscription` id MUST differ from every live subscription of the connection (`AlreadyExists`); it is free
 again once the `Unsubscribe` response or the `SubscriptionLapsed` event (§7.4) was sent. A connection holds at
-most 64 subscriptions (`Busy`). An unknown topic or a filter field the topic does not read is `Invalid`. The
-Host MUST send the `Response` to `Subscribe` before the first event of the subscription, and MUST NOT send an
-event of a subscription after the `Response` to its `Unsubscribe`. Events reflect changes that happen after the
-`Response` to `Subscribe`, except where a topic says it replays.
+most 64 subscriptions (`Busy`). An unknown topic or a filter field the topic does not read is `Invalid`;
+`Unsubscribe` of an id that is not a live subscription is `NotFound`. The Host MUST send the `Response` to
+`Subscribe` before the first event of the subscription, and MUST NOT send an event of a subscription after the
+`Response` to its `Unsubscribe`. Events reflect changes that happen after the `Response` to `Subscribe`, except
+where a topic says it replays; a client therefore subscribes before it lists (§3.4).
 
 ### 7.2 Topics
 
 | Topic | Id | Filter fields read | Event | Delivered when |
 |---|---|---|---|---|
-| `packages` | 1 | `packageId`, `kinds` (Package kinds) | `PackageChanged` | a Package is created, followed, unfollowed, gets a new current Manifest or Grant, a new or changed Head, or a new local policy; in the order the changes happened |
-| `entries` | 2 | `packageId`, `kinds` (Entry kinds), `fromSeq` | `EntryStored` | an Entry is stored; in store-sequence order, each stored Entry once. With `fromSeq` > 0 the Host first sends every stored Entry matching the filter with `storeSeq` ≥ `fromSeq`, in order, then continues live without a gap or a repeat; when more than 256 stored Entries match, `Subscribe` fails with `GapTooLarge` and the client pages with `ListStored` first |
+| `packages` | 1 | `packageId`, `kinds` (Package kinds) | `PackageChanged` | a Package is listed by a peer for the first time, created, followed, unfollowed, gets a new current Manifest or Grant, a new or changed Head, or a new local policy; in the order the changes happened |
+| `entries` | 2 | `packageId`, `kinds` (Entry kinds), `fromSeq` | `EntryStored` | an Entry is stored; in store-sequence order, each storing once (an Entry stored again after eviction appears again, §5.6). With `fromSeq` > 0 the Host first sends every stored Entry matching the filter with `storeSeq` ≥ `fromSeq`, in order, then continues live without a gap or a repeat; when more than 256 stored Entries match, `Subscribe` fails with `GapTooLarge` and the client pages with `ListStored` first |
 | `peers` | 3 | `deviceId` | `PeerChanged` | a device is discovered, dialled, establishes a session, loses one, refuses or is refused, or is forgotten; in the order it happened |
 | `transfers` | 4 | `packageId`, `deviceId` (the peer) | `TransferChanged` | an object is wanted, received, sent, not found, cancelled or dropped; in the order it happened |
-| `operations` | 5 | `operation` | `OperationChanged` | an operation of this connection starts, progresses (at most once per second per operation), or ends; every state change is delivered, a progress change may be coalesced |
+| `operations` | 5 | `operation` | `OperationChanged` | an operation of this connection starts, progresses (at most once per second per operation), or ends; every state change is delivered, a progress change may be coalesced; the first event of an operation follows the `Response` that started it (§3.4) |
 | `pairing` | 6 | none | `PairingChanged` | the current pairing changes state or a field |
 | `telemetry` | 7 | `series`, `key` | `TelemetrySample` | a minute closes, for every `(series, key)` that changed within it, and (client capability bit 0) partial samples, §10.4; ascending by minute, then by series and key as byte strings |
-| `service` | 8 | `service`, `packageId` | `ServiceEvent` | a service calls `Emit` (§9.9); in the order of the calls |
+| `service` | 8 | `service`, `packageId` | `ServiceEvent` | a service calls `Emit` (§9.10); in the order of the calls |
 | `users` | 9 | `userId` | `UserChanged` | a user becomes known, a new current Roster is held for a known user (the own user included), or a user is forgotten |
 | `store` | 10 | none | `StoreChanged` | the store's counts or budget changed; at most once per second |
 
@@ -1004,9 +1141,9 @@ EntryStored (1025):
   entry:        Entry
 
 PeerChanged (1026):
-  change:       u8              1 discovered, 2 dialling, 3 established, 4 closed, 5 refused by the peer, 6 refused by this node, 7 forgotten
+  change:       u8              §14.11, peer change kinds
   peer:         Peer
-  session:      optional<Session>       present for 3 and 4
+  session:      optional<Session>       present for Established and Closed
 
 TransferChanged (1027):
   transfer:     Transfer
@@ -1040,24 +1177,28 @@ StoreChanged (1033):
 
 SubscriptionLapsed (1034):
   dropped:      u32             events discarded
-  lastSeq:      u64             topic entries: the storeSeq of the last event delivered; else 0
+  lastSeq:      u64             topic entries: the storeSeq of the last EntryStored handed to the pipe; else 0
 ```
 
 ### 7.4 Queues and the slow-consumer rule
 
 The Host queues the events of each subscription separately and writes them to the connection as the pipe
-accepts bytes; it MUST NOT block its own work on a client. A subscription's queue holds at most 256 events.
-When a 257th event would be queued, the Host discards the queue, ends the subscription, and queues in its place
-one `SubscriptionLapsed` naming how many events were discarded (the queued ones plus the one that did not fit)
-and, for topic `entries`, the store sequence of the last `EntryStored` that was delivered, so that the client
-re-subscribes with `fromSeq` one higher. A lapse ends only that subscription; the connection, its other
-subscriptions and its requests are unaffected.
+accepts bytes; it MUST NOT block its own work on a client. A subscription's queue holds at most 256 events and
+at most 16 MiB of encoded events, whichever bound is reached first. When an event would break either bound,
+the Host discards the queue, ends the subscription, and queues in its place one `SubscriptionLapsed` naming
+how many events were discarded (the queued ones plus the one that did not fit) and, for topic `entries`, the
+store sequence of the last `EntryStored` that was handed to the pipe, so that the client re-subscribes with
+`fromSeq` one higher. A lapse ends only that subscription; the connection, its other subscriptions and its
+requests are unaffected.
 
-A replay (`fromSeq`) is sent as part of the queue: the Host does not generate more than 256 events for it, so a
-replay that fits never lapses on its own, and live events that arrive during a replay count against the same
-bound. Across the whole connection, the Host MUST NOT hold more than 64 MiB of frames waiting to be written;
-when it would, or when a frame could not be written within 30 seconds, it closes the connection with
-`Bye(Unresponsive)`.
+A replay (`fromSeq`) is generated lazily: the Host reads the next stored Entry from the store as the queue
+drains and never generates more than 256 events for a replay, so a replay that fits never lapses on its own;
+live events that arrive during a replay are queued behind it and count against the same bounds. The 16 MiB
+bound counts events that are queued but not yet written. Separately, the Host MUST NOT hold more than 64 MiB
+of encoded frames of one connection, responses included, handed to the pipe and not yet accepted by it, nor
+more than 256 MiB across every connection; when it would, or when a frame could not be written within 30
+seconds, it closes the connection with `Bye(Unresponsive)`, choosing the connection with the most waiting bytes
+for the global bound.
 
 ## 8. Operations
 
@@ -1068,8 +1209,8 @@ tree to disk, fetching objects from peers, chunking a file. A request that start
 `PutFile`) is answered at once with the Host-chosen `operation` id, unique for the connection's lifetime, and
 the `Operation` record (§5.13) then changes until it ends. An operation belongs to the connection that started
 it: no other connection sees it, and it is cancelled when the connection ends. A connection has at most 16
-operations running at once (`Busy`); the Host keeps the records of the last 64 ended operations of a connection
-and drops the oldest beyond that.
+operations running at once (`Busy`); the Host keeps the records of the last 48 ended operations of a connection
+and drops the oldest beyond that, so that `ListOperations` (§8.5) always fits its list.
 
 ### 8.2 States
 
@@ -1087,7 +1228,7 @@ Running ───────────► Running ───────► en
 | Running | 1 | work is in progress; `done`, `total` and `message` change |
 | Done | 2 | ended; `result` holds the kind's result body |
 | Failed | 3 | ended; `status` holds the reason, `message` the explanation |
-| Cancelled | 4 | ended by `CancelOperation`, `Drain` or the connection's end; what was done stays done |
+| Cancelled | 4 | ended by `CancelOperation`, `Drain` or the connection's end; `status` is `Cancelled`; what was done stays done |
 
 An ended operation never changes again.
 
@@ -1100,7 +1241,8 @@ always emitted. A client without a subscription polls with `GetOperation`.
 ### 8.4 Completion
 
 An operation ends with `state` Done, Failed or Cancelled and exactly one final `OperationChanged`. Done carries
-the result body of its kind (§8.6) in `result`; Failed carries a `status` from §14.9.
+the result body of its kind (§8.6) in `result`; Failed carries a `status` from the kind's row in §8.6;
+Cancelled carries `status` `Cancelled`.
 
 ### 8.5 Cancel
 
@@ -1124,13 +1266,13 @@ no ChunkList.
 
 ### 8.6 Kinds and results
 
-| Kind | Value | Started by | `unit` | Result body |
-|---|---|---|---|---|
-| Materialise | 1 | `Materialise` (§6.4) | 1 bytes | `files: u32  bytes: u64  conflicts: u32` |
-| Fetch | 2 | `Fetch` (§6.4) | 2 objects | `objects: u32  bytes: u64` |
-| PutFile | 3 | `PutFile` (§9.5) | 1 bytes | `hash: hash  size: u64  chunks: u32` (the ChunkList) |
+| Kind | Value | Started by | `unit` | Result body | Fails with |
+|---|---|---|---|---|---|
+| Materialise | 1 | `Materialise` (§6.4) | 1 bytes | `files: u32  bytes: u64  conflicts: u32` | `AlreadyExists`, `Invalid`, `IoError`, `NotFound`, `StoreFull` |
+| Fetch | 2 | `Fetch` (§6.4) | 2 objects | `objects: u32  bytes: u64` | `NotFound`, `StoreFull` |
+| PutFile | 3 | `PutFile` (§9.5) | 1 bytes | `hash: hash  size: u64  chunks: u32` (the ChunkList) | `NotFound` (no such path), `Invalid` (not a regular file), `IoError`, `StoreFull` |
 
-Values 4 to 255 are reserved for extensions.
+Values 4 to 255 are reserved for extensions. `unit` 3 is reserved.
 
 ## 9. Service role
 
@@ -1143,10 +1285,11 @@ process, connected to the local port over an in-memory stream pair; the contract
 and a service that runs as its own program on the pipe sees exactly the same messages. A service may send
 every request of §6 marked **S**, and the requests of this section.
 
-A service that connects does, in this order: `Hello` with role 2 and its name; `RegisterKind` for each of its
-Package kinds; `Subscribe` to `entries` for its Entry kinds with `fromSeq` set to one past the last store
-sequence it has indexed (after `ListStored` when the gap is large), and to `packages` for its Package kinds.
-From then on it receives everything it needs as events.
+A service that connects does, in this order: `Hello` with role 2, its name and, when the Host spawned it, its
+token; `RegisterKind` for each of its Package kinds; a comparison of `HelloAck.storeEpoch` with the epoch its
+own index was built against (§9.3); `Subscribe` to `entries` for its Entry kinds with `fromSeq` set to one past
+the last store sequence it has indexed (after `ListStored` when the gap is large), and to `packages` for its
+Package kinds. From then on it receives everything it needs as events.
 
 ### 9.2 `RegisterKind` (512)
 
@@ -1154,24 +1297,33 @@ From then on it receives everything it needs as events.
 RegisterKind (512), S:
   kind:         u16             a Package kind, SPEC.md §14.8
   entryKinds:   list<u16>(16)   the Entry kinds of this Package kind, ascending, non-empty
-  OK:   storeSeq: u64           the store sequence of the newest stored Entry; 0 when none
-        packages: u32           followed Packages of this kind
+  OK:   storeEpoch: id          the store epoch (§9.3)
+        storeSeq:   u64         the store sequence of the newest stored Entry; 0 when none
+        packages:   u32         followed Packages of this kind
 ```
 
-A kind is held by at most one connected service; a kind another connected service registered is `KindTaken`,
-and an Entry kind another registered kind lists is `Invalid`. Registering a kind this service already holds is
-`OK` and changes nothing. A registration lasts while the connection does and is released when it ends.
-`WriteEntry`, `ValidatePayload` and `Emit` are scoped to the registered kinds (`KindNotRegistered`).
+A service may register only the Package kinds and Entry kinds its configuration entry lists (§4.2); any other
+is `NotPermitted`. A kind is held by at most one connected service; a kind another connected service
+registered is `KindTaken`, and an Entry kind another registered kind lists is `Invalid`. Registering a kind
+this service already holds is `OK` and changes nothing. A registration lasts while the connection does and is
+released when it ends. `WriteEntry` and `Emit` are scoped to the registered kinds (`KindNotRegistered`).
+`Service.kinds` and `Service.entryKinds` (§5.12) show the configured set whether or not the service is
+connected.
 
 ### 9.3 The streams a service receives
 
 Through topic `entries` with its Entry kinds in the filter, a service receives every Entry of its kinds the
-Host stores, from any peer and from its own `WriteEntry` alike, once, in store-sequence order, with the
-replay rule of §7.2 for catch-up. Through topic `packages` with its Package kinds in the filter it receives
-every follow, unfollow, Manifest, Grant, Head and policy change of Packages of its kinds. The Host MUST deliver
-these on the same subscription machinery as for a user client, with the queue bound and the lapse rule of
-§7.4; a service that lapses re-subscribes with `fromSeq` from `SubscriptionLapsed.lastSeq` plus one, paging
-with `ListStored` when the gap exceeds 256.
+Host stores, from any peer and from its own `WriteEntry` alike, once per storing, in store-sequence order, with
+the replay rule of §7.2 for catch-up. Through topic `packages` with its Package kinds in the filter it receives
+every listing, follow, unfollow, Manifest, Grant, Head and policy change of Packages of its kinds. The Host
+MUST deliver these on the same subscription machinery as for a user client, with the queue bounds and the
+lapse rule of §7.4; a service that lapses re-subscribes with `fromSeq` from `SubscriptionLapsed.lastSeq` plus
+one, paging with `ListStored` when the gap exceeds 256.
+
+Store sequences are meaningful only within one **store epoch** (§1.2). A service or any other client that
+keeps an index of its own MUST record the epoch it indexed under and, when `HelloAck.storeEpoch` or
+`RegisterKind`'s `storeEpoch` differs, discard that index and catch up from store sequence 1. The Host changes
+the epoch whenever its database is restored from a backup, reset, or created anew, and never otherwise.
 
 ### 9.4 `WriteEntry` (513)
 
@@ -1181,6 +1333,7 @@ WriteEntry (513), S:
   kind:         u16             an Entry kind this service registered for that Package kind
   parents:      list<hash>(2)   ascending as byte strings; empty = the Host chooses
   payload:      payload
+  references:   list<hash>(1024)  ascending; extension kinds only: the objects the payload references (see below)
   OK:   entry: Entry
 ```
 
@@ -1189,24 +1342,43 @@ The Host builds the Entry object of SPEC.md §8.6 as follows and then signs it w
 
 1. `packageId`, `kind` and `payload` as given; `deviceId` the own device.
 2. `parents`: as given, when given; the Host checks that each is a stored Entry of the same `packageId`
-   (`Invalid` otherwise). When empty: the own device's Head of the Package, if it has one; else, when the Host
-   holds any Entry of the Package, the stored Entry highest in the total order; else none. A service writing a
-   `Version` to an Archive with more than one leaf MUST name the leaves it merges itself (SPEC.md §9.5); the
-   Host does not know branches.
-3. `clock`: one more than the highest `clock` of any Entry the Host holds for the Package, or 0 when it holds
-   none (SPEC.md §9.3). When that value would not be well-formed under SPEC.md §8.6, the request fails with
-   `ClockExhausted` and the Host surfaces it to the user.
+   (`Invalid` otherwise). When empty, the rule of SPEC.md §9.3: the own device's Head of the Package, if it has
+   one; else, when the Host has stored any Entry of the Package, the stored Entry highest in the total order;
+   else none. When the own Head is the parent and the clock of step 3 would exceed the Head's clock by more
+   than 2^32 (SPEC.md §8.6), the Host names two parents, the own Head and the stored Entry highest in the total
+   order, as SPEC.md §9.3 allows. A service writing a `Version` to an Archive with more than one leaf MUST name
+   the leaves it merges itself (SPEC.md §9.5); the Host does not know branches.
+3. `clock`: one more than the highest `clock` of any Entry the Host has stored for the Package, or 0 when it
+   has none (SPEC.md §9.3). When that value would not be well-formed under SPEC.md §8.6, or the parents of
+   step 2 cannot make it faultless, the request fails with `ClockExhausted` and the Host surfaces it to the
+   user.
 
-Before signing the Host checks that the own user may write (owner or current `Write` grantee, and this device
-not removed; `NotWritable`), that the Package is followed (`NotFound`), and that the result is well-formed and
-would be valid under SPEC.md §8.6 and faultless under §8.6 and §9.3 once its parents are considered; a result
-that would not be is `Invalid`. The Host does not ask the service to validate its own payload. Then it stores
-the Entry, assigns its store sequence, updates its Head, pins the Entry with reason `Head`, pins the payload
-objects the Package's policy asks for with reason `Policy` as far as it holds them, and replicates
-(`PackageChanged` and `Have`, SPEC.md §10.5). Objects the payload references MUST already be stored
-(`PutObject`, `PutFile`) when the policy wants them; the Host does not fetch what a local writer referenced.
+Before signing the Host checks that the Package is followed (`NotFound`), that its kind and the Entry kind are
+registered by this service (`KindNotRegistered`), that the own user may write (owner or current `Write`
+grantee, and this device not removed; `NotWritable`), and that the result is well-formed and would be valid
+under SPEC.md §8.6 and faultless under §8.6 and §9.3 once its parents are considered; a result that would not
+be is `Invalid`.
+
+**Payloads and references.** The Host parses the payload of kinds 1 to 3 itself, as the layouts of SPEC.md
+§8.5 say (decision 5): a payload that does not parse exactly to its end is `Invalid`, and the objects it
+references (a `Version`'s Tree, a `Message`'s attachments) are taken from the parse; for these kinds
+`references` MUST be empty (`Invalid` otherwise). For every other kind the Host does not parse the payload and
+takes `references` as the writer's statement of what the payload names; it may be empty. In both cases every
+referenced object MUST already be stored (`PutObject`, `PutFile`; `NotFound` names the first that is not),
+because the Host does not fetch what a local writer referenced, and the Host then
+
+1. stores the Entry, assigns its store sequence and updates its Head;
+2. pins the Entry with reason `Head`;
+3. pins every referenced object, and through Trees and ChunkLists everything they reference, with reason
+   `Outbound` and source = the Package id, and releases that pin per object once the object has been sent to
+   at least one peer (SPEC.md §11.2); on a device whose policy would evict the object this is the only thing
+   that keeps it until a peer has it;
+4. pins the referenced objects the Package's policy asks for with reason `Policy`;
+5. replicates (`PackageChanged` and `Have`, SPEC.md §10.5).
+
 The `OK` body is the stored Entry with its hash and store sequence; the same Entry arrives on the service's
-`entries` subscription.
+`entries` subscription. A `Redaction` (kind 3) the Host stores, from this request or from a peer, sets
+`Entry.redacted` on its target under the rules of SPEC.md §9.4. `WriteEntry` is not idempotent (§2.3).
 
 ### 9.5 `PutObject` (514) and `PutFile` (515)
 
@@ -1226,21 +1398,23 @@ opaque and accepted; a malformed object is `Invalid`), stores it atomically (SPE
 reason `Service` for this service. A signed object (tags 4 to 7) MUST NOT be put: that is `Invalid`; Entries are
 written with `WriteEntry` and the rest the Host produces itself.
 
-`PutFile` reads the file at `path` with the Host's own permissions, cuts it into Chunks of exactly 1 MiB except
-the last (SPEC.md §8.2), stores each Chunk and the ChunkList (SPEC.md §8.3), pins every one of them with reason
+`PutFile` reads the file at `path` as the client's user (§13), cuts it into Chunks of exactly 1 MiB except the
+last (SPEC.md §8.2), stores each Chunk and the ChunkList (SPEC.md §8.3), pins every one of them with reason
 `Service` for this service, and ends with the ChunkList's hash in the result. A file that changes while it is
-read fails the operation with `IoError`. A zero-length file produces a ChunkList with no chunks.
+read fails the operation with `IoError`. A zero-length file produces a ChunkList with no chunks. Both requests
+fail with `StoreFull` (§6.5) when the pinned bytes would exceed the budget.
 
 The RECOMMENDED pattern for a service is: put the objects, write the Entry that references them, then `Unpin`
-them; from then on the Package's `Policy` pins hold what the policy wants and the rest is evictable, which is
-what the user's retention choice means.
+them; from then on the `Outbound` pin holds each object until a peer has fetched it, the Package's `Policy`
+pins hold what the policy wants, and the rest is evictable, which is what the user's retention choice means.
 
 ### 9.6 Pins with reason `Service`
 
 A service pins with `Pin` and `Unpin` (§6.5); its pins have reason `Service` (§14.8) and the source of §5.11,
 and are independent of every other reason. The Host releases every pin of a service when the service's
 connection ends only if the Host's configuration says so for that service; by default they stay, because an
-out-of-process service may restart. `Fetch` with `pin` true pins with reason `Service` when called by a service.
+out-of-process service may restart. The user releases what a service left behind with `ReleasePins` (§6.5).
+`Fetch` with `pin` true pins with reason `Service` when called by a service.
 
 ### 9.7 `GetStorePath` (516) and direct reads
 
@@ -1259,23 +1433,17 @@ A service MAY read stored objects directly from the store directory, read-only, 
 
 holding exactly the object's bytes. A file there is complete and verified (SPEC.md §11.1: written to a
 temporary name and renamed into place). A reader MUST open the file by name and treat its absence as "not
-stored" (never stored, or evicted since), falling back to `GetObject` or `Fetch`; it MUST NOT write, rename or
-delete anything in the directory, and MUST NOT list the directory to learn what exists (`ListPins`, `GetEntry`
-and the records say what exists). The Host fails `GetStorePath` with `NotPermitted` when the directory is not
-readable by clients (Host capability bit 0 clear, §14.4).
+stored" (never stored, or evicted since), falling back to `GetObject` or `Fetch`; it MUST open it so that the
+Host can delete it meanwhile (on Windows with `FILE_SHARE_DELETE`; a reader that holds a file open keeps its
+bytes, not its name); it MUST NOT write, rename or delete anything in the directory, and MUST NOT list the
+directory to learn what exists (`ListPins`, `GetEntry` and the records say what exists). The Host treats a
+delete that fails because a reader holds the file as "evict later" and does not count the object as evicted
+until the unlink succeeded. The Host fails `GetStorePath` with `NotPermitted` when the directory is not
+readable by this connection's user (Host capability bit 0 clear in its `HelloAck`, §14.4).
 
 ### 9.8 Callbacks
 
 ```
-ValidatePayload (1536):
-  packageId:    id
-  deviceId:     id              the writer
-  clock:        u64
-  kind:         u16
-  payload:      payload
-  Reply OK:     empty
-  Reply status Invalid:  the payload does not parse exactly to its end, or breaks the kind's rules
-
 ForwardedCall (1537):
   client:       u32             the Host's number for the calling connection, for logs
   clientName:   name            the caller's Hello.name
@@ -1285,24 +1453,36 @@ ForwardedCall (1537):
   Reply status: any code of §14.9 or a service-defined code (§11.2), returned to the caller as its status
 ```
 
-**`ValidatePayload`.** Before the Host stores an Entry received from a peer whose `kind` a connected service
-registered, and after that Entry verified under SPEC.md §8.6 and its parents are held, the Host sends
-`ValidatePayload` to that service. `OK` makes the Entry storable; `Invalid` makes it faulty content (SPEC.md
-§12.2): dropped, never forwarded, the sender recorded. While no service for the kind is connected, or the
-service has not replied within 10 seconds, the Entry stays held under the held-buffer rules of SPEC.md §10.6
-and the Host asks again when a service for the kind connects, and at most once a minute otherwise. Entries of
-kinds no configured service lists are stored opaquely without a callback (SPEC.md §8.5). Entries this Host wrote
-through `WriteEntry` are never sent for validation.
-
 **`ForwardedCall`.** A `ServiceCall` (§6.7) from a user client, forwarded verbatim. The service MUST reply
-within 60 seconds; the Host answers the caller `ServiceTimeout` otherwise and ignores a later reply. The service
-answers with its own payload, or with a status, which the Host passes to the caller unchanged, `Error` record
-included.
+within 60 seconds, the callback's deadline (§3.6); the Host answers the caller `ServiceTimeout` otherwise and
+ignores a later reply. The service answers with its own payload, or with a status, which the Host passes to
+the caller unchanged, `Error` record included. When the caller's connection ended before the reply, the reply
+is read and discarded.
 
-When 64 callbacks are outstanding toward a service, the Host queues further `ValidatePayload`s (the Entries stay
-held) and answers further `ServiceCall`s with `Busy`.
+**No payload callback.** The Host does not ask a service about payloads it receives from peers: it parses the
+layouts of kinds 1 to 3 itself (decision 5, §9.4) and stores an Entry of any other kind opaquely, exactly as
+SPEC.md §8.5 and §9.2 say. A service that finds an Entry wrong by its own rules shows or hides it in its
+namespace; it cannot keep the Host from storing or forwarding it. The id 1536 of draft 1's `ValidatePayload`
+is reserved (§14.1).
 
-### 9.9 `Emit` (518)
+When 64 callbacks are outstanding toward a service, the Host answers further `ServiceCall`s with `Busy`.
+
+### 9.9 `AddTelemetry` (517)
+
+```
+AddTelemetry (517), S:
+  series:       name            MUST start with "svc." followed by this service's name and "."
+  key:          string(192)
+  delta:        u64
+  OK:   empty
+```
+
+Adds `delta` to the counter `(series, key)` for the current minute and to its lifetime total (§10). A series
+outside the service's prefix is `NotPermitted`; a service name is at most 32 bytes (§3.2) so that the prefix
+and a name of the service's own fit a `name`. Services have counters only; gauges are the Host's. On a Host
+without telemetry (Host capability bit 2 clear, §14.4) the request is `NotFound`.
+
+### 9.10 `Emit` (518)
 
 ```
 Emit (518), S:
@@ -1314,21 +1494,8 @@ Emit (518), S:
 
 Publishes a `ServiceEvent` to every subscription of topic `service` whose filter matches this service and the
 Package. This is how a service's namespace pushes (a timeline changed, a folder's sync state moved) without a
-user client polling `ServiceCall`. A Package id that is not a followed Package of a kind this service registered
-is `Invalid`; all zero is always allowed.
-
-### 9.10 `AddTelemetry` (517)
-
-```
-AddTelemetry (517), S:
-  series:       name            MUST start with "svc." followed by this service's name and "."
-  key:          string(192)
-  delta:        u64
-  OK:   empty
-```
-
-Adds `delta` to the counter `(series, key)` for the current minute and to its lifetime total (§10). A series
-outside the service's prefix is `NotPermitted`. Services have counters only; gauges are the Host's.
+user client polling `ServiceCall`. A Package the Host does not know or does not follow is `NotFound`; a
+followed Package of a kind this service did not register is `KindNotRegistered`; all zero is always allowed.
 
 ## 10. Telemetry
 
@@ -1336,8 +1503,10 @@ outside the service's prefix is `NotPermitted`. Services have counters only; gau
 
 A telemetry **series** is a named measurement with a kind, counter or gauge; a **key** names what is measured
 within the series (a peer, a Package, a peer and a Package, a port, nothing). The series the Host keeps are
-listed in §14.13 with their key; a service adds counters under its own prefix (§9.10). A key is at most 192
-bytes so that a peer device id and a Package id in hex, joined by `:`, fit.
+listed in §14.13 with their key; a service adds counters under its own prefix (§9.9). A key is at most 192
+bytes so that a peer device id and a Package id in hex, joined by `:`, fit. The series `local.requests` and
+`local.violations`, keyed by a name the client chooses, hold at most 256 distinct keys each; a further name is
+counted under the key `other`.
 
 ### 10.2 Resolution and retention
 
@@ -1373,8 +1542,9 @@ GetTotal (435), U S:
         since:  time            counter: when counting began; gauge: the minute of the last value
 ```
 
-An unknown series is `NotFound`; a range of more than 7 days is `Invalid`; an unknown key is `OK` with no
-points and a total of 0.
+An unknown series is `NotFound`; a range of more than 7 days, or with `to` not after `from`, is `Invalid`; an
+unknown key is `OK` with no points and a total of 0. On a Host without telemetry (Host capability bit 2 clear)
+every request of this section, `AddTelemetry` (§9.9) and a `Subscribe` to topic `telemetry` are `NotFound`.
 
 ### 10.4 Live
 
@@ -1395,8 +1565,8 @@ The `status` of a `Response` or `Reply`:
 | 0 | OK | the OK body follows |
 | 1 | UnknownRequest | the message id is in the request or callback range and unknown to the receiver |
 | 2 | NotPermitted | the connection's role may not send this request, or the request reaches outside what the role may touch |
-| 3 | NotFound | the named user, device, Package, Entry, object, pin, peer, pairing, operation, series or address does not exist here |
-| 4 | AlreadyExists | an identity, static peer, subscription id, session or path already exists |
+| 3 | NotFound | the named user, device, Package, Entry, object, pin, peer, pairing, operation, subscription, series, address or path does not exist here, or no peer can supply an object |
+| 4 | AlreadyExists | an identity (`CreateIdentity`, `ShowDevice`), static peer, subscription id, session or path already exists |
 | 5 | Invalid | a value is in bounds but wrong in substance; `Error.detail` names the field |
 | 6 | NoIdentity | the request needs an identity and the device has none |
 | 7 | UserKeyAbsent | the request needs the user's private key, which is on another device |
@@ -1406,13 +1576,14 @@ The `status` of a `Response` or `Reply`:
 | 11 | KindNotRegistered | the request needs a kind this service did not register |
 | 12 | ServiceUnavailable | the service is not configured or not connected |
 | 13 | ServiceTimeout | the service did not reply in time |
-| 14 | Busy | a limit of §12 is reached: outstanding callbacks, subscriptions, operations, connections, one pairing |
+| 14 | Busy | a limit of §12 is reached: outstanding callbacks, subscriptions, operations, static peers, one pairing |
 | 15 | Draining | the session is Draining |
-| 16 | Cancelled | the operation was cancelled |
+| 16 | Cancelled | `Operation.status` of an operation in state Cancelled (§8.2); never the status of a `Response` |
 | 17 | IoError | the file system refused: `Error.detail` carries the platform message |
-| 18 | ClockExhausted | the next clock would not be well-formed (SPEC.md §8.6); the Package is read-only on this device |
+| 18 | ClockExhausted | no parents make the next clock well-formed and faultless (SPEC.md §8.6, §9.3); the Package is read-only on this device |
 | 19 | GapTooLarge | the replay would exceed 256 Entries; page with `ListStored` first |
-| 20 to 32767 | (reserved) | for extensions of this protocol |
+| 20 | StoreFull | storing the object would put the pinned bytes over the budget (§6.5); nothing evictable can make room |
+| 21 to 32767 | (reserved) | for extensions of this protocol |
 | 32768 to 65535 | (service-defined) | §11.2 |
 
 ### 11.2 Service-defined codes
@@ -1425,16 +1596,18 @@ code below 32 768 in a `ForwardedCall` reply except those of §11.1 with their m
 
 A violation is any of: a frame outside its bounds or not completed in time (§3.1); a message id in the session
 range and unknown, in the reserved range 34 to 255, or 2048 and above; a frame of a class the sender may not
-send (§3.3); a message in the wrong state (§4.1), a second `Hello` included; a field outside its stated bounds
-or a malformed `string`, `bool` or `optional` in a request or reply; a `correlation` of 0, one that is still
-outstanding, or a 65th outstanding request (§3.4); a `Reply` for no outstanding callback (§3.6); `Hello.role`
+send (§3.3); a message in the wrong state (§4.1), a first frame other than `Hello` or `Bye` and a second
+`Hello` included; a field outside its bounds as §3.2 defines them (length, count, width, `bool`, `optional`,
+UTF-8) in a request or reply; a `correlation` of 0, one that is still outstanding, or a 65th outstanding
+request (§3.4); a `Reply` for a callback id the Host never issued on this connection (§3.6); `Hello.role`
 outside the registry. On a violation the Host MUST close the connection with `Bye(Violation)` and SHOULD log
-the connecting process. Everything else that is wrong with a request is an error response, and the connection
-continues.
+the connecting process. Everything else that is wrong with a request, a wrong value in substance (§3.2)
+included, is an error response, and the connection continues. A missing `Hello` (§2.3) is not a violation:
+the connection is closed without a frame.
 
 A Host defect seen by a client (a `Response`, `Event` or `Callback` outside its bounds, a `Response` for no
 outstanding request, an event on no live subscription) is handled by the client as a lost connection: it
-closes and reconnects (§2.3).
+closes and reconnects (§2.3). An enumerated value the client does not know is not a defect (§1.5).
 
 ## 12. Limits
 
@@ -1444,62 +1617,79 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
 |---|---|---|
 | frame length | 2 to 4 198 400 bytes | violation |
 | frame completion | 30 s from the first byte | violation |
-| `Hello` after connecting | 10 s | close |
+| `Hello` after connecting | 10 s | close without a frame |
+| connections waiting for `Hello` | 16 | the longest-waiting closed |
 | `Pong` after `Ping` | 30 s; `Ping` after 60 s without receiving | `Bye(Unresponsive)` |
 | outstanding requests per connection | 64 | violation |
-| outstanding callbacks per connection | 64 | queue / `Busy` (§9.8) |
+| outstanding callbacks per connection | 64 | `Busy` (§9.8) |
 | subscriptions per connection | 64 | `Busy` |
-| queued events per subscription | 256 | lapse (§7.4) |
+| queued events per subscription | 256 events or 16 MiB | lapse (§7.4) |
 | replay per `Subscribe` | 256 Entries | `GapTooLarge` |
-| frames waiting to be written, per connection | 64 MiB, or 30 s for one frame | `Bye(Unresponsive)` |
+| frames handed to the pipe, not yet accepted | 64 MiB per connection, 256 MiB per Host, or 30 s for one frame | `Bye(Unresponsive)` |
 | running operations per connection | 16 | `Busy` |
-| ended operations kept per connection | 64 | oldest dropped |
+| ended operations kept per connection | 48 | oldest dropped |
 | user connections | 64 | `Bye(Refused, "busy")` |
 | service connections | 1 per configured name | `Bye(Duplicate)` |
 | pairings per Host | 1 at a time, 10 minutes | `Busy` / `Failed` |
+| static peers | 256 | `Busy` |
 | `Drain` grace | 5 000 ms default, 30 000 ms at most | `Bye(Shutdown)` |
 | `ServiceCall` / `ForwardedCall` | 60 s | `ServiceTimeout` |
-| `ValidatePayload` | 10 s, then held and asked again | held |
+| `Fetch` without a source | 60 s | `NotFound` (§6.4) |
+| pinned bytes | the store budget | `StoreFull` (§6.5) |
 | page of `ListHistory`, `ListStored` | 64 Entries, cut to the frame | — |
-| page of `ListPackages`, `ListPins` | 256 | — |
+| page of `ListPackages`, `ListPins` | 256, cut to the frame | — |
+| lists without a cursor | their maximum, cut to the frame (§6) | — |
 | points per `QueryTelemetry` | 10 080 (7 days) | `Invalid` |
 | telemetry retention | 7 days of minutes; totals for ever | dropped |
 
 ## 13. Security considerations
 
-- **Authentication is the operating system's.** The pipe admits the OS user the Host serves and nobody else
-  (§2.2). That user may do everything the user role may do anyway, on the same machine, with the same files;
-  the protocol adds no finer right, and claims none. Where the Host runs under another account than the user
-  (a Windows service), the pipe's access list is the only boundary, and `PIPE-ACCESS.md` (§2.4) is where it is
-  specified.
-- **The service role is configuration, not authentication.** A program becomes a service by claiming a name
-  the Host's configuration lists (§4.2). Any program of the same OS user can claim it; the role exists so that
-  two services do not hold one kind at once and so that a stray program does not register a kind by accident,
-  not to keep a hostile local program out. A hostile program of the same user could do everything a service
-  can; that is the threat model of DESIGN.md §14 ("a malicious local program").
+- **Authentication is the operating system's.** The pipe admits the OS user the Host serves and nobody else,
+  by its access control list and, behind it, by the process identity the Host reads for every connection
+  (§2.2); a Host that runs as a system service admits the users its allow list names. A process of the same
+  OS user is trusted as that user, as with ssh-agent and Docker Desktop: that user may do everything the user
+  role may do anyway, on the same machine; the protocol adds no finer right, and claims none. The form of the
+  access list and of the allow list is `PIPE-ACCESS.md` (§2.4, to be written).
+- **The user-key requests are logged and may be confined.** The requests that produce a signed Roster or Grant
+  on the user's behalf (§2.2) are the ones a local program could not forge without the pipe, because the user
+  key never leaves the Host. Every one is logged with the process id and executable of its connection, and
+  the configuration MAY confine them to listed executables, so that a stray script does not enrol a device or
+  grant a Package. That is a fence against accident and a tripwire against intent, not a sandbox.
+- **The service role is configuration plus provenance.** A program becomes a service by claiming a name the
+  Host's configuration lists (§4.2), and the configuration binds the name to the kinds it may register (§9.2).
+  A name configured as in-process is never granted on the pipe, and a name the Host spawns is granted only
+  with the token the Host put into that child's environment; a program of the same user that neither is nor
+  was spawned cannot claim either. The role exists so that two services do not hold one kind at once and so
+  that a stray program does not register a kind by accident; against a hostile program of the same user it is
+  the process identity of §2.2 that stands, and the rest is the threat model of DESIGN.md §14.
 - **No key crosses the pipe.** Signing happens in the Host; a service hands over bytes and gets back a signed
   Entry. The user key's backup is the one exception and is specified apart (§6.1). A `Response` never carries a
-  private key, and `GetObject` of a Roster returns public keys only.
-- **Paths are the Host's.** `Materialise`, `PutFile` and `GetStorePath` name paths the Host resolves with its
-  own permissions. A client can make the Host read any file the Host's account can read and write anywhere it
-  can write; with a per-user Host that is the user's own power, and with a Host under another account it is
-  what §2.4's document bounds. The Host MUST NOT follow a symlink inside a path it materialises into out of the
-  target directory (SPEC.md §8.4's escape rule applies to the destination as a whole).
+  private key, and `GetObject` of a Roster returns public keys only. The service token (§4.2) is a proof of
+  spawning, not a key: it opens nothing but the service role for one child.
+- **Paths are the client's.** `Materialise`, `PutFile` and `GetStorePath` name paths the Host opens as the user
+  of the connection that named them (Windows: `ImpersonateNamedPipeClient` around every open, create, delete
+  and rename; on Unix the Host runs as that user); a Host under another account therefore reads and writes
+  exactly what the client's user may. `Materialise` with `existing` 2 deletes only a directory this Host
+  materialised or a regular file, and never through a symlink or reparse point (§6.4). The Host MUST NOT
+  follow a symlink inside a path it materialises into out of the target directory (SPEC.md §8.4's escape rule
+  applies to the destination as a whole). Host capability bits 0 and 1 (§14.4) are computed per connection
+  from the same identity.
 - **Everything a client sees is verified.** Records are derived from objects the Host verified under SPEC.md;
   `GetObject` returns stored objects only; direct reads see files that are complete and verified. A client is
   never handed a held object.
-- **Payload validation trusts the service** (§9.8): an `Invalid` reply drops a peer's Entry. A faulty service can
-  therefore make this device drop Entries other devices keep, which affects this device's view only, since
-  SPEC.md's validity does not depend on payloads; the Entry is fetched again when the service is fixed and the
-  peer lists the Head.
-- **Bounded by construction.** Frames, lists, outstanding requests and callbacks, subscriptions, queues,
-  operations and connections are bounded (§12), and the Host never blocks on a client (§7.4). A client that
-  stops reading loses its connection, not the mesh.
+- **Payloads are parsed by the Host, not judged by a service** (§9.4, §9.8). The Host checks the built-in
+  layouts itself and stores everything SPEC.md calls storable; no service can keep this device from storing or
+  forwarding a peer's Entry, and no Entry waits in the held buffer for a program that may not be running. What
+  a service thinks of an Entry's content shows in its namespace only.
+- **Bounded by construction.** Frames, lists, outstanding requests and callbacks, subscriptions, queues (in
+  events and in bytes), operations, connections before and after `Hello`, static peers and pinned bytes are
+  bounded (§12), and the Host never blocks on a client (§7.4). A client that stops reading loses its
+  connection, not the mesh; a service that is gone leaves pins the user can release (§6.5).
 - **Telemetry stays on the device** (§10.2). It names peers, Packages and amounts; it is readable by every local
   program of the user, like everything else over the pipe.
-- **Process identity is logged, not enforced** (§2.2). The connecting process id tells a log which program did
-  what; it is not used to grant anything, because the operating system can give an id a different meaning than
-  the Host assumes.
+- **The pipe cannot be squatted or reached from the network** (§2.1): first-instance and reject-remote flags on
+  Windows, a socket file taken over only after it refused a connection on Unix, and a client that checks who
+  serves the pipe where it can. `AXIOM_MESH_PIPE` is as trusted as the environment it came from.
 
 ## 14. Registries
 
@@ -1547,6 +1737,7 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
 | 354 | Unpin | Request | 6.5 |
 | 355 | GetStore | Request | 6.5 |
 | 356 | SetStoreBudget | Request | 6.5 |
+| 357 | ReleasePins | Request | 6.5 |
 | 368 | ListPeers | Request | 6.6 |
 | 369 | ListSessions | Request | 6.6 |
 | 370 | ListDiscovered | Request | 6.6 |
@@ -1570,8 +1761,8 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
 | 514 | PutObject | Request (service) | 9.5 |
 | 515 | PutFile | Request (service) | 9.5 |
 | 516 | GetStorePath | Request (service) | 9.7 |
-| 517 | AddTelemetry | Request (service) | 9.10 |
-| 518 | Emit | Request (service) | 9.9 |
+| 517 | AddTelemetry | Request (service) | 9.9 |
+| 518 | Emit | Request (service) | 9.10 |
 | 1024 | PackageChanged | Event | 7.3 |
 | 1025 | EntryStored | Event | 7.3 |
 | 1026 | PeerChanged | Event | 7.3 |
@@ -1583,15 +1774,15 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
 | 1032 | UserChanged | Event | 7.3 |
 | 1033 | StoreChanged | Event | 7.3 |
 | 1034 | SubscriptionLapsed | Event | 7.3 |
-| 1536 | ValidatePayload | Callback | 9.8 |
+| 1536 | (reserved; `ValidatePayload` in draft 1, removed) | Callback | 9.8 |
 | 1537 | ForwardedCall | Callback | 9.8 |
 
 Ranges (§3.3): 7 to 31 session extensions (a violation when unknown); 34 to 255 reserved (a violation);
-259 to 271, 278 to 287, 290 to 303, 320 to 351, 357 to 367, 375 to 383, 386 to 399, 402 to 415, 419 to 431 and
-436 to 511 user-request extensions, grouped as their neighbours; 519 to 767 service-request extensions; 768 to
-1023 request extensions of either role (all answered `UnknownRequest` when unknown); 1035 to 1535 event
-extensions (ignored when unknown); 1538 to 2047 callback extensions (answered `UnknownRequest` when unknown);
-2048 to 65535 never assigned (a violation).
+259 to 271, 278 to 287, 290 to 303, 320 to 351, 358 to 367, 375 to 383, 386 to 399, 402 to 415, 419 to 431 and
+436 to 511 general-request extensions, grouped as their neighbours; 519 to 767 service-request extensions; 768
+to 1023 request extensions of either role (all answered `UnknownRequest` when unknown); 1035 to 1535 event
+extensions (ignored when unknown); 1536 reserved and 1538 to 2047 callback extensions (answered
+`UnknownRequest` when unknown); 2048 to 65535 never assigned (a violation).
 
 ### 14.2 Roles
 
@@ -1625,9 +1816,9 @@ Host flags, in `HelloAck.capabilities`:
 
 | Bit | Meaning |
 |---|---|
-| 0 | the store directory is readable by clients; `GetStorePath` succeeds (§9.7) |
-| 1 | the Host runs under another OS account than the client (§13); paths are the Host's |
-| 2 | the Host keeps telemetry (§10); clear on a Host configured without it, and then §10's requests are `NotFound` |
+| 0 | the store directory is readable by this connection's user; `GetStorePath` succeeds (§9.7) |
+| 1 | the Host runs under another OS account than this connection's user (§13); paths are still opened as the client's user |
+| 2 | the Host keeps telemetry (§10); clear on a Host configured without it, and then the requests of §10, `AddTelemetry` and a `telemetry` subscription are `NotFound` |
 | 3 to 31 | reserved; MUST be sent as 0, ignored when received |
 
 ### 14.5 Topics
@@ -1670,16 +1861,17 @@ Host flags, in `HelloAck.capabilities`:
 
 | Value | Reason | Source (§5.11) | Held by |
 |---|---|---|---|
-| 1 | Head | the Package id | the Host (SPEC.md §11.2) |
+| 1 | Head | the Package id; for a Roster the user id | the Host (SPEC.md §11.2): Entries, Manifests, Grants and Rosters of followed Packages |
 | 2 | Policy | the Package id | the Host (SPEC.md §11.2) |
 | 3 | User | all zero | the user role (§6.5) |
 | 4 | Service | `H(service name)` | the service role (§9.6) |
+| 5 | Outbound | the Package id | the Host, on objects an Entry written here references, until a peer has fetched them (§9.4, SPEC.md §11.2) |
 
-5 to 255 reserved.
+6 to 255 reserved.
 
 ### 14.9 Status codes
 
-The table of §11.1: 0 to 19 assigned, 20 to 32 767 reserved, 32 768 to 65 535 service-defined.
+The table of §11.1: 0 to 20 assigned, 21 to 32 767 reserved, 32 768 to 65 535 service-defined.
 
 ### 14.10 Pairing modes and states
 
@@ -1713,16 +1905,33 @@ session; bits 4 to 7 reserved.
 | Backoff | 5 | not dialled until `backoffUntil` (SPEC.md §4.4, §12.1) |
 | Unknown | 6 | not in any Roster this Host holds; never dialled |
 
+`PeerChanged.change`, the peer change kinds:
+
+| Value | Change | Meaning |
+|---|---|---|
+| 1 | Discovered | discovery saw the device |
+| 2 | Dialling | a dial started |
+| 3 | Established | a session was established; `session` present |
+| 4 | Closed | a session ended; `session` present |
+| 5 | RefusedByPeer | the peer closed before its `Hello` (SPEC.md §6.2) |
+| 6 | RefusedHere | this node refused the device (TLS check or admission) |
+| 7 | Forgotten | its user was forgotten (§6.2) |
+
+8 to 255 reserved.
+
 ### 14.12 Package change kinds
 
 | Value | Change | `PackageChanged` carries |
 |---|---|---|
-| 1 | Followed | created here, or started following |
-| 2 | Manifest | a new current Manifest |
+| 1 | Followed | created here, or started following; `state` Followed |
+| 2 | Manifest | a new current Manifest, for a Listed Package the first one |
 | 3 | Grant | a new current Grant, in `grant` |
 | 4 | Head | a new or changed Head, in `head` |
 | 5 | Policy | a new local policy |
-| 6 | Unfollowed | stopped following; the record shows `followed` false |
+| 6 | Unfollowed | stopped following; the record shows `state` Listed, or the last record of a Package that is dropped |
+| 7 | Listed | a peer listed a Package this Host did not know (§5.4, decision 20); `state` Listed |
+
+8 to 255 reserved.
 
 ### 14.13 Telemetry series
 
@@ -1739,14 +1948,14 @@ session; bits 4 to 7 reserved.
 | `package.objects.wanted`, `package.objects.held` | gauge | Package id, hex |
 | `store.bytes`, `store.objects`, `store.pinned.bytes`, `store.budget` | gauge | empty |
 | `store.evicted.bytes` | counter | empty |
-| `pins.bytes` | gauge | the pin reason name: `Head`, `Policy`, `User`, `Service` |
+| `pins.bytes` | gauge | the pin reason name: `Head`, `Policy`, `User`, `Service`, `Outbound` |
 | `sessions.open` | gauge | `in` or `out` |
 | `admission.refused` | counter | the port: `mesh`, `outbound`, `local` |
 | `discovery.seen` | counter | `mdns`, `broadcast`, `static` |
 | `local.requests` | counter | the client's `Hello.name` |
 | `local.violations` | counter | the client's `Hello.name` |
 | `edge.crossings.in`, `edge.crossings.out` | counter | `<link id>:<Package id>`; reserved for the Edge (DESIGN.md §16) |
-| `svc.<service>.<name>` | counter | the service's choice (§9.10) |
+| `svc.<service>.<name>` | counter | the service's choice (§9.9) |
 
 Series names not listed and not under `svc.` are reserved for extensions; `ListSeries` is authoritative for a
 running Host.
@@ -1768,15 +1977,20 @@ every MUST addressed to clients, services or its role. A test suite for conforma
 message encoded and decoded at every byte split, with ProtoStream's harness; every limit of §12 refused one
 over and accepted at the limit, with the violation-versus-error distinction of §11; every request of §6, §7,
 §8, §9 and §10 answered with the stated OK body and with every listed error against a fixed Host state; the
-class rules of §3.3 against a frame of each class from each side; `Hello` refused for each reason of §4.2 and
-`Duplicate` against a live service name; a `WriteEntry` with no parents producing an Entry that verifies under
-SPEC.md §8.6, orders under §9.3 and is faultless under §8.6 against an in-memory node, for the three parent
-cases of §9.4; a `ValidatePayload` that is answered `Invalid` leaving nothing stored; the replay rule of §7.2
-delivering exactly the Entries with `storeSeq` ≥ `fromSeq` once and in order, before and across a lapse of
-§7.4; the slow-consumer rule leaving other subscriptions and requests intact; an operation cancelled by
-`CancelOperation`, by `Drain` and by a closed connection; direct reads of §9.7 against an object that is then
-evicted; and the pipe admitted for the Host's OS user and refused for another on each desktop platform. Test
-vectors are published with the reference implementation and are part of this specification once they exist.
+class rules of §3.3 against a frame of each class from each side; `Hello` refused for each reason of §4.2,
+`Duplicate` against a live service name, an in-process name claimed on the pipe, and a spawned name with a
+wrong token; a `WriteEntry` with no parents producing an Entry that verifies under SPEC.md §8.6, orders under
+§9.3 and is faultless under §8.6 against an in-memory node, for the four parent cases of §9.4, the two-parent
+case against a Package whose highest clock is 2^32 + 1 above the own Head; a `Message`, `Version` and
+`Redaction` payload that does not parse to its end answered `Invalid` and the same Entry from a peer dropped
+as faulty; a `Redaction` setting `Entry.redacted`; the replay rule of §7.2 delivering exactly the Entries with
+`storeSeq` ≥ `fromSeq` once and in order, before and across a lapse of §7.4, in events and in bytes; a client
+discarding its index on a changed `storeEpoch`; the slow-consumer rule leaving other subscriptions and
+requests intact; an operation cancelled by `CancelOperation`, by `Drain` and by a closed connection, with
+`status` `Cancelled`; an `Outbound` pin released after the object was sent once; direct reads of §9.7 against
+an object that is then evicted while a reader holds it open; and the pipe admitted for the Host's OS user and
+refused for another, by access list and by process identity, on each desktop platform. Test vectors are
+published with the reference implementation and are part of this specification once they exist.
 
 ## Appendix A. Layouts at a glance
 
@@ -1785,17 +1999,17 @@ frame          := length:u32 messageId:u16 payload
 Response       := correlation:u32 status:u16 body;   Reply := callback:u32 status:u16 body
 Request        := correlation:u32 body;              Event := subscription:u32 body;   Callback := callback:u32 body
 
-Hello          := version:u16 role:u8 name:string clientVersion:string capabilities:u32
-HelloAck       := version:u16 hostVersion:string role:u8 capabilities:u32 identity:Identity storeSeq:u64
+Hello          := version:u16 role:u8 name:string clientVersion:string capabilities:u32 token:bytes<32>
+HelloAck       := version:u16 hostVersion:string role:u8 capabilities:u32 identity:Identity storeEpoch:id storeSeq:u64
 Bye            := reason:u8 detail:string;   Ping | Pong := nonce:u64;   Drain := grace:u32
 
 Identity       := present:bool userId:id userName:string userKeyPresent:bool deviceId:id deviceName:string rosterSeq:u64 created:time
 User           := userId:id name:string self:bool knownSince:time rosterSeq:u64 devices:u16
 Device         := deviceId:id userId:id name:string addedAt:time removed:bool self:bool lastSeen:time
-Package        := packageId:id ownerId:id kind:u16 name:string created:time retention:u8 manifestSeq:u64 manifestHash:hash
-                  branches:list<Branch> followed:bool policy:u8 rights:u8 heads:list<Head> entries:u64 latestClock:u64
+Package        := packageId:id state:u8 ownerId:id kind:u16 name:string created:time retention:u8 manifestSeq:u64 manifestHash:hash
+                  branches:list<Branch> listedBy:u16 policy:u8 rights:u8 heads:list<Head> entries:u64 latestClock:u64
 Grant          := hash:hash packageId:id granteeId:id rights:u8 seq:u64
-Entry          := hash:hash storeSeq:u64 stored:time packageId:id deviceId:id clock:u64 parents:list<hash> kind:u16 payload:blob
+Entry          := hash:hash storeSeq:u64 stored:time packageId:id deviceId:id clock:u64 parents:list<hash> kind:u16 payload:blob redacted:bool
 EntryKey       := clock:u64 deviceId:id hash:hash
 Peer           := deviceId:id userId:id known:bool addresses:list<string> sources:u8 firstSeen:time lastSeen:time state:u8 backoffUntil:time violations:u32
 Session        := deviceId:id userId:id direction:u8 remote:string local:string since:time lastReceived:time tlsSuite:string state:u8
@@ -1832,10 +2046,11 @@ GetEntry       := hash:hash                           → entry:Entry
 GetObject      := hash:hash                           → object:blob
 Materialise    := packageId:id hash:hash path:path existing:u8 → operation:u32
 Fetch          := packageId:id hash:hash recursive:bool pin:bool → operation:u32
-ListStored     := kinds:list<u16> fromSeq:u64 limit:u16 → entries:list<Entry> more:bool
+ListStored     := packageId:id kinds:list<u16> fromSeq:u64 limit:u16 → entries:list<Entry> more:bool
 ListPins       := hash:optional<hash> packageId:optional<id> after:optional<PinKey> → pins:list<Pin> more:bool
-Pin            := hash:hash                           → pin:Pin;   Unpin := hash:hash → -
+Pin            := hash:hash                           → pin:Pin;   Unpin := hashes:list<hash> → removed:u16
 GetStore       := -                                   → store:Store;   SetStoreBudget := bytes:u64 → store:Store
+ReleasePins    := reason:u8 source:id                 → removed:u32
 ListPeers | ListDiscovered := -                       → peers:list<Peer>
 ListSessions   := -                                   → sessions:list<Session>
 ListStaticPeers := -                                  → peers:list<StaticPeer>
@@ -1851,8 +2066,8 @@ ListKeys       := series:name after:optional<string>  → keys:list<string> more
 QueryTelemetry := series:name key:string from:time to:time → points:list<TelemetryPoint>
 GetTotal       := series:name key:string              → value:u64 since:time
 
-RegisterKind   := kind:u16 entryKinds:list<u16>       → storeSeq:u64 packages:u32
-WriteEntry     := packageId:id kind:u16 parents:list<hash> payload:blob → entry:Entry
+RegisterKind   := kind:u16 entryKinds:list<u16>       → storeEpoch:id storeSeq:u64 packages:u32
+WriteEntry     := packageId:id kind:u16 parents:list<hash> payload:blob references:list<hash> → entry:Entry
 PutObject      := object:blob                         → hash:hash stored:bool
 PutFile        := path:path                           → operation:u32
 GetStorePath   := -                                   → path:path layout:u8
@@ -1869,7 +2084,6 @@ UserChanged    := change:u8 user:User devices:list<Device>
 StoreChanged   := store:Store
 SubscriptionLapsed := dropped:u32 lastSeq:u64
 
-ValidatePayload := packageId:id deviceId:id clock:u64 kind:u16 payload:blob → -
 ForwardedCall  := client:u32 clientName:name method:name payload:blob → payload:blob
 ```
 
@@ -1879,42 +2093,49 @@ Alice's laptop runs the Host; its device is L, its store sequence stands at 4 12
 `C` of SPEC.md Appendix B, whose newest Entries are `e7` (L's own Head, clock 7) and `e8` (from Alice's phone P,
 clock 8). The Chat service is in-process; the app is a separate process on the pipe.
 
-1. **Chat connects.** Over its in-memory pair Chat sends `Hello(1, role 2, "chat", "1.0", 0)`. The configuration
-   lists `chat`, no other `chat` connection is live, so the Host answers `HelloAck(1, "1.0", 2, flags 0b101,
-   identity{present, Alice, L, userKeyPresent true}, storeSeq 4120)`. Chat sends `RegisterKind(kind 2, [2, 3])`
-   with correlation 1 and gets `Response(1, OK, storeSeq 4120, packages 3)`. Its own index ends at store
-   sequence 4 100, so it sends `Subscribe(subscription 1, entries, filter{kinds [2, 3], fromSeq 4101})`
-   (correlation 2) and `Subscribe(2, packages, filter{kinds [2]})` (correlation 3). The Host answers both,
-   then replays twenty `EntryStored` events on subscription 1, 4 101 to 4 120, in order; Chat indexes them.
-2. **The app connects.** Over the named pipe the app sends `Hello(1, role 1, "app", "1.0", 0b1)` and gets its
-   `HelloAck`. It sends `GetIdentity`, `ListPackages(followedOnly)`, `Subscribe(1, packages, filter{})` and
-   `Subscribe(2, entries, filter{packageId C})` with correlations 1 to 4, all outstanding at once; the responses
-   come back in whatever order the Host finishes them. The app then asks Chat for the rendered timeline with
-   `ServiceCall("chat", "timeline", {C, last 50})`, which reaches Chat as `ForwardedCall(callback 1, client 7,
-   "app", "timeline", …)`; Chat answers from its index with `Reply(1, OK, payload)` and the app gets the
-   `Response`.
+1. **Chat connects.** Over its in-memory pair, before the Host opened the pipe, Chat sends `Hello(1, role 2,
+   "chat", "1.0", 0, token 0)`. The configuration lists `chat` as in-process with kind 2 and Entry kinds 2
+   and 3, no other `chat` connection is live, so the Host answers `HelloAck(1, "1.0", 2, flags 0b101,
+   identity{present, Alice, L, userKeyPresent true}, storeEpoch E, storeSeq 4120)`. Chat sends
+   `RegisterKind(kind 2, [2, 3])` with correlation 1 and gets `Response(1, OK, storeEpoch E, storeSeq 4120,
+   packages 3)`. Its own index was built under epoch `E` and ends at store sequence 4 100, so it sends
+   `Subscribe(subscription 1, entries, filter{kinds [2, 3], fromSeq 4101})` (correlation 2) and
+   `Subscribe(2, packages, filter{kinds [2]})` (correlation 3). The Host answers both, then replays twenty
+   `EntryStored` events on subscription 1, 4 101 to 4 120, in order; Chat indexes them.
+2. **The app connects.** Over the named pipe the app sends `Hello(1, role 1, "app", "1.0", 0b1, token 0)`; the
+   Host reads the process identity (Alice's user, process 7, the app's executable) and gets its `HelloAck`. It
+   sends `Subscribe(1, packages, filter{})` and `Subscribe(2, entries, filter{})` first, then `GetIdentity` and
+   `ListPackages(followedOnly)`, with correlations 1 to 4, all outstanding at once; the responses come back in
+   whatever order the Host finishes them, and the app reconciles the listing with any event that arrived
+   meanwhile. The app then asks Chat for the rendered timeline with `ServiceCall("chat", "timeline", {C, last
+   50})`, which reaches Chat as `ForwardedCall(callback 1, client 7, "app", "timeline", …)`; Chat answers from
+   its index with `Reply(1, OK, payload)` and the app gets the `Response`.
 3. **Alice types.** The app sends `ServiceCall("chat", "send", {C, "hello"})` (correlation 5). Chat gets
-   `ForwardedCall(2, …)` and sends `WriteEntry(C, kind 2, parents [], payload Message{"hello"})` (correlation
-   4). The Host chooses `clock` 9 (the highest it holds is 8), parent `e7` (L's own Head), signs with L's device
-   key, stores `e9` with store sequence 4 121, moves L's Head to `e9`, pins it with reason `Head`, and sends
-   `PackageChanged` and `Have` to P and to Bob's desktop D. It answers Chat `Response(4, OK, Entry e9)`, and
-   delivers `EntryStored(e9)` on Chat's subscription 1 and on the app's subscription 2, and `PackageChanged(Head)`
-   on Chat's subscription 2 and the app's subscription 1. Chat indexes `e9` and replies `Reply(2, OK, {e9})`;
-   the app's `Response(5, OK, …)` follows. The app already drew the message from its own `EntryStored`.
+   `ForwardedCall(2, …)` and sends `WriteEntry(C, kind 2, parents [], payload Message{"hello"}, references [])`
+   (correlation 4). The Host parses the `Message` (it has no attachments), chooses `clock` 9 (the highest it
+   has stored is 8), parent `e7` (L's own Head), signs with L's device key, stores `e9` with store sequence
+   4 121, moves L's Head to `e9`, pins it with reason `Head`, and sends `PackageChanged` and `Have` to P and to
+   Bob's desktop D. It answers Chat `Response(4, OK, Entry e9)`, and delivers `EntryStored(e9)` on Chat's
+   subscription 1 and on the app's subscription 2, and `PackageChanged(Head)` on Chat's subscription 2 and the
+   app's subscription 1. Chat indexes `e9` and replies `Reply(2, OK, {e9})`; the app's `Response(5, OK, …)`
+   follows. The app already drew the message from its own `EntryStored`.
 4. **Phone answers.** P writes `e10` (clock 10, parent `e8`) and the Host receives it over AMP/1. It verifies the
-   signature against Alice's Roster, holds `e8` already, and because kind 2 is registered sends
-   `ValidatePayload(callback 3, C, P, 10, 2, payload)` to Chat. Chat parses the `Message` and replies
-   `Reply(3, OK)`; the Host stores `e10` as 4 122 and both subscribers get `EntryStored(e10)`. Had Chat replied
-   `Invalid`, `e10` would have been dropped and P recorded as faulty for it, and nothing delivered.
-5. **An attachment.** The app opens an attachment Tree `t` named in `e10` that the phone policy did not fetch
-   here either; it sends `Fetch(C, t, recursive true, pin false)` and gets operation 1. `OperationChanged`
-   events on a subscription to `operations` show `done` climbing in objects; the final one is `Done` with
-   `{objects 5, bytes 3 145 728}`. The app reads the ChunkLists and Chunks with `GetObject` and renders them.
-6. **A slow app.** The app's window is minimised and it stops reading its pipe while the laptop syncs a large
-   Archive; subscription 2 reaches 256 queued `EntryStored`s for a different Package, so the Host drops the
-   queue, ends subscription 2 and queues `SubscriptionLapsed(dropped 257, lastSeq 4 380)`. When the app reads
-   again it sees the lapse, sends `Subscribe(2, entries, filter{packageId C, fromSeq 4381})` and is current
-   again; its subscription 1 and the connection were never affected.
+   signature against Alice's Roster, has `e8` stored already, parses the `Message` payload to its end and
+   takes the attachment Tree `t` it names, stores `e10` as 4 122, and both subscribers get `EntryStored(e10)`.
+   Had the payload not parsed, `e10` would have been faulty content: dropped, P recorded for it, and nothing
+   delivered; Chat is never asked.
+5. **An attachment.** The app opens `t`, which the phone policy did not fetch here; it sends `Fetch(C, t,
+   recursive true, pin false)` and gets operation 1. `OperationChanged` events on a subscription to
+   `operations` show `done` climbing in objects; the final one is `Done` with `{objects 5, bytes 3 145 728}`.
+   On P, `t` and its chunks carry an `Outbound` pin until this fetch was served, so P's "attachments on
+   demand" policy could not have evicted them first. The app reads the ChunkLists and Chunks with `GetObject`
+   and renders them.
+6. **A slow app.** The app's window is minimised and for twenty seconds it reads its pipe slowly while the
+   laptop syncs a large Archive; subscription 2, which has no filter, reaches 256 queued `EntryStored`s of
+   that Archive, so the Host drops the queue, ends subscription 2 and queues `SubscriptionLapsed(dropped 257,
+   lastSeq 4 380)`. When the app catches up it sees the lapse, sends `Subscribe(2, entries, filter{fromSeq
+   4381})` and is current again; its subscription 1 and the connection were never affected, since every frame
+   was accepted within 30 seconds and every `Ping` answered.
 7. **Shutdown.** The Host stops: it sends `Drain(5000)` to the app and to Chat. The app sends `Bye(Done)` at
    once. Chat finishes writing its index, sends `Bye(Done)`, and the Host's `RegisterKind` for kind 2 is
    released. A connection that had not answered after five seconds would have got `Bye(Shutdown)`.

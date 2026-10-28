@@ -215,10 +215,12 @@ and a phone wants to evict a 2 GB attachment without rewriting a database page.
 
 ### 7.3 Pins and eviction
 
-A pin is `{hash, reason}`. Reasons: `Service` (a service put the object or asked to keep it; LOCAL-SPEC.md
-§9.6), `Head` (the entry is a head of a Package the node follows), `Policy`
-(the retention policy of a Package wants it), `User` (the user said keep). An object with no pin is a
-candidate; the evictor removes candidates least-recently-used first when the store exceeds its budget.
+A pin is `{hash, reason, source}`. Five reasons: `Head` (the entry is a head of a Package the node follows, or
+an ancestor needed to verify one), `Policy` (the retention policy of a Package wants it), `User` (the user
+said keep), `Service` (a service put the object or asked to keep it; LOCAL-SPEC.md §9.6) and `Outbound` (an
+entry written on this device references it and no peer has fetched it yet, so that a phone cannot evict the
+only copy of what it just published; LOCAL-SPEC.md §9.4, SPEC.md §11.2). An object with no pin is a candidate;
+the evictor removes candidates least-recently-used first when the store exceeds its budget.
 
 Default policies, overridable per Package and per device:
 
@@ -289,8 +291,10 @@ device sees several heads.
   `(clock, deviceId)` and writes the other as `name.conflict-<deviceId>.<ext>` next to it. No content merge.
   The user resolves by deleting one. This is Syncthing's behaviour and it has survived a decade of use.
 - **Branches** are a label on an Archive head: `main` by default, `beta` or whatever the user names. A
-  branch forks by writing a `Version` whose parent is on another branch and whose label is new. Branch labels
-  live in the manifest's `branches: { name → head hash }` so that a fork is a signed owner action.
+  branch forks by writing a `Version` whose parent is on another branch and whose label is new; any writer's
+  service can do that. The manifest's `branches: { name → head hash }` is the owner's display declaration of
+  a head per branch (SPEC.md §9.5), set through `UpdatePackage` (LOCAL-SPEC.md §6.4); it does not gate forks
+  and does not override the order.
 
 ### 8.4 Who may write
 
@@ -362,8 +366,11 @@ A **service** defines a Package kind and what its entries mean: Sync defines `Ar
 defines `Channel`, `Message` and `Redaction`. A service is written against one contract only: the local
 protocol in its **service role** (§10.4). Through it a service
 
-- registers its kind and the entry kinds it owns, with their payload validation;
-- receives every entry of its kind the Host stores, and every head, manifest and grant change of its
+- registers its kind and the entry kinds it owns, within what the Host's configuration lets that service
+  register; the Host parses the built-in payload layouts (`Version`, `Message`, `Redaction`) itself and
+  stores extension kinds opaquely with the references the writer named, so no service validates payloads for
+  the Host (LOCAL-SPEC.md §9.4);
+- receives every entry of its kind the Host stores, and every listing, head, manifest and grant change of its
   Packages, as pushed events;
 - writes new entries, which the Host signs with the device key, stores and replicates;
 - asks the Host to pin or release objects, and to materialise or read them;
@@ -384,9 +391,14 @@ new objects to be verified and stored. Writes go through the Host, always.
 ### 10.4 The pipe and the local protocol `axiom-mesh-local/1`
 
 The pipe is a named pipe on Windows (`\\.\pipe\axiom-mesh`), a Unix domain socket on Linux
-(`$XDG_RUNTIME_DIR/axiom-mesh.sock`) and macOS, and an in-memory pipe inside the app process on Android and
-iOS. Its security is the operating system's: the pipe ACL or the socket file's mode admits the same OS user
-and nobody else; no token, no port, nothing reachable from the network. The peer's process id is logged.
+(`$XDG_RUNTIME_DIR/axiom-mesh.sock`) and macOS (`$TMPDIR/axiom-mesh.sock`), and an in-memory pipe inside the
+app process on Android and iOS. Its security is the operating system's: the pipe ACL or the socket file's
+mode admits the same OS user and nobody else, and the Host checks the peer's process identity (user, process
+id, executable) behind that and refuses any other user; no password, no port, nothing reachable from the
+network. A process of the same user is that user, as with ssh-agent and Docker Desktop. The requests that
+spend the user key (confirm a pairing, grant, revoke, remove a device, forget a user) are logged with the
+process that sent them and may be confined by configuration to named executables; an out-of-process service
+the Host spawns proves it with a token the Host put into its environment (LOCAL-SPEC.md §2.2, §4.2).
 
 The local protocol is described with ProtoStream like the mesh protocol: typed binary messages, requests
 and responses paired by a correlation id, and subscriptions through which the Host pushes events (a peer
@@ -411,7 +423,7 @@ lists the decisions it made where this section was open.
 |---|---|---|
 | Windows | a Windows service, or a per-user autostart process | `\\.\pipe\axiom-mesh` |
 | Linux | a systemd user unit | `$XDG_RUNTIME_DIR/axiom-mesh.sock` |
-| macOS | a launchd agent | a socket in the user's runtime directory |
+| macOS | a launchd agent | `$TMPDIR/axiom-mesh.sock` |
 | Android | a foreground service inside the app process | in-memory, same process |
 | iOS | inside the app, while the app is open | in-memory, same process |
 
@@ -539,7 +551,8 @@ API. Tables, as `[LdbEntity]` classes:
 | `Packages` | package id | owner, kind, manifest bytes, manifest seq, local policy |
 | `Grants` | (package id, grantee) | rights, seq, signature |
 | `Heads` | (package id, device id) | entry hash, clock |
-| `Entries` | entry hash | package id, device id, clock, parents, payload type, `storeSeq` (unique, increasing, the order entries were stored, for service catch-up; LOCAL-SPEC.md §5.6) — the index; the bytes are an object |
+| `Meta` | key | the store epoch (a random id created with the database, replaced on restore or reset, so clients that keep their own index know store sequences started over; LOCAL-SPEC.md §9.3), the schema version |
+| `Entries` | entry hash | package id, device id, clock, parents, payload type, `storeSeq` (unique, increasing, the order entries were stored, for service catch-up; LOCAL-SPEC.md §5.6), `redacted` (a stored Redaction names it; LOCAL-SPEC.md §5.6) — the index; the bytes are an object |
 | `Objects` | hash | type, size, stored at, last used |
 | `Pins` | (hash, reason, source) | |
 | `Peers` | device id | last addresses, last seen, last roster seq, statistics, `via link` when reached over a Link |
@@ -574,7 +587,7 @@ extent of their grants and no further. A device of your own that is lost is remo
 | An Edge's port reachable from the internet (direct Link) | mutual TLS pinned to rosters before any byte, LWSE admission; the relayed transport opens no inbound port at all and is the default |
 | A hostile or compromised relay | it joins two TLS connections it cannot read; it can delay, drop or count, not read or forge |
 | A compromised Edge | it is a granted device and can leak what it may read, like any granted device; it cannot widen its own crossing list without the owner's signature, and removal from the roster cuts the Link |
-| A malicious local program | the pipe admits the same OS user only, and that user may do everything anyway; the service role is granted by the Host's configuration by name, so a stray program cannot register a kind |
+| A malicious local program | the pipe admits the same OS user only, checked by ACL and by process identity, and that user may do everything anyway; the service role is granted by the Host's configuration by name and bound to kinds, an in-process name is never granted on the pipe and a spawned service proves itself with a token, so a stray program does not register a kind by accident; the user-key requests are logged with their process and may be confined to named executables (LOCAL-SPEC.md §2.2, §13) |
 
 Not defended: traffic analysis on the LAN (who talks to whom and how much), and a granted user leaking what
 they read.

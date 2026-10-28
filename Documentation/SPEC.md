@@ -1,8 +1,12 @@
 # Axiom Mesh Protocol, Version 1 (AMP/1)
 
-**Status:** Draft 2, 2026-10-28, after an adversarial review of draft 1 (36 findings, all addressed or recorded
-in §13). Normative for the first implementation. Where this document and [DESIGN.md](DESIGN.md) differ, this
-document wins; DESIGN.md explains why things are as they are, this document says exactly what they are.
+**Status:** Draft 3, 2026-10-28. Draft 2 followed an adversarial review of draft 1 (36 findings, all addressed
+or recorded in §13); draft 3 adds what the review of the local protocol ([LOCAL-SPEC.md](LOCAL-SPEC.md) draft 2)
+needed from AMP/1: a listed Package's Manifest may be held before following (§1.2, §10.6), a node pushes its
+own user's new Roster (§7.6), a Channel append may name two parents to keep the clock gap rule (§8.6, §9.3,
+§9.4), and the `Outbound` pin reason (§11.2). Normative for the first implementation. Where this document and
+[DESIGN.md](DESIGN.md) differ, this document wins; DESIGN.md explains why things are as they are, this document
+says exactly what they are.
 
 **Abstract.** AMP/1 is the protocol two nodes of an Axiom Mesh speak over one TLS connection: how they
 identify and authenticate each other, how data is named, encoded, signed and verified, how a node learns what
@@ -52,7 +56,8 @@ interpreted as described in RFC 2119 and RFC 8174 when, and only when, they appe
 | **Roster** | A user's signed list of devices (§8.8). |
 | **Grant** | An owner's signed statement that a user may read or write a Package (§8.9). |
 | **Known user** | A user whose id this node trusts: through pairing (§13), or as the owner named by a verified Manifest, or as the grantee named by a verified Grant, of a Package the node follows. |
-| **Followed Package** | A Package the node has chosen to replicate: every Package its own user owns, and granted Packages by device policy or the user's choice. A node ignores `PackageState`s, `Have`s and `PackageChanged`s for Packages it does not follow, except to record that the peer lists them. |
+| **Followed Package** | A Package the node has chosen to replicate: every Package its own user owns, and granted Packages by device policy or the user's choice. A node ignores `PackageState`s, `Have`s and `PackageChanged`s for Packages it does not follow, except to record that the peer lists them and, if it chooses, to hold their Manifest (§10.6). |
+| **Listed Package** | A Package a peer lists to this node (§7.2) that the node does not follow. A node MAY want and hold its Manifest so that a user can decide on it by name and kind; doing so makes nobody a known user, pins nothing and wants nothing else (§10.6). |
 | **Held** | In the bounded buffer of objects received but not yet verified (§10.6): never served, never pinned, never acted on. |
 | **Stored** | In the object store, which only verified objects enter (§11.1). |
 | **Established session** | A session on which both sides have received the other's `Hello` (§6.2). |
@@ -430,8 +435,11 @@ object:     blob(4194304)       the object's bytes, §8
 
 `hash` MUST equal `H(object)`; a mismatch is a violation. A receiver MUST verify the hash and the object's
 well-formedness (§8) before storing, holding or forwarding it, and MUST NOT act on an object before that. An
-`Object` the receiver did not want MAY be dropped, except a Roster after `Hello` or in answer to
-`RosterQuery`, which MUST be processed; a node MUST NOT send unsolicited objects other than those.
+`Object` the receiver did not want MAY be dropped, except a Roster of the sender's own user, which MUST be
+processed whether it comes after `Hello`, in answer to `RosterQuery`, or unsolicited because that user's
+Roster gained a higher `seq` while the session was established (a device was added, renamed or removed); a
+node MUST send its own user's new Roster that way to every established peer, and MUST NOT send unsolicited
+objects other than those.
 
 A sender MUST NOT have more than 8 MiB of `Object` payload queued toward one peer. Past that it continues to
 read and parse frames (so `Ping`, `Pong` and `Cancel` are still processed) but defers answering further
@@ -708,9 +716,13 @@ kind; it interprets payloads only for kinds it has a service for.
 Every Entry carries a Lamport clock. A writing device sets `clock` to one more than the highest `clock` of
 any Entry it holds for the Package, or 0 when it holds none. A device that holds any Entry of the Package
 MUST name as `parents` its own current head (Channel) or the branch leaves it merges (Archive, §9.5); a
-device that holds Entries but has no head of its own names the stored Entry highest in the total order. An
-Entry with empty `parents` is allowed only from a device that holds nothing of the Package. A device whose
-next clock would not be well-formed (§8.6) MUST stop writing to that Package and surface that to the user.
+device that holds Entries but has no head of its own names the stored Entry highest in the total order. When
+the clock so chosen would exceed the own head's clock by more than 2^32, which §8.6 forbids, the device
+names two parents: its own head and the stored Entry highest in the total order, whose clock is within one of
+the new clock; this is the one case in which a Channel Entry has two parents, and it changes nothing in the
+visible order (§9.4). An Entry with empty `parents` is allowed only from a device that holds nothing of the
+Package. A device whose next clock would not be well-formed (§8.6) MUST stop writing to that Package and
+surface that to the user.
 
 A Head is the newest Entry a device wrote; a Package has one Head per writing device. A node learns heads
 from `Packages` and `PackageChanged` and MUST keep, per Package and per writing device, the stored Entry
@@ -722,7 +734,9 @@ the same set of Entries computes the same order.
 ### 9.4 Channels
 
 A Channel's visible order is the total order. There is no merge: a device appends with its own head as the
-single parent. A `Redaction` applies to a `target` of the same `packageId` whenever both are stored,
+single parent, or with its own head and the Entry highest in the total order when the clock gap rule of §9.3
+requires the second; the second parent carries no meaning beyond the clock. A `Redaction` applies to a
+`target` of the same `packageId` whenever both are stored,
 whatever their order; a Redaction whose target is in another Package, or is itself a Redaction, is ignored.
 It is honoured when its `deviceId` equals the target's `deviceId`, or when its `deviceId` is a device of the
 owner; otherwise ignored. A node MUST keep a redacted Entry's bytes (they are history others verify) and MUST
@@ -826,10 +840,15 @@ network's latency across any number of hops; no node polls.
 ### 10.6 Order of verification and the held buffer
 
 A node applies objects in this order, whatever order they arrive: Roster (needs its user to be known) →
-Manifest (self-verifying; needs the Package to be followed) → Grant (needs the Manifest) → Entry (needs
-the writer's Roster and, for a grantee, the Grant) → payload objects (need nothing but their hash). An
-object that arrives before what it needs is held as unverifiable (§8.1) and re-examined when its
-prerequisite arrives.
+Manifest (self-verifying; needs the Package to be followed or listed) → Grant (needs the Manifest and the
+Package to be followed) → Entry (needs the writer's Roster and, for a grantee, the Grant) → payload objects
+(need nothing but their hash). An object that arrives before what it needs is held as unverifiable (§8.1)
+and re-examined when its prerequisite arrives.
+
+For a listed Package (§1.2) a node MAY `Want` and store the Manifest a peer lists, and nothing else, so that
+the user can be shown the Package's name and kind before deciding to follow it. Holding such a Manifest
+makes its owner a known user only once the Package is followed (§8.7), pins nothing (§11.2), and is not
+listed, claimed or served to any peer (§9.7); the Manifest is evictable until the Package is followed.
 
 The held buffer is bounded: at most 8 MiB per session and 64 MiB in total, oldest dropped beyond that, and
 an object that remains unverifiable 10 minutes after its sender disconnected is dropped. A node SHOULD not
@@ -853,7 +872,14 @@ and verified.
 
 A **pin** is a reason to keep an object: `Head` (it is a Head or an ancestor needed to verify one),
 `Policy` (the retention policy of a Package wants it), `User` (the user said keep), `Service` (a local
-service put the object or asked to keep it; see the local protocol). Pins are held per object and reason. An object with no pin is a candidate for eviction.
+service put the object or asked to keep it; see the local protocol), `Outbound` (an Entry written on this
+device references it and no peer has fetched it yet). Pins are held per object and reason. An object with no
+pin is a candidate for eviction.
+
+A node MUST pin with reason `Outbound` every object an Entry it writes references, through Trees and
+ChunkLists recursively, whatever its retention policy, and release that pin per object once it has sent the
+object to at least one peer in answer to a `Want`; a device whose policy keeps little must still not be the
+only holder of something it published. The Manifest of a listed Package (§10.6) carries no pin.
 
 Retention policies, per Package and device class, with these defaults:
 
@@ -864,7 +890,8 @@ Retention policies, per Package and device class, with these defaults:
 
 "On demand" objects are fetched when the user opens them and are evictable afterwards. The Manifest, the
 Rosters of involved users, the Grants and every Entry of a followed Package are always pinned on every
-device class: the history is small and is what makes everything else verifiable.
+device class: the history is small and is what makes everything else verifiable. They carry reason `Head`;
+the pin's source is the Package id, and for a Roster the user id.
 
 ### 11.3 Eviction
 
@@ -924,7 +951,8 @@ never a close.
   revoked user (§9.7). There is no defence against a peer that hides a newer head it holds, beyond asking
   other peers.
 - **Clocks.** A writer can choose a clock up to 2^32 above its parents' to sort last; more is faulty (§8.6).
-  This is visible to peers and bounded by the fact that only roster devices can write.
+  This is visible to peers and bounded by the fact that only roster devices can write. A writer that jumps
+  ahead does not silence the others: the second parent of §9.3 lets every other device keep writing.
 - **Confidentiality** on the wire is TLS. At rest, objects are plaintext in this version; a device is
   trusted with what it may read (§9.7). Encryption at rest is reserved for a later version through object
   tag 8; nothing here precludes it.
