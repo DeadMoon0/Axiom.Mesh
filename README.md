@@ -13,8 +13,10 @@ Built on [ProtoStream](https://github.com/DeadMoon0/Axiom.ProtoStream) (the wire
 ## Status
 
 Design. Nothing is implemented yet. Start with [Documentation/DESIGN.md](Documentation/DESIGN.md) for the
-reasoning and [Documentation/SPEC.md](Documentation/SPEC.md) for the normative protocol (AMP/1); the spikes
-that answer the design's open questions are in [Spikes](Spikes/README.md).
+reasoning, [Documentation/SPEC.md](Documentation/SPEC.md) for the normative mesh protocol (AMP/1) and
+[Documentation/LOCAL-SPEC.md](Documentation/LOCAL-SPEC.md) for the normative local protocol between the Host
+and programs on the same device (`axiom-mesh-local/1`); the spikes that answer the design's open questions are
+in [Spikes](Spikes/README.md).
 
 ## Planned packages
 

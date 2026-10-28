@@ -398,8 +398,10 @@ and granted by the Host's configuration:
 
 Nothing finer than these two roles exists; finer rights belong to the operating system. A JSON-over-HTTP
 gateway for scripts and curl can be added later on a second pipe name as a separate module; it is not part
-of the first release. The local protocol gets its own specification beside [SPEC.md](SPEC.md) (AMP/1): same
-discipline, because once third-party tools speak it, it is harder to change than the mesh protocol.
+of the first release. The local protocol has its own specification beside [SPEC.md](SPEC.md) (AMP/1):
+[LOCAL-SPEC.md](LOCAL-SPEC.md), with the same discipline, because once third-party tools speak it, it is harder
+to change than the mesh protocol. Where this section and LOCAL-SPEC.md differ, LOCAL-SPEC.md wins; its §1.6
+lists the decisions it made where this section was open.
 
 ### 10.5 Platforms and the app
 
