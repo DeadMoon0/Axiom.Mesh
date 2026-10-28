@@ -12,8 +12,9 @@ Built on [ProtoStream](https://github.com/DeadMoon0/Axiom.ProtoStream) (the wire
 
 ## Status
 
-Design. Nothing is implemented yet. Start with [Documentation/DESIGN.md](Documentation/DESIGN.md); the spikes
-that answer its open questions are in [Spikes](Spikes/README.md).
+Design. Nothing is implemented yet. Start with [Documentation/DESIGN.md](Documentation/DESIGN.md) for the
+reasoning and [Documentation/SPEC.md](Documentation/SPEC.md) for the normative protocol (AMP/1); the spikes
+that answer the design's open questions are in [Spikes](Spikes/README.md).
 
 ## Planned packages
 

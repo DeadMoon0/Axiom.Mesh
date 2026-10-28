@@ -398,6 +398,13 @@ Discovery is a leaf Core uses. A convention test enforces the direction.
 
 ## 12. Wire protocol `axiom-mesh/1`
 
+> The normative definition of the wire protocol, the object formats, signing, verification, replication and
+> local data handling is [SPEC.md](SPEC.md) (AMP/1). This section is the sketch the spec grew from and is kept
+> for the reasoning; where the two differ, the spec wins. Known differences: the spec folds `Roster`,
+> `Manifest` and `Grant` into objects fetched by `Want`, replaces `HeadsChanged` with `PackageChanged`, adds
+> `RosterQuery` and `ServiceAccepted`, raises the frame limit to 4 MiB + 4 KiB so a large `Tree` fits, and
+> encodes signatures as 64-byte `r ‖ s` rather than DER.
+
 ### 12.1 Framing and limits
 
 Length-prefixed frames, `UInt32` big-endian, maximum frame 1 MiB + 4 KiB, so one `Chunk` with its header
