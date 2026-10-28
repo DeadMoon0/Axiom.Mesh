@@ -707,7 +707,8 @@ kind; it interprets payloads only for kinds it has a service for.
 
 Every Entry carries a Lamport clock. A writing device sets `clock` to one more than the highest `clock` of
 any Entry it holds for the Package, or 0 when it holds none. A device that holds any Entry of the Package
-MUST name as `parents` its own current head (Channel) or the branch leaves it merges (Archive, §9.5); an
+MUST name as `parents` its own current head (Channel) or the branch leaves it merges (Archive, §9.5); a
+device that holds Entries but has no head of its own names the stored Entry highest in the total order. An
 Entry with empty `parents` is allowed only from a device that holds nothing of the Package. A device whose
 next clock would not be well-formed (§8.6) MUST stop writing to that Package and surface that to the user.
 
@@ -851,8 +852,8 @@ and verified.
 ### 11.2 Pins and retention
 
 A **pin** is a reason to keep an object: `Head` (it is a Head or an ancestor needed to verify one),
-`Policy` (the retention policy of a Package wants it), `User` (the user said keep). Pins are held per object
-and reason. An object with no pin is a candidate for eviction.
+`Policy` (the retention policy of a Package wants it), `User` (the user said keep), `Service` (a local
+service put the object or asked to keep it; see the local protocol). Pins are held per object and reason. An object with no pin is a candidate for eviction.
 
 Retention policies, per Package and device class, with these defaults:
 

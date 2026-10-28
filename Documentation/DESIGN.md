@@ -83,7 +83,8 @@ Package (owned by a User)                   ← entries signed by that user's De
   leaves that device except through a user-driven backup (an encrypted key file with a passphrase).
 - **Device id** = SHA-256 of the device's public key. Created at install.
 - **Roster** = `{ userId, devices: [{deviceId, publicKey, name, addedAt}], seq }`, signed by the user key. Adding a
-  device raises `seq`. A peer accepts a roster only with a higher `seq` than the one it holds. Removing a
+  device raises `seq`; the user does it from the device that holds the user key, through the same short
+  exchange as pairing, in device mode (LOCAL-SPEC.md §6.2). A peer accepts a roster only with a higher `seq` than the one it holds. Removing a
   device is a new roster without it; peers stop talking to that device as soon as the roster reaches them.
 - **Package id** = SHA-256 of `{ ownerUserId, created nonce }`, fixed at creation. The nonce and the owner's
   public key travel in the Manifest, so every receiver checks the derivation and nobody but the owner's key
@@ -214,7 +215,8 @@ and a phone wants to evict a 2 GB attachment without rewriting a database page.
 
 ### 7.3 Pins and eviction
 
-A pin is `{hash, reason}`. Reasons: `Head` (the entry is a head of a Package the node follows), `Policy`
+A pin is `{hash, reason}`. Reasons: `Service` (a service put the object or asked to keep it; LOCAL-SPEC.md
+§9.6), `Head` (the entry is a head of a Package the node follows), `Policy`
 (the retention policy of a Package wants it), `User` (the user said keep). An object with no pin is a
 candidate; the evictor removes candidates least-recently-used first when the store exceeds its budget.
 
@@ -537,7 +539,7 @@ API. Tables, as `[LdbEntity]` classes:
 | `Packages` | package id | owner, kind, manifest bytes, manifest seq, local policy |
 | `Grants` | (package id, grantee) | rights, seq, signature |
 | `Heads` | (package id, device id) | entry hash, clock |
-| `Entries` | entry hash | package id, device id, clock, parents, payload type — the index; the bytes are an object |
+| `Entries` | entry hash | package id, device id, clock, parents, payload type, `storeSeq` (unique, increasing, the order entries were stored, for service catch-up; LOCAL-SPEC.md §5.6) — the index; the bytes are an object |
 | `Objects` | hash | type, size, stored at, last used |
 | `Pins` | (hash, reason, source) | |
 | `Peers` | device id | last addresses, last seen, last roster seq, statistics, `via link` when reached over a Link |
