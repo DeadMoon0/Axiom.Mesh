@@ -513,11 +513,16 @@ they read.
    binds no socket at all, so a node needs *two* servers (one bound, one in memory) and a byte pump between the
    socket and the in-memory port. That workaround is not production: two admission tables and two drains per
    node, an extra copy per direction, admission decided after the TCP connect instead of before it, and the
-   TLS role fixed per port. **Decision:** Mesh does not ship the workaround. LWSE gets, in its next version, a
-   port that binds nothing (`AdoptOnly()`, per port rather than per server) and
-   `LWSEServer.Adopt(port, stream, remote, local)` running the existing serve path, with admission reservable
-   before the dial. The TLS role stays a port option; a node has one inbound and one adopt-only port, both
-   on one server. Phase 1 starts on that LWSE version.
+   TLS role fixed per port. **Decision:** Mesh does not ship the workaround. LWSE got the API instead, on branch
+   `claude/adopt-connections-f8d0e2` (commit `7092996` on top of `v2`, the 0.3.0 line; not merged or released
+   yet): a port is listened on with an `AdoptOnlyPort` handle (`.Listen(Ports.Outbound, p => ...)`) and binds
+   nothing; `LWSEServer.TryReserve(port, remote, timeout, out AdmissionLease)` decides deny list, filters and
+   admission *before* the dial and holds the place as a lease; `LWSEServer.AdoptAsync(lease, stream, local)`
+   serves the stream through the one serve path and completes when the connection ended; refusals are typed
+   `AdoptionRefusedException`s; modules reach the same seam through `ModuleBuildContext.Adoption`
+   (`IConnectionAdoption`). Adopted and accepted connections share one admission table, one observer list and
+   one drain. The TLS role stays a port option; a node has one inbound and one adopt-only port on one server.
+   Phase 1 starts once that branch is merged and released.
    Two findings for the protocol, now in §6.3: TLS 1.3 lets the dialling side finish its handshake before the
    server judged its certificate, so a refused dialler sees its session open and then close; and Windows'
    TLS stack needs the device key in a persisted form, which a PKCS#12 round trip gives.
@@ -644,7 +649,7 @@ the far side may ask for any of it.
 | Phase | Delivers | Done when |
 |---|---|---|
 | 0 | spikes for open questions 1 and 2 (`Spikes/`) | both answered in writing in this document; 1 and the Android half of 2 are, iOS waits for a Mac |
-| 0b | LWSE: adopt-only ports and `Adopt`, released | Mesh builds against that LWSE version with one server per node |
+| 0b | LWSE: adopt-only ports, `TryReserve`, `AdoptAsync` (done on branch `claude/adopt-connections-f8d0e2`), merged and released | Mesh builds against that LWSE version with one server per node |
 | 1 | Discovery, Model, Protocol, Core, Host with the CLI; Sync service; desktop only | two PCs on one LAN pair, share an Archive, sync a folder both ways, survive one being offline, and the honest layers are tested without sockets or disk |
 | 2 | Chat service, management web UI | a Channel between two users with attachments, pushed, ordered the same on both ends |
 | 3 | Avalonia desktop app | the UI does everything the CLI does |
