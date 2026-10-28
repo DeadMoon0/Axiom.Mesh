@@ -21,14 +21,25 @@ The Android SDK and JDK that Visual Studio installs are not on the path; state t
 dotnet build Spikes/Android -c Release -p:AndroidSdkDirectory="C:\Program Files (x86)\Android\android-sdk" -p:JavaSdkDirectory="C:\Program Files\Android\openjdk\jdk-21.0.8"
 ```
 
-Then, with a phone in USB debugging mode or an emulator running:
+The Visual Studio SDK is not writable, so the emulator lives in a second, user-owned SDK at
+`%LOCALAPPDATA%\Android\Sdk` (emulator, platform-tools, platform 35, build-tools 36, system image
+`android-35;google_apis;x86_64`, AVD `mesh35`). Boot it headless, then install, launch and read the log:
 
 ```bash
-"C:\Program Files (x86)\Android\android-sdk\platform-tools\adb.exe" install -r Spikes/Android/bin/Release/net10.0-android/de.axiom.mesh.spike-Signed.apk
+"%LOCALAPPDATA%\Android\Sdk\emulator\emulator.exe" -avd mesh35 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
 ```
 
 ```bash
-"C:\Program Files (x86)\Android\android-sdk\platform-tools\adb.exe" logcat -s AxiomMesh
+"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r Spikes/Android/bin/Release/net10.0-android/de.axiom.mesh.spike-Signed.apk
 ```
 
-The app shows the same log on screen and ends with one `PASS` or `FAIL` line per question.
+```bash
+"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" shell monkey -p de.axiom.mesh.spike -c android.intent.category.LAUNCHER 1
+```
+
+```bash
+"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" logcat -s AxiomMesh
+```
+
+The app shows the same log on screen and ends with one `PASS` or `FAIL` line per question. A phone in USB
+debugging mode works the same way. Result on 2026-10-28, Android 15 emulator: every check passes.

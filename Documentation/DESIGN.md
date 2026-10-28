@@ -521,13 +521,16 @@ they read.
    Two findings for the protocol, now in §6.3: TLS 1.3 lets the dialling side finish its handshake before the
    server judged its certificate, so a refused dialler sees its session open and then close; and Windows'
    TLS stack needs the device key in a persisted form, which a PKCS#12 round trip gives.
-2. **LWSE and LDB on Android and iOS.** *Half answered on 2026-10-28.* LWSE Core, ProtoStream and LDB (Core,
-   Storage, Entity with its source generator) build for `net10.0-android` with full trimming and the AOT
-   profile without one trimmer warning; the APK carries the Android native TLS and crypto libraries, so client
-   certificates go through Android's own TLS stack. Not yet **run**: this machine has no emulator image and no
-   phone attached. Still to do: run `Spikes/Android` on a device (both scenarios, written for that), then the
-   same on iOS. One LDB fact is already settled and now in §13: on macOS, iOS and tvOS LDB has no byte-range
-   locks and allows one process per database directory, which is the Mesh model anyway (§10.4).
+2. **LWSE and LDB on Android and iOS.** *Android answered on 2026-10-28; iOS open.* LWSE Core, ProtoStream
+   and LDB (Core, Storage, Entity with its source generator) build for `net10.0-android` with full trimming
+   and the AOT profile without one trimmer warning, and `Spikes/Android` passes every check on an Android 15
+   emulator (x86_64, API 35): the same adoption scenario as on Windows, with mutual TLS 1.3 through Android's
+   own TLS stack (client certificates included, suite `TLS_AES_128_GCM_SHA256` where Windows picked
+   `TLS_AES_256_GCM_SHA384`), admission, observers and drain, and an LDB file database in the app's files
+   directory written and read back. Nothing platform-specific was needed beyond the `INTERNET` permission.
+   Still to do: the same on iOS, which needs a Mac. One LDB fact is already settled and now in §13: on macOS,
+   iOS and tvOS LDB has no byte-range locks and allows one process per database directory, which is the Mesh
+   model anyway (§10.4).
 3. **Ed25519.** Preferable to ECDSA for signatures; waits for the BCL or a decision to take a dependency.
 4. **Encryption at rest** (§7.4): whether the first release should already seal objects. Current answer: no,
    but the store addresses bytes so that it can.
@@ -640,7 +643,7 @@ the far side may ask for any of it.
 
 | Phase | Delivers | Done when |
 |---|---|---|
-| 0 | spikes for open questions 1 and 2 (`Spikes/`) | both answered in writing in this document; 1 is, 2 waits for a run on a phone and on iOS |
+| 0 | spikes for open questions 1 and 2 (`Spikes/`) | both answered in writing in this document; 1 and the Android half of 2 are, iOS waits for a Mac |
 | 0b | LWSE: adopt-only ports and `Adopt`, released | Mesh builds against that LWSE version with one server per node |
 | 1 | Discovery, Model, Protocol, Core, Host with the CLI; Sync service; desktop only | two PCs on one LAN pair, share an Archive, sync a folder both ways, survive one being offline, and the honest layers are tested without sockets or disk |
 | 2 | Chat service, management web UI | a Channel between two users with attachments, pushed, ordered the same on both ends |
