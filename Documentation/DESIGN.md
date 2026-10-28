@@ -171,8 +171,15 @@ Validation on both sides:
 2. The roster entry must not be removed.
 3. The device id in the certificate's subject must equal SHA-256 of the key.
 
-A failing check closes the connection before any protocol byte. Pairing (§5.2) is the one flow that opens a
-connection to a key not yet known; it runs on the same port through a separate ALPN `axiom-mesh-pair/1` with
+A failing check closes the connection before any protocol byte on the *accepting* side. The dialling side is
+different: TLS 1.3 lets a client finish its handshake before the server has judged the client certificate, so
+a refused dialler sees its session open and then close, never a handshake error. The protocol therefore
+treats a session as established only once the peer's `Hello` arrived; a close before that is counted and
+rate-limited as a refusal, and nothing is sent before `Hello` except `Hello`. Implementation note for Windows:
+its TLS stack cannot use a key that lives only in memory, so a freshly created device certificate goes
+through a PKCS#12 round trip before it is used (verified in `Spikes/OutboundAdoption`).
+
+Pairing (§5.2) is the one flow that opens a connection to a key not yet known; it runs on the same port through a separate ALPN `axiom-mesh-pair/1` with
 its own short-lived handler and no access to the store.
 
 ## 7. Object store
@@ -466,7 +473,10 @@ API. Tables, as `[LdbEntity]` classes:
 | `ChatIndex` | (package id, clock, device id) | entry hash, author, preview — Chat's own table, owned by the Chat service |
 
 Rules: a table belongs to exactly one module; another module reads it through that module's exposure, never
-directly. Migrations use `Axiom.LDB.Migration` and ship with the version that needs them.
+directly. Migrations use `Axiom.LDB.Migration` and ship with the version that needs them. Exactly one process
+opens the database: the host. On Windows, Linux and Android LDB would allow more through byte-range locks; on
+macOS, iOS and tvOS it has none and admits one process per directory. The app never opens it (§10.5), so the
+rule costs nothing and the behaviour is the same on every platform.
 
 ## 14. Security considerations
 
@@ -494,13 +504,30 @@ they read.
 
 ## 15. Open questions
 
-1. **Outbound connections in LWSE.** LWSE Core admits inbound connections. A mesh node also dials. ProtoStream's
-   `Connection.FromStream` covers the wire, but admission, observers and drain should see outbound sessions
-   too. Check whether Core can adopt an externally opened stream; if not, that is a Core socket to propose
-   in LWSE, not something to work around in Mesh.
-2. **LWSE and LDB on Android and iOS.** Both are plain .NET 8/10 libraries without host dependencies and
-   should run under Avalonia on both platforms, but neither has been run there. Spike before the App exists:
-   a node on a phone that pairs with a desktop and syncs one Channel.
+1. **Outbound connections in LWSE.** *Answered by `Spikes/OutboundAdoption` on 2026-10-28, against LWSE 0.2.0.*
+   Core's internal serve path takes any stream, however it arrived, and the spike proves it end to end: a
+   dialled socket pumped into an in-memory port got admission (a second dial to the same peer was refused by
+   `PerClient`), the pinned TLS layer in client role (TLS 1.3, mutual, ALPN), the protocol handler, every
+   observer event (accepted, session opened, retired by drain, closed) and drain. Eight checks pass.
+   What 0.2.0 lacks is the public API: `ConnectInMemory` exists only on a server described `InMemory()`, which
+   binds no socket at all, so a node needs *two* servers (one bound, one in memory) and a byte pump between the
+   socket and the in-memory port. That workaround is not production: two admission tables and two drains per
+   node, an extra copy per direction, admission decided after the TCP connect instead of before it, and the
+   TLS role fixed per port. **Decision:** Mesh does not ship the workaround. LWSE gets, in its next version, a
+   port that binds nothing (`AdoptOnly()`, per port rather than per server) and
+   `LWSEServer.Adopt(port, stream, remote, local)` running the existing serve path, with admission reservable
+   before the dial. The TLS role stays a port option; a node has one inbound and one adopt-only port, both
+   on one server. Phase 1 starts on that LWSE version.
+   Two findings for the protocol, now in §6.3: TLS 1.3 lets the dialling side finish its handshake before the
+   server judged its certificate, so a refused dialler sees its session open and then close; and Windows'
+   TLS stack needs the device key in a persisted form, which a PKCS#12 round trip gives.
+2. **LWSE and LDB on Android and iOS.** *Half answered on 2026-10-28.* LWSE Core, ProtoStream and LDB (Core,
+   Storage, Entity with its source generator) build for `net10.0-android` with full trimming and the AOT
+   profile without one trimmer warning; the APK carries the Android native TLS and crypto libraries, so client
+   certificates go through Android's own TLS stack. Not yet **run**: this machine has no emulator image and no
+   phone attached. Still to do: run `Spikes/Android` on a device (both scenarios, written for that), then the
+   same on iOS. One LDB fact is already settled and now in §13: on macOS, iOS and tvOS LDB has no byte-range
+   locks and allows one process per database directory, which is the Mesh model anyway (§10.4).
 3. **Ed25519.** Preferable to ECDSA for signatures; waits for the BCL or a decision to take a dependency.
 4. **Encryption at rest** (§7.4): whether the first release should already seal objects. Current answer: no,
    but the store addresses bytes so that it can.
@@ -613,7 +640,8 @@ the far side may ask for any of it.
 
 | Phase | Delivers | Done when |
 |---|---|---|
-| 0 | spikes for open questions 1 and 2 | both answered in writing in this document |
+| 0 | spikes for open questions 1 and 2 (`Spikes/`) | both answered in writing in this document; 1 is, 2 waits for a run on a phone and on iOS |
+| 0b | LWSE: adopt-only ports and `Adopt`, released | Mesh builds against that LWSE version with one server per node |
 | 1 | Discovery, Model, Protocol, Core, Host with the CLI; Sync service; desktop only | two PCs on one LAN pair, share an Archive, sync a folder both ways, survive one being offline, and the honest layers are tested without sockets or disk |
 | 2 | Chat service, management web UI | a Channel between two users with attachments, pushed, ordered the same on both ends |
 | 3 | Avalonia desktop app | the UI does everything the CLI does |
