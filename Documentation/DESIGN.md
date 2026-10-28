@@ -22,7 +22,8 @@ on top: file synchronisation and chat first, anything local later. It is part of
 ## 2. Constraints
 
 - .NET 8 and .NET 10, trimmable and Native AOT compatible, like every Axiom package. Native AOT means no plugin
-  assemblies loaded at runtime: first-party services are compiled in, third parties use the local API (§10.4).
+  assemblies loaded at runtime: every service speaks the local protocol (§10.3); first-party ones are hosted
+  in-process, any other runs as its own program on the pipe.
 - Built on the Axiom family: [ProtoStream](https://github.com/DeadMoon0/Axiom.ProtoStream) owns the wire,
   [LWSE](https://github.com/DeadMoon0/LWSE) is the host (ports, transports, admission, modules),
   [LDB](https://github.com/DeadMoon0/LDB) holds state. No other runtime dependency.
@@ -39,8 +40,8 @@ on top: file synchronisation and chat first, anything local later. It is part of
 ## 3. Context and scope
 
 In scope: discovery on the LAN, pairing between users, authenticated encrypted transport, the object store,
-the Package model, replication, retention, the two first services (Sync, Chat), a management API and UI, and
-apps for desktop and mobile.
+the Package model, replication, retention, the two first services (Sync, Chat), the local protocol over the
+pipe, and the app for desktop and mobile with its service views and mesh analytics.
 
 Out of scope for the first releases: Edges between two meshes (designed in §16, not built), encryption of
 Package content at rest (designed for, not built; §7.4), three-way content merges, multi-parent history beyond merge entries, running as a system
@@ -84,8 +85,9 @@ Package (owned by a User)                   ← entries signed by that user's De
 - **Roster** = `{ userId, devices: [{deviceId, publicKey, name, addedAt}], seq }`, signed by the user key. Adding a
   device raises `seq`. A peer accepts a roster only with a higher `seq` than the one it holds. Removing a
   device is a new roster without it; peers stop talking to that device as soon as the roster reaches them.
-- **Package id** = SHA-256 of `{ ownerUserId, created nonce }`, fixed at creation. Names are metadata and may
-  change; ids never do.
+- **Package id** = SHA-256 of `{ ownerUserId, created nonce }`, fixed at creation. The nonce and the owner's
+  public key travel in the Manifest, so every receiver checks the derivation and nobody but the owner's key
+  can produce a Manifest for an id. Names are metadata and may change; ids never do.
 
 A user's own devices therefore trust each other through the roster, not through pairwise pairing. Pairing is
 only between **users**.
@@ -96,8 +98,9 @@ only between **users**.
    device she is on.
 2. Bob's device connects, both sides see a short authentication string derived from both public keys, and both
    confirm it matches on screen. A hostile LAN cannot substitute a key without the strings differing.
-3. Both devices store the other user's public key as **known**. Each user's roster then flows over any
-   connection, so every device of Alice knows every device of Bob.
+3. Both devices store the other user's public key and current roster as **known**; the roster must travel
+   with the key, because without it no device of the other user would pass the TLS check. Later rosters
+   then flow over any connection, so every device of Alice knows every device of Bob.
 
 Unknown users are refused at the TLS handshake (§6.3). There is no "open" mode where strangers connect; the
 closest thing is a user sharing their QR code widely.
@@ -118,7 +121,7 @@ they may not read.
 |---|---|---|
 | "This peer is device D of user U" | TLS client certificate pinned to the roster | none |
 | "This object is X" | SHA-256 of the bytes | none |
-| "This entry was written by U" | signature against U's roster | none |
+| "This entry was written by U" | signature against U's roster; U's key reaches the node in the Manifest, Grant or Roster, so a reader need not have paired with every writer | none |
 | "This is the newest head" | `seq` and Lamport clock, newest wins | none for correctness; a peer can withhold, not forge |
 | "U may read package P" | Grant signed by the owner | none |
 
@@ -302,8 +305,9 @@ The protocol (§12) is the same for every kind. A node:
 3. Walks from a new head down the parents it lacks, wanting each Entry, then the Entry's payload objects as
    the retention policy says (a desktop wants the whole tree and all chunks; a phone wants the tree and
    stops).
-4. Pushes `HeadsChanged` to every connected peer the moment a local write lands. Chat latency is network
-   latency; nobody polls.
+4. Pushes a change notice to every connected peer that may see the Package the moment its listable state
+   changes, from a local write or from an object it received, except back to the peer it came from. A change
+   therefore crosses any number of hops at network latency; nobody polls.
 
 Wants are answered from whichever connected peer said it has the object (`Have`), spread across peers by
 remaining capacity. A node that has nothing of a Package yet gets the entries from whoever has them and the
@@ -318,61 +322,116 @@ Honest layers at the bottom, one dishonest runtime at the top, in the ProtoStrea
 | Layer | Honest? | Contents |
 |---|---|---|
 | Model | yes | hashing, object encoding, Entry and manifest signing and verification, DAG walk, order, merge rules |
-| Protocol | yes | the ProtoStream description of `axiom-mesh/1`: messages, state machine, limits |
+| Protocol | yes | the ProtoStream descriptions of `axiom-mesh/1` (peers) and `axiom-mesh-local/1` (the pipe): messages, state machines, limits |
 | Store | mostly | the content-addressed store: pure given a storage environment, which the test suite provides in memory |
 | Discovery | no | mDNS, UDP, static |
-| Node | no | LWSE server, MeshTls, peer table, replication driver, pin evictor, the management API |
-| Services | mixed | Sync and Chat: honest rules (what a Version means, how to order messages) on top, watchers and UI adapters below |
+| Host | no | LWSE server, MeshTls, the pipe, peer table, replication driver, pin evictor, service supervision |
+| Services | mixed | Sync and Chat: honest rules (what a Version means, how to order messages) on top, watchers and pipe clients below |
 
 Tests for the honest layers need no sockets, no disk and no clock: ProtoStream's `CodecHarness` and
 `DefinitionAssert` for the protocol, in-memory LDB for the store, hand-built DAGs for the model.
 
-### 10.2 Core is an LWSE application
+### 10.2 The Host owns everything
 
-Core is the base: identity and keys, roster, discovery, the mesh port with `MeshTls`, the entry protocol,
-admission, the peer table, the Package registry, grants, the object store and pins, and the management API.
-Core knows that a Package has entries with parents, clocks and signatures. Core does not know what an entry
-means.
+`Axiom.Mesh.Host` is one process, the daemon, and the only process that holds anything: the keys, the
+rosters, discovery, every mesh connection, the object store, the database, pins and replication. Nothing
+else touches any of it. Every other program on the device, the app and the CLI included, is a client of the
+Host over the **pipe** (§10.4). This is the Docker model: one engine, one socket, many clients.
 
-Core is an LWSE server with:
+The Host knows that a Package has entries with parents, clocks and signatures. It does not know what an
+entry means; that is a service's business (§10.3).
 
-- one port (41810) stacked `Through(MeshTls)` with the mesh protocol as its entry protocol;
-- one loopback port (41812) with `Axiom.LWSE.Http` for the management API and the web UI;
-- Core's own modules offering the sockets services fill.
+The Host is one LWSE server with three ports, all served through Core's one serve path:
 
-### 10.3 Services are LWSE modules
+- the mesh port (41810), a bound port stacked `Through(MeshTls)` in server role with `axiom-mesh/1` as its
+  entry protocol;
+- the outbound port, an adopt-only port with `MeshTls` in client role, the same entry protocol: every peer
+  the Host dials is reserved with `TryReserve` and served with `AdoptAsync` (§15.1);
+- the local port, an adopt-only port with `axiom-mesh-local/1` as its entry protocol and no TLS: every pipe
+  connection the Host accepts is adopted into it, and every in-process service connects to it through an
+  in-memory stream pair adopted the same way.
 
-A service is a module that:
+Admission, observers, retire and drain therefore cover peers, dialled peers, pipe clients and in-process
+services alike, in one table.
 
-- registers a **kind** and the entry payload codecs for it (a contribution to Core's `PackageKind` socket);
-- contributes rules Core calls: validate a payload, pick the objects a payload references (so replication
-  and pinning can follow them), merge two heads (Archive) or not (Channel);
-- reads Core's exposures: the store, the Package registry, peer events, head-changed events;
-- optionally contributes endpoints to the management API and a sub-protocol for live traffic between two
-  instances of the same service (§12.5), for things that are not entries, such as typing indicators or a
-  transfer progress stream.
+### 10.3 Services speak the local protocol
 
-LWSE's module lifecycle (`Register`, `Build`, `Link`, start, stop, `Release`) is the service lifecycle;
-there is no second one. Refusals at build stop the node before a port is bound, so a misconfigured service
-is a startup error with a message, never a runtime surprise.
+A **service** defines a Package kind and what its entries mean: Sync defines `Archive` and `Version`, Chat
+defines `Channel`, `Message` and `Redaction`. A service is written against one contract only: the local
+protocol in its **service role** (§10.4). Through it a service
 
-### 10.4 Management and the local API
+- registers its kind and the entry kinds it owns, with their payload validation;
+- receives every entry of its kind the Host stores, and every head, manifest and grant change of its
+  Packages, as pushed events;
+- writes new entries, which the Host signs with the device key, stores and replicates;
+- asks the Host to pin or release objects, and to materialise or read them;
+- publishes what the user-facing clients may ask it (a Channel's rendered timeline, a folder's sync state),
+  which the Host relays to user clients as that service's namespace of the local protocol.
 
-`Axiom.Mesh.Host` is the daemon: Core plus the first-party services, configured from one file, running as a
-Windows service, a systemd unit or an Android foreground service. On iOS the host runs inside the app while
-the app is open.
+Where a service runs is a deployment choice, not a code choice. In the first release Sync and Chat are
+hosted **in-process**: compiled into the Host, connected to the local port over an in-memory stream pair,
+started and stopped by the Host's LWSE service lifecycle. The same binary contract lets a service run
+**out-of-process** later, as its own program connecting to the pipe, in any language, with crash containment
+and separate updates; the Host then supervises it. Native AOT rules out loading assemblies at run time, so
+there is no third option, and no service ever links against the Host's internals.
 
-The loopback HTTP port is the one way in for anything not compiled into the host: the Avalonia app, a CLI,
-a script, a third-party local tool. It is authenticated by a token in a file only the user can read. It
-exposes: identity and pairing, devices, known users, Packages and grants, heads and history, pins and
-policies, peers and transfers, and per-service endpoints. The web UI is a static front-end on the same port.
-`Axiom.LWSE.ApiDocs` documents it for free.
+Bulk data does not cross the pipe twice. Verified objects are immutable files under their hash (§11), so a
+service may read them directly from the store directory, read-only; the pipe carries control, entries and
+new objects to be verified and stored. Writes go through the Host, always.
 
-### 10.5 Apps
+### 10.4 The pipe and the local protocol `axiom-mesh-local/1`
 
-`Axiom.Mesh.App` is one Avalonia code base for Windows, Linux, macOS, Android and iOS. On desktop it talks to
-the host daemon over the loopback API, so closing the window keeps the node serving. On mobile it embeds the
-host. The app is a client of the API only: no app code touches the store, the wire or a key.
+The pipe is a named pipe on Windows (`\\.\pipe\axiom-mesh`), a Unix domain socket on Linux
+(`$XDG_RUNTIME_DIR/axiom-mesh.sock`) and macOS, and an in-memory pipe inside the app process on Android and
+iOS. Its security is the operating system's: the pipe ACL or the socket file's mode admits the same OS user
+and nobody else; no token, no port, nothing reachable from the network. The peer's process id is logged.
+
+The local protocol is described with ProtoStream like the mesh protocol: typed binary messages, requests
+and responses paired by a correlation id, and subscriptions through which the Host pushes events (a peer
+came up, a message arrived, a sync progressed) so no client polls. It has two roles, stated in its `Hello`
+and granted by the Host's configuration:
+
+| Role | Who | May |
+|---|---|---|
+| **user** | the app, the CLI, a script, any local tool | everything the user may do: identity and pairing, devices, known users, Packages and grants, history, pins and policies, peers and transfers, telemetry (§10.5), and each service's namespace |
+| **service** | Sync, Chat, a future service | §10.3; a name the Host's configuration lists as a service; in-process services are trusted by construction |
+
+Nothing finer than these two roles exists; finer rights belong to the operating system. A JSON-over-HTTP
+gateway for scripts and curl can be added later on a second pipe name as a separate module; it is not part
+of the first release. The local protocol gets its own specification beside [SPEC.md](SPEC.md) (AMP/1): same
+discipline, because once third-party tools speak it, it is harder to change than the mesh protocol.
+
+### 10.5 Platforms and the app
+
+| Platform | The Host runs as | The pipe |
+|---|---|---|
+| Windows | a Windows service, or a per-user autostart process | `\\.\pipe\axiom-mesh` |
+| Linux | a systemd user unit | `$XDG_RUNTIME_DIR/axiom-mesh.sock` |
+| macOS | a launchd agent | a socket in the user's runtime directory |
+| Android | a foreground service inside the app process | in-memory, same process |
+| iOS | inside the app, while the app is open | in-memory, same process |
+
+`Axiom.Mesh.App` is one Avalonia code base for all five. It is a user client of the local protocol and
+nothing else: no app code touches the store, the wire or a key, and on desktop closing the window keeps the
+node serving. The in-process pipe on mobile means the app speaks exactly the protocol the desktop app
+speaks; only the transport differs.
+
+**Service views.** The app is not a thin management console: each service gets a full user interface of its
+own inside the app, as rich as the service needs (a chat timeline with attachments and replies, a folder
+view with per-file sync state and conflicts). A service view talks only to its service's namespace of the
+local protocol, never to the service itself, so the view does not care whether the service runs in-process
+or out-of-process. First-party service views are compiled into the app; how a third-party service brings a
+view (a separate app of its own, or a declarative view description over the protocol) is decided when the
+first one exists. Specifics of the UI come later; the rule that holds now is that every pixel the app draws
+comes from the local protocol, so a CLI could show the same facts.
+
+**Mesh analytics.** The app shows what the mesh is doing, from a telemetry namespace of the local protocol:
+peers and their sessions (direction, TLS suite, age, last seen, device and user), bytes and objects per peer,
+Package and direction, replication state per Package (heads known against heads held, objects wanted
+against held), store size against budget and what pins hold it, admission refusals and violations by peer,
+discovery events, and the Edge crossing log (§16.4). The Host keeps these as time series in its database
+(§13) at one-minute resolution for seven days and as totals for ever, and pushes live updates over a
+subscription; the app renders history and live state from the same feed. Nothing leaves the device.
 
 ## 11. Repository layout and packages
 
@@ -380,21 +439,25 @@ host. The app is a client of the API only: no app code touches the store, the wi
 Axiom.Mesh.Discovery/        mDNS, UDP broadcast, static peers; no dependency on the rest
 Axiom.Mesh.Model/            objects, entries, signing, DAG, order and merge rules (honest)
 Axiom.Mesh.Protocol/         the ProtoStream description of axiom-mesh/1 and its messages (honest)
-Axiom.Mesh.Core/             store, registry, roster, grants, MeshTls, replication, pins, Core modules
-Axiom.Mesh.Host/             the daemon: configuration, management API, web UI, platform services
-Services/Axiom.Mesh.Sync/    the Archive kind and the folder watcher
-Services/Axiom.Mesh.Chat/    the Channel kind
+Axiom.Mesh.Local/            the ProtoStream description of axiom-mesh-local/1, both roles (honest);
+                             the one package a client or a service references
+Axiom.Mesh.Core/             store, registry, roster, grants, MeshTls, replication, pins, the local port
+Axiom.Mesh.Host/             the daemon: configuration, the pipe per platform, service supervision
+Services/Axiom.Mesh.Sync/    the Archive kind and the folder watcher; a client of Axiom.Mesh.Local
+Services/Axiom.Mesh.Chat/    the Channel kind; a client of Axiom.Mesh.Local
 Axiom.Mesh.Edge/             the Edge role: links, transports, crossing lists, the crossing log (later)
-Apps/Axiom.Mesh.App/         Avalonia, all platforms
-Apps/Axiom.Mesh.Cli/         a command line over the local API
+Apps/Axiom.Mesh.App/         Avalonia, all platforms; a user client of Axiom.Mesh.Local
+Apps/Axiom.Mesh.Cli/         a command line; a user client of Axiom.Mesh.Local
 Apps/Axiom.Mesh.Relay/       the relay server: joins two Edges' outbound connections (later)
-Axiom.Mesh.Testing/          in-memory mesh of N nodes, fake clock, fake discovery
+Axiom.Mesh.Testing/          in-memory mesh of N nodes, fake clock, fake discovery, an in-memory pipe
 UnitTests/                   one test project per project, same layout
 Documentation/, Samples/, Benchmarks/
 ```
 
-Dependencies point downwards only: Apps → Host → Services → Core → Protocol, Model → (ProtoStream, LDB).
-Discovery is a leaf Core uses. A convention test enforces the direction.
+Dependencies point downwards only: Host → Core → Protocol, Model → (ProtoStream, LDB); Services and Apps →
+Local → (ProtoStream) and nothing of Core or Host. Discovery is a leaf Core uses. The Host references the
+services only to start them in-process; a convention test enforces that no service and no app references
+Core, Host or Model.
 
 ## 12. Wire protocol `axiom-mesh/1`
 
@@ -402,8 +465,9 @@ Discovery is a leaf Core uses. A convention test enforces the direction.
 > local data handling is [SPEC.md](SPEC.md) (AMP/1). This section is the sketch the spec grew from and is kept
 > for the reasoning; where the two differ, the spec wins. Known differences: the spec folds `Roster`,
 > `Manifest` and `Grant` into objects fetched by `Want`, replaces `HeadsChanged` with `PackageChanged`, adds
-> `RosterQuery` and `ServiceAccepted`, raises the frame limit to 4 MiB + 4 KiB so a large `Tree` fits, and
-> encodes signatures as 64-byte `r ‖ s` rather than DER.
+> `RosterQuery`, `RosterNotFound` and `ServiceAccepted`, raises the frame limit to 4 MiB + 4 KiB so a large
+> `Tree` fits, encodes signatures as 64-byte low-s `r ‖ s` rather than DER, carries user keys and the Package
+> nonce inside Manifests, Grants and Rosters, and caps `Want` at 64 hashes and `Packages` at 64 per page.
 
 ### 12.1 Framing and limits
 
@@ -478,6 +542,8 @@ API. Tables, as `[LdbEntity]` classes:
 | `Links` | link id | the other Edge's device id, transport, state, crossing lists per direction — the Edge module's table (§16) |
 | `Crossings` | (link id, package id, direction, day) | objects and bytes that crossed — the audit the management UI shows |
 | `ChatIndex` | (package id, clock, device id) | entry hash, author, preview — Chat's own table, owned by the Chat service |
+| `Telemetry` | (series, key, minute) | counters and gauges for the analytics of §10.5: per peer, Package and direction; one-minute resolution for seven days, then rolled into `TelemetryTotals` |
+| `TelemetryTotals` | (series, key) | lifetime totals |
 
 Rules: a table belongs to exactly one module; another module reads it through that module's exposure, never
 directly. Migrations use `Axiom.LDB.Migration` and ship with the version that needs them. Exactly one process
@@ -504,7 +570,7 @@ extent of their grants and no further. A device of your own that is lost is remo
 | An Edge's port reachable from the internet (direct Link) | mutual TLS pinned to rosters before any byte, LWSE admission; the relayed transport opens no inbound port at all and is the default |
 | A hostile or compromised relay | it joins two TLS connections it cannot read; it can delay, drop or count, not read or forge |
 | A compromised Edge | it is a granted device and can leak what it may read, like any granted device; it cannot widen its own crossing list without the owner's signature, and removal from the roster cuts the Link |
-| A malicious service module | none; a module is compiled in. Third-party code lives behind the local API and its token |
+| A malicious local program | the pipe admits the same OS user only, and that user may do everything anyway; the service role is granted by the Host's configuration by name, so a stray program cannot register a kind |
 
 Not defended: traffic analysis on the LAN (who talks to whom and how much), and a granted user leaking what
 they read.
@@ -594,7 +660,7 @@ Both transports are a dial; the Link is then an outbound peer connection in the 
 ### 16.3 The crossing list
 
 Each Edge holds, per Link and per direction, a list of what may cross. The list is written by the Edge's
-owner through the management API, signed by the owner's user key and stored on the Edge; it never
+owner through the local protocol, signed by the owner's user key and stored on the Edge; it never
 replicates and the other Edge never sees it. Entries:
 
 | Entry | Lets cross |
@@ -658,8 +724,8 @@ the far side may ask for any of it.
 | 0 | spikes for open questions 1 and 2 (`Spikes/`) | both answered in writing in this document; 1 and the Android half of 2 are, iOS waits for a Mac |
 | 0b | LWSE: adopt-only ports, `TryReserve`, `AdoptAsync` (done on branch `claude/adopt-connections-f8d0e2`), merged and released | Mesh builds against that LWSE version with one server per node |
 | 1 | Discovery, Model, Protocol, Core, Host with the CLI; Sync service; desktop only | two PCs on one LAN pair, share an Archive, sync a folder both ways, survive one being offline, and the honest layers are tested without sockets or disk |
-| 2 | Chat service, management web UI | a Channel between two users with attachments, pushed, ordered the same on both ends |
-| 3 | Avalonia desktop app | the UI does everything the CLI does |
+| 2 | Chat service | a Channel between two users with attachments, pushed, ordered the same on both ends, shown by the CLI |
+| 3 | Avalonia desktop app: management, the Sync and Chat service views, mesh analytics | the app does everything the CLI does, and shows the mesh's state live and over the last week |
 | 4 | Android, then iOS, with the phone retention policy | a phone pairs by QR code, chats and opens the newest version of an Archive |
 | 5 | Edges (§16): the Edge module with the direct transport and crossing lists, then the Relay and the relayed transport | two meshes exchange one listed Package in one direction and nothing else, with the log proving it |
 | later | encryption at rest, FastCDC, more services | |
