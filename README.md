@@ -26,3 +26,5 @@ Design. Nothing is implemented yet. Start with [Documentation/DESIGN.md](Documen
 | `Axiom.Mesh.Sync` | File and folder synchronisation as a service. |
 | `Axiom.Mesh.Chat` | Chat with attachments as a service. |
 | `Axiom.Mesh.App` | The Avalonia app for desktop and mobile. |
+| `Axiom.Mesh.Edge` | Later: linking two meshes through a node that carries only what its owner listed. |
+| `Axiom.Mesh.Relay` | Later: a relay server for Edges that cannot reach each other directly. |

@@ -30,8 +30,9 @@ on top: file synchronisation and chat first, anything local later. It is part of
   signatures and for the TLS certificates, TLS 1.3 via `SslStream`. One key type serves both signing and
   transport, and all of it runs on Windows, Linux, macOS, Android and iOS without a native library. (Ed25519
   would be the nicer signature scheme; it is not in the BCL and would cost a dependency. Revisit when it is.)
-- Local network only. No NAT traversal, no relays, no internet rendezvous. Nodes that cannot see each other's
-  multicast do not find each other; that is accepted.
+- Local network first. Nodes find each other only on their own network. Two networks meet only through a
+  configured **Edge** (§16), and only what the Edge's owner listed crosses. No NAT traversal, no hole punching,
+  no central rendezvous: an Edge either has a reachable address or both Edges dial a relay the user runs.
 - The public API follows the Axiom conventions: no optional parameters, no positional records without
   `[ClosedShape]`, no bare numbers, honest layers below one dishonest runtime (see §10).
 
@@ -41,8 +42,8 @@ In scope: discovery on the LAN, pairing between users, authenticated encrypted t
 the Package model, replication, retention, the two first services (Sync, Chat), a management API and UI, and
 apps for desktop and mobile.
 
-Out of scope for the first releases: WAN connectivity, encryption of Package content at rest (designed for,
-not built; §7.4), three-way content merges, multi-parent history beyond merge entries, running as a system
+Out of scope for the first releases: Edges between two meshes (designed in §16, not built), encryption of
+Package content at rest (designed for, not built; §7.4), three-way content merges, multi-parent history beyond merge entries, running as a system
 service on iOS (the platform does not allow it).
 
 ## 4. Terms
@@ -61,6 +62,11 @@ service on iOS (the platform does not allow it).
 | **Head** | The latest entry a device has written to a Package. A Package has one head per writing device. |
 | **Pin** | The local decision to keep an object. Unpinned objects may be evicted and fetched again on demand. |
 | **Service** | A module on top of Core that defines a kind and the user-facing behaviour for it. |
+| **Mesh** | The nodes that discovery reaches: one network. A mesh has no identity and no configuration; it is where you are. |
+| **Edge** | A node that also holds a Link to an Edge in another mesh and carries listed Packages across it. |
+| **Link** | A peer connection between two Edges over a transport that is not the LAN: a direct address or a relay. |
+| **Crossing list** | The Edge owner's explicit list of what may travel over a Link, per direction. Empty by default. |
+| **Relay** | A server the user runs somewhere both Edges can reach, which joins their two outbound connections and sees only ciphertext. |
 
 ## 5. Identities and trust
 
@@ -132,6 +138,10 @@ never trusted; the TLS handshake proves it.
 | mDNS / DNS-SD, service `_axiom-mesh._tcp` | default everywhere | The only mechanism that works on iOS without an entitlement fight. TXT record: `v=1`, `d=<deviceId>`. |
 | UDP broadcast on port 41811 | desktop fallback | For networks that filter multicast. Same payload as the TXT record. |
 | Static peers | all | Addresses the user typed. Tried on every start. |
+| Links | Edges only | The other Edge, by its configured transport (§16.2). Not discovery in the strict sense: the address is configuration. |
+
+Devices in another mesh are never discovered and never dialled. They are reached only in the sense that the
+local Edge holds what they published (§16).
 
 A discovered node that the roster or the known-users list does not cover is ignored before any TCP
 connection is made, so an unknown node costs nothing but a cache entry.
@@ -367,8 +377,10 @@ Axiom.Mesh.Core/             store, registry, roster, grants, MeshTls, replicati
 Axiom.Mesh.Host/             the daemon: configuration, management API, web UI, platform services
 Services/Axiom.Mesh.Sync/    the Archive kind and the folder watcher
 Services/Axiom.Mesh.Chat/    the Channel kind
+Axiom.Mesh.Edge/             the Edge role: links, transports, crossing lists, the crossing log (later)
 Apps/Axiom.Mesh.App/         Avalonia, all platforms
 Apps/Axiom.Mesh.Cli/         a command line over the local API
+Apps/Axiom.Mesh.Relay/       the relay server: joins two Edges' outbound connections (later)
 Axiom.Mesh.Testing/          in-memory mesh of N nodes, fake clock, fake discovery
 UnitTests/                   one test project per project, same layout
 Documentation/, Samples/, Benchmarks/
@@ -448,7 +460,9 @@ API. Tables, as `[LdbEntity]` classes:
 | `Entries` | entry hash | package id, device id, clock, parents, payload type — the index; the bytes are an object |
 | `Objects` | hash | type, size, stored at, last used |
 | `Pins` | (hash, reason, source) | |
-| `Peers` | device id | last addresses, last seen, last roster seq, statistics |
+| `Peers` | device id | last addresses, last seen, last roster seq, statistics, `via link` when reached over a Link |
+| `Links` | link id | the other Edge's device id, transport, state, crossing lists per direction — the Edge module's table (§16) |
+| `Crossings` | (link id, package id, direction, day) | objects and bytes that crossed — the audit the management UI shows |
 | `ChatIndex` | (package id, clock, device id) | entry hash, author, preview — Chat's own table, owned by the Chat service |
 
 Rules: a table belongs to exactly one module; another module reads it through that module's exposure, never
@@ -469,6 +483,10 @@ extent of their grants and no further. A device of your own that is lost is remo
 | A lost phone | remove the device; its key is refused at every handshake from then on; rotate the user key if the phone held it (it should not: only the first device holds the user key unless the user exports it) |
 | Resource exhaustion | LWSE admission and ProtoStream limits: handshakes per client, frame sizes, wants outstanding, queue bytes, idle and read deadlines |
 | Discovery spam | discovery output is only a hint; an unknown id is never dialled |
+| Data leaving the mesh through an Edge | nothing crosses a Link unless it is on that direction's crossing list; the Edge is a party to every message it carries and can check each one; every crossing is logged |
+| An Edge's port reachable from the internet (direct Link) | mutual TLS pinned to rosters before any byte, LWSE admission; the relayed transport opens no inbound port at all and is the default |
+| A hostile or compromised relay | it joins two TLS connections it cannot read; it can delay, drop or count, not read or forge |
+| A compromised Edge | it is a granted device and can leak what it may read, like any granted device; it cannot widen its own crossing list without the owner's signature, and removal from the roster cuts the Link |
 | A malicious service module | none; a module is compiled in. Third-party code lives behind the local API and its token |
 
 Not defended: traffic analysis on the LAN (who talks to whom and how much), and a granted user leaking what
@@ -489,8 +507,109 @@ they read.
 5. **Background execution on phones.** Android: a foreground service with a persistent notification. iOS:
    none; sync when open, with a local notification on new messages only while in the foreground. Decide
    what the Chat service promises on iOS.
+6. **Live service traffic across a Link** (§16.6): whether and how a service's sub-protocol is relayed by an
+   Edge at message level. Not needed for Sync and Chat; decide when a service needs it.
+7. **Carrying without reading.** An Edge can only carry a Package it is granted. Sealed objects (§7.4) would
+   let it carry a Package on the crossing list without a grant. That makes §7.4 more valuable than it looked.
 
-## 16. Phases
+## 16. Edges: connecting two meshes (future)
+
+Two meshes, say home and office, sometimes need to exchange data. The rule that decides the whole design:
+**what leaves a mesh is listed by its owner, item by item, and nothing else leaves.** That rules out any
+form of opaque tunnel, because a tunnel cannot be checked against a list. An Edge is therefore not a
+proxy: it is an ordinary node that is a peer in both meshes and copies, at the Package level, exactly what
+its crossing list names.
+
+### 16.1 What an Edge is
+
+An Edge is a normal node (usually a desktop or a small always-on machine) with one addition: a **Link** to
+an Edge in another mesh. Over the Link the two Edges talk the ordinary mesh protocol (§12) as two peers; the
+only differences are the transport underneath and the crossing list on top. No new identity is involved: the
+two Edges are devices of users who are paired (or of the same user), authenticated by the same mutual TLS
+against the same rosters as on the LAN.
+
+Nothing in either mesh changes. A node at home sees its Edge as one more peer that happens to hold Packages
+from the office. A node at the office never sees, dials or learns about a node at home. Chat from home to
+office takes two extra hops: node to Edge, Edge to Edge, Edge to node. Pushed `HeadsChanged` keeps that at
+network latency.
+
+### 16.2 Link transports
+
+| Transport | How | When |
+|---|---|---|
+| **Direct** | Edge A dials Edge B at a configured address and port, mutual TLS as on the LAN. | B has a reachable address (port forward, VPN, public IP). The only transport that opens an inbound port. |
+| **Relayed** | Both Edges dial a Relay the user runs; each sends `Join { linkId }` after its TLS handshake with the Relay; the Relay joins the two connections and copies bytes. Inside runs the Edge-to-Edge mutual TLS. | Neither Edge is reachable. The default: no inbound port anywhere. |
+
+The Relay is `Apps/Axiom.Mesh.Relay`, a small LWSE application: one port, TLS with its own key, an allowlist
+of Edge key fingerprints it accepts (or open, rate-limited), and a `axiom-mesh-relay/1` protocol of exactly
+`Join`, `Joined` and `Refused` before it switches the connection to ProtoStream's `Raw` passthrough. It holds
+nothing and sees two ciphertext streams. The Edges pin the Relay's key fingerprint in the Link configuration,
+so a substituted Relay fails the handshake. `linkId` is SHA-256 of both Edge device ids sorted, so neither
+side needs a shared secret and a third party cannot guess a Link without both ids.
+
+Both transports are a dial; the Link is then an outbound peer connection in the sense of §15.1.
+
+### 16.3 The crossing list
+
+Each Edge holds, per Link and per direction, a list of what may cross. The list is written by the Edge's
+owner through the management API, signed by the owner's user key and stored on the Edge; it never
+replicates and the other Edge never sees it. Entries:
+
+| Entry | Lets cross |
+|---|---|
+| `Package { id }` | that Package: manifest, grants, entries and objects, under the Edge's own grant |
+| `User { id }` | that user's roster, so the far side can verify entries signed by that user's devices |
+
+Nothing else exists in the first version: no wildcards, no "every Channel I own", no kinds. An empty list
+is a valid Link: it comes up, authenticates, exchanges `Hello` and carries nothing, which is how a Link is
+tested. The outbound list governs what the Edge *offers* over the Link (`Packages`, `Have`, `Object`,
+`Roster`); the inbound list governs what it *accepts* (`HeadsChanged`, `Object`, `Roster` from the far
+Edge). An item on one side only is still blocked: a Package crosses when the sending Edge lists it outbound
+and the receiving Edge lists it inbound. Two owners, two decisions.
+
+A `User` entry is needed even for Packages that user owns: a Package crossing without its author's roster
+would arrive unverifiable and be dropped. The management UI adds the owner's `User` entry when a Package is
+listed and says so.
+
+### 16.4 Enforcement
+
+The Edge module sits in the replication driver's path for Link peers only. Before any message with a
+Package id, object hash or roster is written to or accepted from a Link peer, the module resolves it to a
+Package or user and checks the list for that direction. A miss drops the message, counts it, and logs it.
+Objects are resolved through the pins that hold them: an object pinned only by Packages that are not listed
+does not cross even when requested by hash. An object shared by a listed and an unlisted Package crosses,
+because the listed Package needs it; that is content-addressing, not a leak.
+
+Every crossing is logged per Link, Package, direction and day (`Crossings`, §13), and the management UI
+shows the log beside the list. The owner can see what left, when and how much.
+
+### 16.5 Grants and the Edge
+
+The Edge is a device of its owner. It can only hold, and therefore only carry, Packages its owner is
+granted. Carrying a friend's Package across requires a grant to the Edge's owner, which is the existing
+§5.3 rule and is deliberate: a device that carries bytes can read them, so it must be allowed to. Sealed
+objects (§7.4) would lift that; see §15.7.
+
+### 16.6 What does not cross
+
+- Discovery. The far mesh's devices are not announced.
+- Node-to-node connections. No node ever talks through an Edge to a node on the other side.
+- Service sub-protocols (§12.5). A Link is `Open` only; `ServiceOpen` is refused on a Link. Live service
+  traffic across meshes, if ever needed, is relayed by the Edge at message level with the service on the
+  crossing list, so the Edge can still check every message. Open question §15.6.
+- Grants, manifests and rosters of users not on the list.
+
+### 16.7 Management implications
+
+New in the API and UI: Links (create, transport, relay fingerprint, state, statistics), the crossing list
+per Link and direction, the crossing log, and Relay servers. A node's management page says "Edge" when it
+holds a Link. A Package's page lists the Links it crosses. The host configuration gains an `Edge` section
+for the Link transports only; lists and logs live in LDB because they change at runtime and are audited.
+
+Retention: an Edge keeps every listed Package by the desktop policy regardless of its device class, because
+the far side may ask for any of it.
+
+## 17. Phases
 
 | Phase | Delivers | Done when |
 |---|---|---|
@@ -499,4 +618,5 @@ they read.
 | 2 | Chat service, management web UI | a Channel between two users with attachments, pushed, ordered the same on both ends |
 | 3 | Avalonia desktop app | the UI does everything the CLI does |
 | 4 | Android, then iOS, with the phone retention policy | a phone pairs by QR code, chats and opens the newest version of an Archive |
+| 5 | Edges (§16): the Edge module with the direct transport and crossing lists, then the Relay and the relayed transport | two meshes exchange one listed Package in one direction and nothing else, with the log proving it |
 | later | encryption at rest, FastCDC, more services | |
