@@ -102,7 +102,7 @@ same bytes twice produces the same object.
 
 A signature over a structure is computed over `H(domain ‖ body)`, where `domain` is the structure's domain
 string from §14.5 encoded as UTF-8 without a terminator, and `body` is every byte of the structure that
-precedes the signature field, exactly as encoded on the wire. A verifier MUST hash the bytes it received,
+precedes the signature field, tag and version included, exactly as encoded on the wire. A verifier MUST hash the bytes it received,
 never a re-encoding of its own.
 
 ### 2.3 Keys and identifiers
@@ -117,9 +117,10 @@ curve is malformed.
 | Device id | `H(device public key)` over the 65-byte encoding |
 | Package id | `H("axiom-mesh/package/1" ‖ owner user id ‖ nonce)`, `nonce` 32 random bytes chosen at creation and carried in the Manifest (§8.7), so every receiver can check the derivation |
 
-Ids are 32 bytes and never change. A key MUST be used as a user key or as a device key, never both; a roster
-device whose id equals a known user id, or a user id that equals a device id in a held roster, is treated as
-malformed where it appears.
+Ids are 32 bytes and never change. A key MUST be used as a user key or as a device key, never both. A Roster that
+lists its own user key as a device is malformed. A roster device whose id equals a user id the node knows, or a
+user id that equals a device id in a Roster the node holds, is faulty content (§12.2) at that node: it depends
+on the node's state and is therefore not a form error.
 
 ### 2.4 Certificates
 
@@ -225,7 +226,7 @@ A node MUST hold at most one established session per device id. When a second se
 becomes established, or is about to, the node decides which to keep, and both nodes reach the same decision
 without talking:
 
-1. If the old session has received nothing for 60 seconds, it is dead: keep the new, close the old.
+1. If the old session has received nothing for 60 seconds or more, it is dead: keep the new, close the old.
 2. Otherwise, if both sessions were dialled by the same device, keep the newer.
 3. Otherwise keep the session dialled by the device with the lower device id (compared as 32-byte unsigned
    big-endian integers).
@@ -607,7 +608,7 @@ without the service for that kind still carries the Package).
 packageId:  id
 deviceId:   id                  the writing device
 clock:      u64                 Lamport clock, §9.3
-parents:    list<hash>(2)       entries this one follows, ascending as byte strings
+parents:    list<hash>(2)       entries this one follows, strictly ascending as byte strings (a repeat is malformed)
 kind:       u16                 §14.7
 payload:    blob(1048576)       §8.5
 signature:  signature           by the device key, domain "axiom-mesh/entry/1"
@@ -621,7 +622,7 @@ of `deviceId` in the current roster of a user who is the Package's owner or hold
 and `deviceId` is not removed in that roster. Once an Entry is stored it stays valid: a later Roster or
 Grant change affects only Entries not yet stored (§9.6). Once its parents are held, an Entry is faulty
 content (§12.2) if any parent belongs to another `packageId`, if `clock` is not greater than every parent's
-clock, or if `clock` exceeds the greatest parent clock by more than 2^32 (or exceeds 2^32 with no parents).
+clock, or if `clock` exceeds the greatest parent clock by more than 2^32.
 
 ### 8.7 `Manifest` (tag 5)
 
@@ -975,6 +976,9 @@ never a close.
   and how much. Not defended.
 
 ## 14. Registries
+
+Value 0 is unassigned in every registry of §14.5 to §14.8: a tag, Entry kind or Package kind of 0 is treated
+like any other unassigned value (opaque, or carried).
 
 ### 14.1 Message ids
 
