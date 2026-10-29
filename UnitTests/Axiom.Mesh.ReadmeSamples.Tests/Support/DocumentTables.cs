@@ -92,6 +92,6 @@ internal static partial class DocumentTables
     [GeneratedRegex(@"`(?<project>[A-Z][A-Za-z.]*): (?<type>[A-Z][A-Za-z0-9]*)\.(?<method>[A-Z][A-Za-z0-9_]*)`")]
     private static partial Regex Reference();
 
-    [GeneratedRegex(@"(?:(?<document>SPEC|LOCAL)\s+)?§(?<number>\d+(?:\.\d+)*)")]
+    [GeneratedRegex(@"(?:(?<document>SPEC|LOCAL|PAIR)\s+)?§(?<number>\d+(?:\.\d+)*)")]
     private static partial Regex Section();
 }

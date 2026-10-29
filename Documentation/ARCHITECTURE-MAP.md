@@ -40,3 +40,16 @@ What carries the rules in `Axiom.Mesh.Discovery` (M4).
 | §6 Every wait a deadline, every queue a bound | Each observer reads from its own bounded queue (256, oldest dropped); `DiscoveryFacts` is bounded; `AnnouncementCache` is bounded; nothing a shell does blocks on an observer. |
 | §7 A failure says who must act | A socket, interface or name that fails is a `DiscoveryFact` (kind, subject, the platform's reason) for the engine to log; nothing on the network throws. |
 | §8 Rules are pure functions tested from the spec | `UnitTests/Axiom.Mesh.Discovery.Tests/Rules` (SPEC.md §3.1–§3.3, DESIGN.md §6.1/§14 quoted); `Regression/` pins the wire bytes against vectors from an independent script, fuzzes both parsers (seed 42 × 20 000) and runs one loopback UDP smoke test. mDNS on a real LAN is checked by hand (STRUCTURAL-DEBT.md entry 2). |
+
+## Axiom.Mesh.Protocol
+
+The carriers of the protocol package (M2), by rule; under their own heading so that parallel milestones merge cleanly.
+
+| Rule | Carried by |
+|---|---|
+| §1 Honest layers | `Axiom.Mesh.Protocol`: definitions, codecs and pure rules over Model's types; no socket, clock or randomness (`Rules/`, `Pairing/PairingMachine.cs` take timestamps). |
+| §4 Nothing believed without a hash, a signature or a roster | `Messages/ObjectMessage.cs` (a received object's hash verified on the frame view before the message exists; `From(StorableObject)` the only way to send one), `Rules/HelloRule.cs` (SPEC.md §7.1 against the TLS key and the trust snapshot), `Pairing/PairingRules.cs` (a peer's Roster verified under its own user key and listing its TLS key's device; an enrolment signed, newer and listing the device), `Pairing/Sas.cs` (both users compare a string over every key). |
+| §5 Every limit a named constant, enforced where the bytes enter | `AmpFrameCodec.cs` and `Messages/MessageFields.cs` (every list, string and blob of SPEC.md §7 checked against `Limits` and the bytes left before it is read or allocated); `Amp.cs` and `Pairing/PairProtocol.cs` (frame bound, buffer, timeouts from `Limits`); `Pairing/PairingCode.cs` (`MaxLength`, `MaxAddresses`). |
+| §6 Every wait a deadline, every queue a bound | `Amp.Definition` (first `Hello` 10 s, idle 5 min, heartbeat 60 s), `PairProtocol.Definition` (10 s, 10 min), `Rules/ListingRule.cs` (`Deadline`), `Rules/WantBudget.cs` (64), `Rules/ObjectQueueRule.cs` (8 MiB), `Pairing/PairingMachine.cs` (`Expires`). Not carried: the 30-second frame completion of SPEC.md §5.1 (the session handler, M6/M7). |
+| §8 Rules are pure functions tested from the spec | `Rules/` and `Pairing/`, each tested in `UnitTests/Axiom.Mesh.Protocol.Tests/Rules` with expected values quoted from SPEC.md, LOCAL-SPEC.md or PAIR-SPEC.md. |
+| §9 A promise only with its test | `Documentation/PAIR-SPEC.md` §12 and the Protocol rows of CONFORMANCE.md and GUARANTEES.md. |
