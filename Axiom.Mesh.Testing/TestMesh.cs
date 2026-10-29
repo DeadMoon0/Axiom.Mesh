@@ -1,0 +1,279 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Threading;
+using System.Threading.Tasks;
+using Axiom.Mesh.Core;
+using Axiom.Mesh.Discovery;
+using Microsoft.Extensions.Time.Testing;
+
+namespace Axiom.Mesh.Testing;
+
+/// <summary>
+/// An in-memory mesh of published test devices on one fake clock: every node a full <see cref="MeshNode"/> with its own
+/// in-memory store, connected over an <see cref="InMemoryNetwork"/> through real mutual TLS and AMP/1. Nodes find each
+/// other through <see cref="FakeDiscovery"/> and dial as on a LAN; a test seeds trust, connects, stops, restarts and
+/// partitions them, and waits for what it expects through the nodes' facts, never by sleeping.
+/// </summary>
+/// <remarks>
+/// Node <c>n</c> (counted from 1 in the order given) listens at <c>10.0.0.n:41810</c>. Every wait gives up after 15
+/// seconds of real time with a <see cref="TestMeshException"/>; time on the fake clock only passes when the test
+/// advances <see cref="Clock"/>.
+/// </remarks>
+public sealed class TestMesh : IAsyncDisposable
+{
+    /// <summary>How long a wait lasts in real time before it fails the test.</summary>
+    public static TimeSpan Deadline { get; } = TimeSpan.FromSeconds(15);
+
+    private readonly Dictionary<string, TestNode> nodes;
+
+    private TestMesh(FakeTimeProvider clock, InMemoryNetwork network, Dictionary<string, TestNode> nodes)
+    {
+        Clock = clock;
+        Network = network;
+        this.nodes = nodes;
+    }
+
+    /// <summary>The mesh's one clock: every node's server, sessions, database and backoffs run on it.</summary>
+    public FakeTimeProvider Clock { get; }
+
+    /// <summary>The network the nodes are on.</summary>
+    public InMemoryNetwork Network { get; }
+
+    /// <summary>The nodes, in the order they were named.</summary>
+    public IReadOnlyList<TestNode> Nodes => [.. nodes.Values];
+
+    /// <summary>A node by name.</summary>
+    /// <param name="name">Its published device name.</param>
+    /// <returns>The node.</returns>
+    /// <exception cref="KeyNotFoundException">The mesh has no such node.</exception>
+    public TestNode this[string name] =>
+        nodes.TryGetValue(name, out TestNode? node) ? node
+        : throw new KeyNotFoundException($"The mesh has no node '{name}'; it has {string.Join(", ", nodes.Keys)}.");
+
+    /// <summary>
+    /// Starts the mesh: every node with its own user's Roster as its identity, then the trust of
+    /// <see cref="TestMeshOptions.Trust"/>, and only then the discovery board, so that every dial meets a node that
+    /// already knows whom it trusts.
+    /// </summary>
+    /// <param name="options">The nodes, their trust and the seed.</param>
+    /// <param name="cancellationToken">Cancels starting.</param>
+    /// <returns>The running mesh.</returns>
+    public static async Task<TestMesh> StartAsync(TestMeshOptions options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var clock = new FakeTimeProvider(TestIdentity.Epoch);
+        var network = new InMemoryNetwork();
+        var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);
+        for (int i = 0; i < options.Nodes.Count; i++)
+        {
+            TestIdentity identity = TestIdentity.Of(options.Nodes[i]);
+            if (nodes.ContainsKey(identity.Name))
+                throw new ArgumentException($"'{identity.Name}' is named twice; a mesh holds each published device once.", nameof(options));
+            var address = new IPEndPoint(new IPAddress([10, 0, 0, (byte)(i + 1)]), MeshNodeOptions.DefaultMeshPort);
+            var discovery = new FakeDiscovery(network, new Announcement(identity.DeviceId, identity.UserId, address, DiscoverySource.Mdns))
+            {
+                IsSilent = options.Silent.Contains(identity.Name),
+            };
+            nodes[identity.Name] = new TestNode(identity, address, new TestNodeEnvironment(identity, clock, options.Seed + (ulong)i), discovery, new InMemoryDialer(network, address.Address));
+        }
+
+        var mesh = new TestMesh(clock, network, nodes);
+        network.Hold();
+        try
+        {
+            foreach (TestNode node in nodes.Values)
+            {
+                await mesh.RunAsync(node, cancellationToken).ConfigureAwait(false);
+                await node.Node.AdoptIdentityAsync(TestIdentity.RosterOf(node.Identity.UserName), cancellationToken).ConfigureAwait(false);
+            }
+
+            foreach ((string name, string knows) in options.Trust.Pairs)
+            {
+                TestNode other = mesh[knows];
+                if (other.Identity.UserName != mesh[name].Identity.UserName)
+                    await mesh[name].Node.AcceptUserAsync(TestIdentity.RosterOf(other.Identity.UserName), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            await mesh.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        network.Release();
+        return mesh;
+    }
+
+    /// <summary>
+    /// Waits until two nodes hold an established session to each other, one each (the duplicate rule has settled). Both
+    /// are announced again at first and after every fact either records, as discovery would repeat them; a backoff still
+    /// holds a dial back until the clock reaches its end.
+    /// </summary>
+    /// <param name="a">One node.</param>
+    /// <param name="b">The other.</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>A task that completes when both are established.</returns>
+    /// <exception cref="TestMeshException">They did not connect within the deadline.</exception>
+    public async Task ConnectAsync(string a, string b, CancellationToken cancellationToken)
+    {
+        TestNode left = this[a];
+        TestNode right = this[b];
+        using var deadline = new CancellationTokenSource(Deadline);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+        try
+        {
+            while (true)
+            {
+                long leftSeen = left.Node.Facts.LastSequence;
+                long rightSeen = right.Node.Facts.LastSequence;
+                if (IsEstablishedWith(left.Node, right.Device) && IsEstablishedWith(right.Node, left.Device))
+                    return;
+
+                // Announce again after every change: an announcement heard while a dial was still ending is passed over.
+                left.Discovery.Announce();
+                right.Discovery.Announce();
+                await Task.WhenAny(
+                    left.Node.Facts.WaitForAsync(_ => true, leftSeen, linked.Token),
+                    right.Node.Facts.WaitForAsync(_ => true, rightSeen, linked.Token)).Unwrap().ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw Timeout(a, $"{a} and {b} established with each other, one session each");
+        }
+    }
+
+    /// <summary>Waits until a condition on a node's state holds, re-checking after every fact the node records.</summary>
+    /// <param name="name">The node.</param>
+    /// <param name="condition">What must hold.</param>
+    /// <param name="what">What is awaited, for the failure message.</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>A task that completes when the condition holds.</returns>
+    /// <exception cref="TestMeshException">The condition did not hold within the deadline.</exception>
+    public async Task WaitUntilAsync(string name, Func<MeshNode, bool> condition, string what, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+        MeshNode node = this[name].Node;
+        using var deadline = new CancellationTokenSource(Deadline);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+        try
+        {
+            while (true)
+            {
+                long seen = node.Facts.LastSequence;
+                if (condition(node))
+                    return;
+                await node.Facts.WaitForAsync(_ => true, seen, linked.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw Timeout(name, what);
+        }
+    }
+
+    /// <summary>Waits for a fact a node records after <paramref name="after"/>.</summary>
+    /// <param name="name">The node.</param>
+    /// <param name="match">Which fact.</param>
+    /// <param name="after">Only facts after this sequence number count; take <see cref="NodeFacts.LastSequence"/> before causing it.</param>
+    /// <param name="what">What is awaited, for the failure message.</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>The fact.</returns>
+    /// <exception cref="TestMeshException">No such fact within the deadline.</exception>
+    public async Task<NodeFact> WaitForFactAsync(string name, Func<NodeFact, bool> match, long after, string what, CancellationToken cancellationToken)
+    {
+        MeshNode node = this[name].Node;
+        using var deadline = new CancellationTokenSource(Deadline);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+        try
+        {
+            return await node.Facts.WaitForAsync(match, after, linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw Timeout(name, what);
+        }
+    }
+
+    /// <summary>Stops a node as a shutdown would: its sessions say <c>Bye(Shutdown)</c>, its announcement leaves the board.</summary>
+    /// <param name="name">The node.</param>
+    /// <param name="cancellationToken">Cuts the drain short.</param>
+    /// <returns>A task that completes when it stopped.</returns>
+    public async Task StopNodeAsync(string name, CancellationToken cancellationToken)
+    {
+        TestNode node = this[name];
+        if (!node.IsRunning)
+            return;
+        Network.Unlisten(node.Address);
+        node.Discovery.Withdraw();
+        await node.Node.StopAsync(cancellationToken).ConfigureAwait(false);
+        node.Running(null);
+        await node.Environment.CloseAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Starts a stopped node again on what it kept: its store, its trust, its keys.</summary>
+    /// <param name="name">The node.</param>
+    /// <param name="cancellationToken">Cancels starting.</param>
+    /// <returns>A task that completes when it runs.</returns>
+    public Task StartNodeAsync(string name, CancellationToken cancellationToken) => RunAsync(this[name], cancellationToken);
+
+    /// <summary>Splits the network: the named nodes on one side, the others on the other; connections across are cut.</summary>
+    /// <param name="names">The nodes of one side.</param>
+    public void Partition(params string[] names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        Network.Partition(names.Select(n => this[n].Address.Address));
+    }
+
+    /// <summary>Joins the network again; the nodes hear each other again and redial.</summary>
+    public void Heal() => Network.Heal();
+
+    /// <summary>Stops every node.</summary>
+    /// <returns>A task that completes when all stopped.</returns>
+    public async ValueTask DisposeAsync()
+    {
+        foreach (TestNode node in nodes.Values)
+            await StopNodeAsync(node.Name, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private static bool IsEstablishedWith(MeshNode node, DeviceId peer) =>
+        node.Peers.FirstOrDefault(p => p.Device == peer) is { State: PeerState.Established, Sessions: 1 };
+
+    private TestMeshException Timeout(string name, string what) => new(
+        $"Waited {Deadline.TotalSeconds:0} s for {what}, in vain. "
+            + string.Join(" ", nodes.Values.Where(n => n.IsRunning).Select(n => $"The last facts of {n.Name}: {string.Join(" | ", n.Node.Facts.Recent().TakeLast(16))}.")),
+        $"Read the facts of {name} first: a HandshakeFailed or RefusedBeforeHello names what was refused, a BackedOff when the next dial is due.",
+        "Advance the mesh's Clock when the awaited step waits for time to pass (a backoff, a heartbeat), in steps no longer than the step needs: a dial a timer starts runs after Advance returns, and a long Advance expires its handshake.");
+
+
+    private async Task RunAsync(TestNode node, CancellationToken cancellationToken)
+    {
+        if (node.IsRunning)
+            return;
+        MeshNodeEnvironment environment = await node.Environment.OpenAsync(Composite(node), node.Dialer, cancellationToken).ConfigureAwait(false);
+        MeshNode running;
+        try
+        {
+            running = await MeshNode.StartAsync(MeshNodeOptions.Default, environment, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await node.Environment.CloseAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        node.Running(running);
+        Network.Listen(node.Address, running.ConnectInMemory);
+    }
+
+    // As the Host does: discovery through a CompositeDiscovery, whose cache the node consults after a trust change. Every
+    // claim passes the cache, so a test may announce again at any time.
+    private IDiscovery Composite(TestNode node) => new CompositeDiscovery(new CompositeDiscoveryOptions
+    {
+        Parts = [node.Discovery],
+        Time = Clock,
+        Cache = new AnnouncementCache(256, TimeSpan.Zero),
+    });
+}

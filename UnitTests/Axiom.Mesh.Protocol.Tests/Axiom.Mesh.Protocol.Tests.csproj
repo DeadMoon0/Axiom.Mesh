@@ -15,9 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The published test identities and the dictionary trust view, shared with Model's suite until M6 moves them into Axiom.Mesh.Testing. -->
-    <Compile Include="..\Axiom.Mesh.Model.Tests\Support\TestKeys.cs" Link="Support\TestKeys.cs" />
+    <!-- The published test identities (Axiom.Mesh.Testing, compiled as one file) and Model's dictionary trust view. -->
+    <Compile Include="..\..\Axiom.Mesh.Testing\TestKeys.cs" Link="Support\TestKeys.cs" />
     <Compile Include="..\Axiom.Mesh.Model.Tests\Support\TrustView.cs" Link="Support\TrustView.cs" />
+    <Using Include="Axiom.Mesh.Testing" />
   </ItemGroup>
 
 </Project>

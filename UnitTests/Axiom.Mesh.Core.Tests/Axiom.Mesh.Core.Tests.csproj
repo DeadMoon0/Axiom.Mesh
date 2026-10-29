@@ -6,11 +6,17 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Axiom.Mesh.Core\Axiom.Mesh.Core.csproj" />
+    <!-- In-memory nodes, the published test identities and scripted peers for the transport's tests. -->
+    <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- One fake clock per test: the store's timestamps, the held buffer's expiry. -->
+    <!-- One fake clock per test: the store's timestamps, the held buffer's expiry, the transport's deadlines. -->
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Axiom.Mesh.Testing" />
   </ItemGroup>
 
 </Project>

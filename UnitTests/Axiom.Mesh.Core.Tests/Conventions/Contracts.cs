@@ -27,6 +27,10 @@ public static class Contracts
                 "The node's database was not made by this version of Axiom.Mesh (schema version 1 expected, found 2).",
                 "Run the version of Axiom.Mesh that made this database, or a later one that can migrate it.",
                 "Or move the data directory aside and start anew."),
+            new MeshNodeException(
+                MeshFault.Environment,
+                "The key store's device key (3f2a…) is not the device this database belongs to (9b10…).",
+                "Start the node with the key store and the data directory that were made together."),
         ];
     }
 

@@ -14,7 +14,7 @@
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>Skeleton.</PackageReleaseNotes>
+    <PackageReleaseNotes>In progress: the published test identities, in-memory nodes on one fake clock (TestMesh with trust seeding, connect, stop and start, partition and heal), fake discovery, the in-memory dialler and key store, and scripted peers that speak raw AMP/1 over the node's own mutual TLS.</PackageReleaseNotes>
     <RootNamespace>Axiom.Mesh.Testing</RootNamespace>
   </PropertyGroup>
 
@@ -27,6 +27,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
+    <!-- The in-memory database every node of a mesh runs on. -->
+    <PackageReference Include="Axiom.LDB.Core" />
+    <!-- One fake clock per mesh, wired into every node's server, sessions and database. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 
 </Project>

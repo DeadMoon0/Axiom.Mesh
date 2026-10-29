@@ -64,7 +64,8 @@ public abstract class ConventionTests<TAnchor>
             Discovery => [Model],
             Core => core,
             Host => host,
-            Testing => [.. host, Host, "Axiom.LWSE.Testing", "Axiom.ProtoStream.Testing"],
+            // Testing runs every node of a mesh on LDB's in-memory storage (shipped in the Axiom.LDB.Core package).
+            Testing => [.. host, Host, "Axiom.LWSE.Testing", "Axiom.ProtoStream.Testing", "Axiom.LDB.Storage.InMemory", "Axiom.LDB.Storage.Abstractions"],
             Cli => [Local, Model, ProtoStream],
             _ => null,
         };

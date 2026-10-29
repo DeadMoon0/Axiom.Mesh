@@ -13,4 +13,10 @@
     <PackageReference Include="Axiom.ProtoStream.Testing" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The published test identities live in Axiom.Mesh.Testing; Model's suite compiles the one file, not the package above it. -->
+    <Compile Include="..\..\Axiom.Mesh.Testing\TestKeys.cs" Link="Support\TestKeys.cs" />
+    <Using Include="Axiom.Mesh.Testing" />
+  </ItemGroup>
+
 </Project>
