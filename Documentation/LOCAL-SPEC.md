@@ -703,7 +703,7 @@ failure:        string(256)     when state is Failed; else empty
 ```
 
 The exchange behind these fields is `axiom-mesh-pair/1` (SPEC.md §14.4), specified in
-[PAIR-SPEC.md](PAIR-SPEC.md) (to be written); `code` and `sas` are opaque to the client and shown as they are.
+[PAIR-SPEC.md](PAIR-SPEC.md); `code` and `sas` are opaque to the client and shown as they are.
 
 ### 5.16 `Transfer`
 
