@@ -17,4 +17,16 @@ internal static class Meshes
     /// <summary>Alice's laptop and Bob's desktop, each knowing the other's user.</summary>
     public static Task<TestMesh> AliceAndBobAsync() =>
         TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop", "bob-desktop") with { Trust = TrustSeed.MutuallyKnown("alice-laptop", "bob-desktop") }, CancellationToken.None);
+
+    /// <summary>
+    /// Alice's laptop and phone and Bob's desktop, every one knowing every user, with the phone and the desktop severed:
+    /// the laptop is between them, as in SPEC.md Appendix B.
+    /// </summary>
+    public static Task<TestMesh> AppendixBAsync() => TestMesh.StartAsync(
+        TestMeshOptions.Of("alice-laptop", "alice-phone", "bob-desktop") with
+        {
+            Trust = TrustSeed.MutuallyKnown("alice-laptop", "alice-phone", "bob-desktop"),
+            Severed = [("alice-phone", "bob-desktop")],
+        },
+        CancellationToken.None);
 }

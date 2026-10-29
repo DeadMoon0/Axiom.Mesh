@@ -19,4 +19,9 @@
     <Using Include="Axiom.Mesh.Testing" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- A node's trust as dictionaries, for the planner's pure rules. -->
+    <Compile Include="..\Axiom.Mesh.Model.Tests\Support\TrustView.cs" Link="Support\TrustView.cs" />
+  </ItemGroup>
+
 </Project>
