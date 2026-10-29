@@ -78,3 +78,18 @@ row names none; `LimitsTests` checks every value against the section that states
 
 Two rows name no constant, because the specification fixes no number: pinned bytes are bounded by the store budget,
 which is configuration, and a list without a cursor is bounded by that list's own maximum.
+
+## axiom-mesh-pair/1, pairing (PAIR-SPEC.md)
+
+The pairing protocol reuses AMP/1's bounds; the code's own bounds are constants of `Axiom.Mesh.Protocol`, where the code
+is parsed.
+
+| Limit | Value | § | When reached | Constant |
+|---|---|---|---|---|
+| frame length | 2 to 4 198 400 bytes | 5.1 | violation, `PairCancel(Violation)` | `Limits.MinFrameLength`, `Limits.MaxFrameLength` |
+| first `PairHello` | 10 s | 5.1 | `PairCancel(Expired)` | `Limits.FirstHelloSeconds` |
+| a pairing | 10 min from `StartPairing`; one at a time | 6.3 | `Failed` with `PairCancel(Expired)`; a second one `Busy` | `Limits.PairingSeconds`, `Limits.PairingsPerHost` |
+| `PairHello.name` | 64 bytes | 5.2 | violation | `Limits.MaxDeviceNameLength` |
+| `PairHello.roster`, `PairConfirm.roster` | 4 MiB | 5.2, 5.3 | violation | `Limits.MaxObjectLength` |
+| `PairCancel.detail` | 256 bytes | 5.4 | violation | `Limits.MaxByeDetailLength` |
+| code | 512 characters; 1 to 8 addresses; hosts of at most 253 characters | 2.1, 2.2 | refused before any connection | `PairingCode.MaxLength`, `PairingCode.MaxAddresses`, `PairingAddress.MaxHostLength` |

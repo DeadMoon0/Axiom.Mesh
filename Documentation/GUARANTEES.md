@@ -26,7 +26,7 @@ names no test, or when a proved row names a test that does not exist.
 | Promise | Proved by |
 |---|---|
 | Every bound of an AMP/1 object is enforced: one over makes the object malformed, at the bound it is accepted. | `Model.Tests: ObjectBoundsTests.EveryObjectBoundIsAcceptedAtTheLimitAndMalformedOneOver` |
-| Every bound of AMP/1 is enforced: one over is refused, at the bound is accepted, as a violation in a message and as malformed in an object. | planned: `Protocol.Tests: LimitTests.EveryLimitIsRefusedOneOverAndAcceptedAtTheLimit_AViolationInAMessageMalformedInAnObject` |
+| Every bound of AMP/1 is enforced: one over is refused, at the bound is accepted, as a violation in a message and as malformed in an object. | `Protocol.Tests: LimitTests.EveryLimitIsRefusedOneOverAndAcceptedAtTheLimit_AViolationInAMessageMalformedInAnObject` |
 | Every bound is a named constant with the specification's value. | `Model.Tests: LimitsDocumentTests.EveryLimitOfTheSpecIsANamedConstantWithTheSpecsValue`, `Model.Tests: LimitsTests.EveryLimitHasTheValueItsSectionStates` |
 | Every bound of the local protocol is enforced, one over refused and at the bound accepted. | planned: `Local.Tests: LimitTests.EveryLimitIsRefusedOneOverAndAcceptedAtTheLimit` |
 | A slow local client loses its subscription, never the mesh: other subscriptions and requests continue. | planned: `Core.Tests: SubscriptionTests.A257thEventOr16MiBLapsesOnlyThatSubscription_OthersAndRequestsContinue_64MiBUnacceptedIsByeUnresponsive` |
@@ -56,3 +56,16 @@ names no test, or when a proved row names a test that does not exist.
 | Every failure a package throws says who must act, whether retrying can succeed, and at least one step out. | `Shared: ExceptionRecoveryContractTests.EveryExceptionCarriesTheFullRecoveryContract`, `Model.Tests: FailureGuidanceTests.AFailureCannotBeMadeWithoutAMessageOrWithABlankStep` |
 | A compiled consumer keeps working when a minor version adds members. | `Shared: PublicSurfaceTests.NoPublicMemberTakesAnOptionalParameter`, `Shared: PublicSurfaceTests.NoPublicPositionalRecordWithoutAClosedShape` |
 | No package holds state shared by every node of a process. | `Shared: ConventionTests.HoldsNoMutableStaticState` |
+
+## Axiom.Mesh.Protocol
+
+| Promise | Proved by |
+|---|---|
+| A session accepts nothing but `Hello` and `Bye` before the peer's `Hello`, and a peer that sends no `Hello` within 10 seconds is closed. | `Protocol.Tests: SessionStateTests.BeforeThePeersHelloOnlyHelloAndByeAreAccepted_AndNoHelloWithin10SecondsCloses` |
+| A peer's `Hello` is refused with `Bye(Unauthorized)` unless its version is 1, its device id is the hash of its TLS key, and its device is a current device of a known user's Roster. | `Protocol.Tests: HelloRuleTests.AHelloThatFailsACheckIsByeUnauthorized` |
+| A received object is checked against its hash before anything acts on it, and decoding it copies nothing; only a verified object can be sent. | `Protocol.Tests: ObjectMessageTests.AnObjectWhoseHashIsNotItsSha256IsAViolation`, `Protocol.Tests: ObjectMessageTests.AnObjectIsSentOnlyFromAStorableObjectAndItsBytesAreNotCopied`, `Protocol.Tests: AllocationTests.DecodingA1MiBObjectFrameAllocatesOnlyTheMessage` |
+| A 1.x peer's unknown extension messages are ignored; any other unknown message id closes the session. | `Protocol.Tests: FrameTests.AnUnknownIdBetween17And255IsIgnored_0OrAbove255IsAViolation` |
+| A silent session is pinged after 60 seconds and closed after 5 minutes without receiving. | `Protocol.Tests: LivenessTests.PingAfter60SecondsOfSilence_ByeIdleAfter5MinutesWithoutReceiving` |
+| No mutated frame of either protocol makes a decoder throw or hang. | `Protocol.Tests: CodecFuzzTests.MutatedAmpFramesNeverThrowOrHang`, `Protocol.Tests: CodecFuzzTests.MutatedPairingFramesNeverThrowOrHang` |
+| A pairing completes only when both users confirmed, the short authentication string differs when any key is substituted, and a pairing expires after 10 minutes. | `Protocol.Tests: SasTests.TheSasIsEqualOnBothSidesAndDiffersWhenEitherKeyIsSubstituted`, `Protocol.Tests: PairingMachineTests.ConfirmIsInvalidWhileWaiting_OkAndUnchangedWhileConfirming_ASecondPairingIsBusy_ExpiryAt10MinutesFails` |
+| A device adopts a Roster only when its user's key signed it, it is newer, it lists the device, and the device's own user confirmed first; a removed device is never enrolled again. | `Protocol.Tests: PairingRulesTests.AnEnrolmentIsAcceptedOnlyAsTheUsersNewerRosterListingThisDevice`, `Protocol.Tests: PairingMachineTests.TheUserSideEnrolsTheDeviceOnlyAfterTheDevicesUserConfirmed`, `Protocol.Tests: PairingRulesTests.ADeviceOnceRemovedIsNeverEnrolledAgain_ACurrentOneIsKept` |

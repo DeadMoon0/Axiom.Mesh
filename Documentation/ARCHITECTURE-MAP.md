@@ -26,3 +26,16 @@ and `ReadmeCompileTests` (in `UnitTests/Axiom.Mesh.ReadmeSamples.Tests`).
 The milestone numbers above are those of the fundamentals plan: M1 Model, M2 Protocol and PAIR-SPEC, M3 Local,
 M4 Discovery, M5 Core store and trust, M6 Core transport, M7 replication, M8 local port and Host, M9 requests, M10
 pairing and CLI, M11 scenarios and integration, M12 benchmarks, security conformance and AOT, M13 docs and release.
+
+## Axiom.Mesh.Protocol
+
+The carriers of the protocol package (M2), by rule; under their own heading so that parallel milestones merge cleanly.
+
+| Rule | Carried by |
+|---|---|
+| §1 Honest layers | `Axiom.Mesh.Protocol`: definitions, codecs and pure rules over Model's types; no socket, clock or randomness (`Rules/`, `Pairing/PairingMachine.cs` take timestamps). |
+| §4 Nothing believed without a hash, a signature or a roster | `Messages/ObjectMessage.cs` (a received object's hash verified on the frame view before the message exists; `From(StorableObject)` the only way to send one), `Rules/HelloRule.cs` (SPEC.md §7.1 against the TLS key and the trust snapshot), `Pairing/PairingRules.cs` (a peer's Roster verified under its own user key and listing its TLS key's device; an enrolment signed, newer and listing the device), `Pairing/Sas.cs` (both users compare a string over every key). |
+| §5 Every limit a named constant, enforced where the bytes enter | `AmpFrameCodec.cs` and `Messages/MessageFields.cs` (every list, string and blob of SPEC.md §7 checked against `Limits` and the bytes left before it is read or allocated); `Amp.cs` and `Pairing/PairProtocol.cs` (frame bound, buffer, timeouts from `Limits`); `Pairing/PairingCode.cs` (`MaxLength`, `MaxAddresses`). |
+| §6 Every wait a deadline, every queue a bound | `Amp.Definition` (first `Hello` 10 s, idle 5 min, heartbeat 60 s), `PairProtocol.Definition` (10 s, 10 min), `Rules/ListingRule.cs` (`Deadline`), `Rules/WantBudget.cs` (64), `Rules/ObjectQueueRule.cs` (8 MiB), `Pairing/PairingMachine.cs` (`Expires`). Not carried: the 30-second frame completion of SPEC.md §5.1 (the session handler, M6/M7). |
+| §8 Rules are pure functions tested from the spec | `Rules/` and `Pairing/`, each tested in `UnitTests/Axiom.Mesh.Protocol.Tests/Rules` with expected values quoted from SPEC.md, LOCAL-SPEC.md or PAIR-SPEC.md. |
+| §9 A promise only with its test | `Documentation/PAIR-SPEC.md` §12 and the Protocol rows of CONFORMANCE.md and GUARANTEES.md. |
