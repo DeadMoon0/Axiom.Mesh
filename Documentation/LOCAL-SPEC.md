@@ -1048,7 +1048,9 @@ to clean up after a service that is gone (§9.6): it removes every pin with that
 eviction (SPEC.md §11.3) at once; `GetStore` shows the result over time, and topic `store` pushes it. A request
 that would store a new object (`PutObject`, `PutFile`, `WriteEntry`, `Fetch`, `Materialise`) fails with
 `StoreFull` when the bytes of pinned objects plus the new object would exceed the budget; eviction cannot
-help, because pinned objects are not evicted.
+help, because pinned objects are not evicted. The rule holds for every object the Host stores on a local
+request, whatever the request or the role (the Manifest of `CreatePackage` and the Grant of `SetGrant`
+included), and for none it receives from a peer: a peer's object is stored and left to eviction (SPEC.md §11.3).
 
 ### 6.6 Peers
 

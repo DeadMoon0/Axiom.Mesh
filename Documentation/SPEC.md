@@ -681,8 +681,9 @@ signature:  signature           by userKey, domain "axiom-mesh/roster/1"
 ```
 
 A Roster is valid when its signature verifies against its own `userKey`; a node stores a valid Roster only
-for a known user (§1.2) and MUST NOT hold or store one for any other. A node holds at most one current
-Roster per user: the valid one with the highest `seq`, ties broken by the lower hash.
+for a known user (§1.2) and MUST NOT store one for any other (a Roster stored before its user stopped being
+known is covered at the end of this section). A node holds at most one current Roster per user: the valid one
+with the highest `seq`, ties broken by the lower hash.
 
 Removal is permanent: a device that was `removed` in any Roster this node verified is treated as removed in
 every later Roster of that user, whatever its flag; a user re-adds a device by giving it a new key. A later
@@ -694,6 +695,11 @@ treated as removed, and the conflict is logged.
 When a removal reaches a node: sessions with the removed device MUST be closed with `Bye(Unauthorized)`, no
 new session is accepted from it, and Entries it signs that are not yet stored are invalid from then on.
 Stored Entries stay (§8.6, §9.6).
+
+A user can stop being known to a node (the last followed Package that names them is unfollowed). The node MAY
+keep that user's stored Roster, so that following one of their Packages again does not need it fetched, but
+MUST NOT act on it, MUST NOT trust a device it lists, and MUST NOT serve it (§9.8) until the user is known
+again.
 
 ### 8.9 `Grant` (tag 7)
 
@@ -858,6 +864,11 @@ Package to be followed) → Entry (needs the writer's Roster and, for a grantee,
 (need nothing but their hash). An object that arrives before what it needs is held as unverifiable (§8.1)
 and re-examined when its prerequisite arrives.
 
+A signed object (Roster, Manifest, Grant, Entry) is processed in this order whether or not the node wanted it:
+its signature and the node's trust decide whether it is stored. A payload object (Chunk, ChunkList, Tree, or an
+object of an unassigned tag) is vouched for by nothing but its hash, so a node stores it only when it wanted
+it, and MAY drop it otherwise (§7.6).
+
 For a listed Package (§1.2) a node MAY `Want` and store the Manifest a peer lists, and nothing else, so that
 the user can be shown the Package's name and kind before deciding to follow it. Holding such a Manifest
 makes its owner a known user only once the Package is followed (§8.7), pins nothing (§11.2), and is not
@@ -892,7 +903,8 @@ pin is a candidate for eviction.
 A node MUST pin with reason `Outbound` every object an Entry it writes references, through Trees and
 ChunkLists recursively, whatever its retention policy, and release that pin per object once it has sent the
 object to at least one peer in answer to a `Want`; a device whose policy keeps little must still not be the
-only holder of something it published. The Manifest of a listed Package (§10.6) carries no pin.
+only holder of something it published. Unfollowing a Package releases its `Head` and `Policy` pins but not its
+`Outbound` pins, for the same reason. The Manifest of a listed Package (§10.6) carries no pin.
 
 Retention policies, per Package and device class, with these defaults:
 
@@ -900,6 +912,9 @@ Retention policies, per Package and device class, with these defaults:
 |---|---|---|
 | desktop | every Version, every Tree, every ChunkList, every Chunk | every Message, every attachment |
 | phone | every Version, the newest Version's Tree and ChunkLists; Chunks on demand | every Message; attachments on demand |
+
+The newest Version is the stored `Version` highest in the total order of its Package (§9.3), whatever its
+`label`: the row keeps one Tree per Package, not one per branch.
 
 "On demand" objects are fetched when the user opens them and are evictable afterwards. The Manifest, the
 Rosters of involved users, the Grants and every Entry of a followed Package are always pinned on every
