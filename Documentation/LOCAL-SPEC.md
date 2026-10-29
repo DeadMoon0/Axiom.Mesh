@@ -4,6 +4,7 @@
 that needed AMP/1 to change are in SPEC.md draft 3). Normative for the first implementation. Where this document and
 [DESIGN.md](DESIGN.md) §10 differ, this document wins. Where it restates a rule of [SPEC.md](SPEC.md) (AMP/1),
 SPEC.md wins and this document only says how that rule is reached over the pipe.
+Amended 2026-10-29 within draft 2: external services, a third way to prove a service name (§4.2, §13, decision 25).
 
 **Abstract.** `axiom-mesh-local/1` is the protocol every program on a device speaks to the Host, the one process
 that holds the device's keys, rosters, connections, object store and database. It runs over a pipe the operating
@@ -167,6 +168,12 @@ brought in line:
     granted on the pipe.
 24. **The store has an epoch** (§4.2, §9.3): `HelloAck.storeEpoch` changes when the database was restored or
     recreated, so a client that kept its own index knows that store sequences started over.
+25. **External services** (§4.2, §13), added 2026-10-29: beside in-process and spawned, the configuration MAY
+    list a service as **external**, with a token of 32 random bytes the Host generates and keeps in its
+    configuration, which only the Host's user can read. A program that presents that token in `Hello.token`
+    may claim the name. This lets the command line and the user's own scripts write Entries in the service role
+    without the Host spawning them; the token sits in the user's configuration and is the user's, like
+    everything else the pipe admits (§2.2).
 
 ## 2. Transport
 
@@ -208,7 +215,8 @@ is the first fence, this check is the second.
 
 A process of the same OS user is trusted as that user for everything the user role may do, as with ssh-agent
 and Docker Desktop: the protocol adds no finer right, and claims none. There is no password and no network
-port, and the one token there is (§4.2) proves that a service was spawned by the Host, not who the user is.
+port, and the service tokens there are (§4.2) prove that a program was spawned by the Host or holds an external
+service's configured token, not who the user is.
 
 Two things are built on the process identity beyond admission. The requests that need the user's private key
 (§6: `ConfirmPairing` in modes `ShowUser`, `JoinUser` and `AddDevice`, `SetGrant`, `RevokeGrant`, `RemoveDevice`
@@ -381,7 +389,7 @@ Hello:
   name:           name            service role: the service's name; user role: the client's name, for logs
   clientVersion:  string(64)      for logs; MUST NOT be interpreted
   capabilities:   u32             bit flags, §14.4 (client flags)
-  token:          bytes<32>       service role, spawned by the Host: the token it was given; else all zero
+  token:          bytes<32>       service role, spawned or external: the service's token; else all zero
 HelloAck:
   version:        u16             = 1
   hostVersion:    string(64)      for logs; MUST NOT be interpreted
@@ -400,14 +408,23 @@ characters, and expects it back in `Hello.token`; a token is valid for one conne
 the child exits. In-process services connect to the local port over an in-memory stream pair before the Host
 opens the pipe, with `token` all zero.
 
+A service the configuration lists as **external** is neither in-process nor spawned: it is a program the user
+starts, such as the command line or a script. The Host generates its token, 32 random bytes, when it first
+writes that entry, and keeps it in the configuration as 64 lowercase hex characters; the configuration MUST be
+readable and writable only by the Host's user (§13). The program reads the token from there, or is handed it by
+the user, and presents it in `Hello.token`. An external service's token stays valid for any number of
+connections until the configuration replaces it; check 4 still admits one connection per name at a time.
+
 On `Hello` the Host checks, in this order, and on the first failure sends `Bye` with the stated reason and
 closes:
 
 1. `version` is 1; else `Bye(Refused, "version")`.
 2. `role` is 1 or 2; else a violation, `Bye(Violation)`.
 3. For role 2, `name` is a service name the Host's configuration lists, the name is not configured as
-   in-process unless the connection *is* the in-memory pair of that in-process service, and for a service the
-   Host spawns `token` equals the token it gave that child; else `Bye(Refused, "service")`. A client the
+   in-process unless the connection *is* the in-memory pair of that in-process service, for a service the
+   Host spawns `token` equals the token it gave that child, and for an external service `token` equals the
+   token its configuration holds; else `Bye(Refused, "service")`. The Host MUST compare tokens in time
+   independent of their content. A client the
    configuration does not list, or that cannot prove the name, is refused: the Host MUST NOT grant a role other
    than the one asked for.
 4. For role 2, no other connection with the same `name` is in Ready or Draining; else `Bye(Duplicate)`. The
@@ -643,6 +660,8 @@ kinds:          list<u16>(16)   Package kinds its configuration lets it register
 entryKinds:     list<u16>(64)   Entry kinds its configuration lets it register, ascending
 ```
 
+A service whose `inProcess` and `spawned` are both false is external (§4.2).
+
 ### 5.13 `Operation`
 
 ```
@@ -683,8 +702,8 @@ expires:        time
 failure:        string(256)     when state is Failed; else empty
 ```
 
-The exchange behind these fields is `axiom-mesh-pair/1` (SPEC.md §14.4), a separate document; `code` and `sas`
-are opaque to the client and shown as they are.
+The exchange behind these fields is `axiom-mesh-pair/1` (SPEC.md §14.4), specified in
+[PAIR-SPEC.md](PAIR-SPEC.md) (to be written); `code` and `sas` are opaque to the client and shown as they are.
 
 ### 5.16 `Transfer`
 
@@ -1285,8 +1304,8 @@ process, connected to the local port over an in-memory stream pair; the contract
 and a service that runs as its own program on the pipe sees exactly the same messages. A service may send
 every request of §6 marked **S**, and the requests of this section.
 
-A service that connects does, in this order: `Hello` with role 2, its name and, when the Host spawned it, its
-token; `RegisterKind` for each of its Package kinds; a comparison of `HelloAck.storeEpoch` with the epoch its
+A service that connects does, in this order: `Hello` with role 2, its name and, when the Host spawned it or
+it is external (§4.2), its token; `RegisterKind` for each of its Package kinds; a comparison of `HelloAck.storeEpoch` with the epoch its
 own index was built against (§9.3); `Subscribe` to `entries` for its Entry kinds with `fromSeq` set to one past
 the last store sequence it has indexed (after `ListStored` when the gap is large), and to `packages` for its
 Package kinds. From then on it receives everything it needs as events.
@@ -1659,13 +1678,16 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
   Host's configuration lists (§4.2), and the configuration binds the name to the kinds it may register (§9.2).
   A name configured as in-process is never granted on the pipe, and a name the Host spawns is granted only
   with the token the Host put into that child's environment; a program of the same user that neither is nor
-  was spawned cannot claim either. The role exists so that two services do not hold one kind at once and so
+  was spawned cannot claim either. A name configured as external is granted to the program that presents the
+  token the configuration holds for it. That token lives in a file only the Host's user can read and write, so
+  holding it is that user's choice (to let the command line or a script write Entries), not a way around the
+  pipe's admission: whoever can read the file can already do everything the user role may. The role exists so that two services do not hold one kind at once and so
   that a stray program does not register a kind by accident; against a hostile program of the same user it is
   the process identity of §2.2 that stands, and the rest is the threat model of DESIGN.md §14.
 - **No key crosses the pipe.** Signing happens in the Host; a service hands over bytes and gets back a signed
   Entry. The user key's backup is the one exception and is specified apart (§6.1). A `Response` never carries a
-  private key, and `GetObject` of a Roster returns public keys only. The service token (§4.2) is a proof of
-  spawning, not a key: it opens nothing but the service role for one child.
+  private key, and `GetObject` of a Roster returns public keys only. A service token (§4.2) is a proof of
+  spawning or of the user's choice, not a key: it opens nothing but the service role of its one name.
 - **Paths are the client's.** `Materialise`, `PutFile` and `GetStorePath` name paths the Host opens as the user
   of the connection that named them (Windows: `ImpersonateNamedPipeClient` around every open, create, delete
   and rename; on Unix the Host runs as that user); a Host under another account therefore reads and writes
@@ -1978,8 +2000,8 @@ message encoded and decoded at every byte split, with ProtoStream's harness; eve
 over and accepted at the limit, with the violation-versus-error distinction of §11; every request of §6, §7,
 §8, §9 and §10 answered with the stated OK body and with every listed error against a fixed Host state; the
 class rules of §3.3 against a frame of each class from each side; `Hello` refused for each reason of §4.2,
-`Duplicate` against a live service name, an in-process name claimed on the pipe, and a spawned name with a
-wrong token; a `WriteEntry` with no parents producing an Entry that verifies under SPEC.md §8.6, orders under
+`Duplicate` against a live service name, an in-process name claimed on the pipe, and a spawned or external
+name with a wrong token; a `WriteEntry` with no parents producing an Entry that verifies under SPEC.md §8.6, orders under
 §9.3 and is faultless under §8.6 against an in-memory node, for the four parent cases of §9.4, the two-parent
 case against a Package whose highest clock is 2^32 + 1 above the own Head; a `Message`, `Version` and
 `Redaction` payload that does not parse to its end answered `Invalid` and the same Entry from a peer dropped

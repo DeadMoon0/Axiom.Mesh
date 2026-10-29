@@ -398,7 +398,8 @@ id, executable) behind that and refuses any other user; no password, no port, no
 network. A process of the same user is that user, as with ssh-agent and Docker Desktop. The requests that
 spend the user key (confirm a pairing, grant, revoke, remove a device, forget a user) are logged with the
 process that sent them and may be confined by configuration to named executables; an out-of-process service
-the Host spawns proves it with a token the Host put into its environment (LOCAL-SPEC.md §2.2, §4.2).
+the Host spawns proves it with a token the Host put into its environment, and an external one the user starts
+(the CLI, a script) with the token the Host keeps for it in its configuration (LOCAL-SPEC.md §2.2, §4.2).
 
 The local protocol is described with ProtoStream like the mesh protocol: typed binary messages, requests
 and responses paired by a correlation id, and subscriptions through which the Host pushes events (a peer
@@ -452,7 +453,7 @@ subscription; the app renders history and live state from the same feed. Nothing
 ## 11. Repository layout and packages
 
 ```
-Axiom.Mesh.Discovery/        mDNS, UDP broadcast, static peers; no dependency on the rest
+Axiom.Mesh.Discovery/        mDNS, UDP broadcast, static peers; references Model for the ids, nothing else
 Axiom.Mesh.Model/            objects, entries, signing, DAG, order and merge rules (honest)
 Axiom.Mesh.Protocol/         the ProtoStream description of axiom-mesh/1 and its messages (honest)
 Axiom.Mesh.Local/            the ProtoStream description of axiom-mesh-local/1, both roles (honest);
@@ -470,10 +471,13 @@ UnitTests/                   one test project per project, same layout
 Documentation/, Samples/, Benchmarks/
 ```
 
-Dependencies point downwards only: Host → Core → Protocol, Model → (ProtoStream, LDB); Services and Apps →
-Local → (ProtoStream) and nothing of Core or Host. Discovery is a leaf Core uses. The Host references the
-services only to start them in-process; a convention test enforces that no service and no app references
-Core, Host or Model.
+Dependencies point downwards only: Host → Core → Protocol, Local, Discovery, Model → (ProtoStream, LWSE, LDB);
+Services and Apps → Local → Model → (ProtoStream) and nothing of Core or Host. Local references Model because a
+service builds and parses Trees, ChunkLists, Versions and Messages, and one encoding of them beats two; Model is
+honest and depends on nothing but ProtoStream, so a client that references it takes on no runtime. Discovery
+references Model for the device and user ids, so an id has one definition, and stays usable alone. The Host
+references the services only to start them in-process; a convention test enforces that no service and no app
+references Core or Host.
 
 ## 12. Wire protocol `axiom-mesh/1`
 
@@ -587,7 +591,7 @@ extent of their grants and no further. A device of your own that is lost is remo
 | An Edge's port reachable from the internet (direct Link) | mutual TLS pinned to rosters before any byte, LWSE admission; the relayed transport opens no inbound port at all and is the default |
 | A hostile or compromised relay | it joins two TLS connections it cannot read; it can delay, drop or count, not read or forge |
 | A compromised Edge | it is a granted device and can leak what it may read, like any granted device; it cannot widen its own crossing list without the owner's signature, and removal from the roster cuts the Link |
-| A malicious local program | the pipe admits the same OS user only, checked by ACL and by process identity, and that user may do everything anyway; the service role is granted by the Host's configuration by name and bound to kinds, an in-process name is never granted on the pipe and a spawned service proves itself with a token, so a stray program does not register a kind by accident; the user-key requests are logged with their process and may be confined to named executables (LOCAL-SPEC.md §2.2, §13) |
+| A malicious local program | the pipe admits the same OS user only, checked by ACL and by process identity, and that user may do everything anyway; the service role is granted by the Host's configuration by name and bound to kinds, an in-process name is never granted on the pipe and a spawned or external service proves itself with a token, so a stray program does not register a kind by accident; the user-key requests are logged with their process and may be confined to named executables (LOCAL-SPEC.md §2.2, §13) |
 
 Not defended: traffic analysis on the LAN (who talks to whom and how much), and a granted user leaking what
 they read.
@@ -603,16 +607,16 @@ they read.
    binds no socket at all, so a node needs *two* servers (one bound, one in memory) and a byte pump between the
    socket and the in-memory port. That workaround is not production: two admission tables and two drains per
    node, an extra copy per direction, admission decided after the TCP connect instead of before it, and the
-   TLS role fixed per port. **Decision:** Mesh does not ship the workaround. LWSE got the API instead, on branch
-   `claude/adopt-connections-f8d0e2` (commit `7092996` on top of `v2`, the 0.3.0 line; not merged or released
-   yet): a port is listened on with an `AdoptOnlyPort` handle (`.Listen(Ports.Outbound, p => ...)`) and binds
+   TLS role fixed per port. **Decision:** Mesh does not ship the workaround. LWSE got the API instead, in
+   commit `7092996`, now merged on `v2` as version 0.3.0 and awaiting publication on nuget.org: a port is listened on with an `AdoptOnlyPort` handle (`.Listen(Ports.Outbound, p => ...)`) and binds
    nothing; `LWSEServer.TryReserve(port, remote, timeout, out AdmissionLease)` decides deny list, filters and
    admission *before* the dial and holds the place as a lease; `LWSEServer.AdoptAsync(lease, stream, local)`
    serves the stream through the one serve path and completes when the connection ended; refusals are typed
    `AdoptionRefusedException`s; modules reach the same seam through `ModuleBuildContext.Adoption`
    (`IConnectionAdoption`). Adopted and accepted connections share one admission table, one observer list and
    one drain. The TLS role stays a port option; a node has one inbound and one adopt-only port on one server.
-   Phase 1 starts once that branch is merged and released.
+   Phase 1a starts on the packages already published; its steps that need the adopt-only port wait until
+   `Axiom.LWSE.Core` and `Axiom.LWSE.Testing` 0.3.0 are on nuget.org, since Mesh restores from there only.
    Two findings for the protocol, now in §6.3: TLS 1.3 lets the dialling side finish its handshake before the
    server judged its certificate, so a refused dialler sees its session open and then close; and Windows'
    TLS stack needs the device key in a persisted form, which a PKCS#12 round trip gives.
@@ -739,8 +743,9 @@ the far side may ask for any of it.
 | Phase | Delivers | Done when |
 |---|---|---|
 | 0 | spikes for open questions 1 and 2 (`Spikes/`) | both answered in writing in this document; 1 and the Android half of 2 are, iOS waits for a Mac |
-| 0b | LWSE: adopt-only ports, `TryReserve`, `AdoptAsync` (done on branch `claude/adopt-connections-f8d0e2`), merged and released | Mesh builds against that LWSE version with one server per node |
-| 1 | Discovery, Model, Protocol, Core, Host with the CLI; Sync service; desktop only | two PCs on one LAN pair, share an Archive, sync a folder both ways, survive one being offline, and the honest layers are tested without sockets or disk |
+| 0b | LWSE: adopt-only ports, `TryReserve`, `AdoptAsync`, merged on `v2` as 0.3.0; publication on nuget.org pending | Mesh builds against that LWSE version with one server per node |
+| 1a | Fundamentals: Model, Protocol, Local, Discovery, Core, Host, Testing and the CLI; desktop only | two PCs on one LAN pair, one creates a Package and writes an Entry through the CLI (a text message, and a published folder), the other follows it and holds the same Entry hash, and this survives one PC being offline; the honest layers are tested without sockets or disk |
+| 1b | Sync service | two PCs share an Archive and sync a folder both ways, surviving one being offline |
 | 2 | Chat service | a Channel between two users with attachments, pushed, ordered the same on both ends, shown by the CLI |
 | 3 | Avalonia desktop app: management, the Sync and Chat service views, mesh analytics | the app does everything the CLI does, and shows the mesh's state live and over the last week |
 | 4 | Android, then iOS, with the phone retention policy | a phone pairs by QR code, chats and opens the newest version of an Archive |

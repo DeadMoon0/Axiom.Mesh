@@ -1024,7 +1024,7 @@ assigned.
 | Name | Use |
 |---|---|
 | `axiom-mesh/1` | this protocol |
-| `axiom-mesh-pair/1` | the pairing exchange; a separate document |
+| `axiom-mesh-pair/1` | the pairing exchange, specified in [PAIR-SPEC.md](PAIR-SPEC.md) (to be written) |
 | `axiom-mesh-chat/1`, `axiom-mesh-sync/1` | service protocols, each its own document; names ending in `/<n>` carry their own version |
 
 ### 14.5 Signature and hash domains
