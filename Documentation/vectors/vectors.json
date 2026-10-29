@@ -1,0 +1,114 @@
+{
+  "specification": "AMP/1, SPEC.md draft 3, §15",
+  "about": "Each .hex file is one object (SPEC.md §8), lowercase hex, 64 characters per line. 'hash' is H(object). Signed vectors verify against the key 'verifiedWith' names (a key below, the object's own key field, or another vector's owner key); their signatures are not deterministic, so compare them by verifying, never byte for byte. The keys are published test keys (PKCS#8 DER, hex): never use them for anything else.",
+  "regenerate": "Set AXIOM_MESH_WRITE_VECTORS=1 and run the Model.Tests suite (VectorTests).",
+  "keys": [
+    {
+      "name": "alice",
+      "role": "user",
+      "id": "e0177d160c2e2326718a3fc484da3caf1d6d4b0034a3ceb1e0ccbb0a120d08d7",
+      "publicKey": "04df3eb141942f1d6fad31c730040e32a9a2ca3dd16847c336fc03ddc6c54b3ad6b0a2d6a1084509a9609026ea5682bf44655d66b979bdc5a5973fae1f8bfa7c37",
+      "pkcs8": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b0201010420004ebbf5410a8f4c5c7679665ea279eb0dbe1e1df4b933a928edff32ec4f08b9a14403420004df3eb141942f1d6fad31c730040e32a9a2ca3dd16847c336fc03ddc6c54b3ad6b0a2d6a1084509a9609026ea5682bf44655d66b979bdc5a5973fae1f8bfa7c37"
+    },
+    {
+      "name": "alice-laptop",
+      "role": "device",
+      "id": "97cbf9b8b16db85038a78e62f90329febacf857cb4f9a514db333203093b7437",
+      "publicKey": "0401d064ffb9b3ac6025513d850e05b49a429130bdde098f88c8c6a30794a273434f493f2e03bcb9cb0cd7de726849d9c0a6de5e48313f914723ee8daf40ac6bc9",
+      "pkcs8": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b0201010420947326d1496a8560bf7f00412a3ee0aab537ed8c12b732f0072892e28cf5af12a1440342000401d064ffb9b3ac6025513d850e05b49a429130bdde098f88c8c6a30794a273434f493f2e03bcb9cb0cd7de726849d9c0a6de5e48313f914723ee8daf40ac6bc9"
+    },
+    {
+      "name": "alice-phone",
+      "role": "device",
+      "id": "65c772aa0e35de6f5b787c4016d6f24fbf6fadebc2734133a5c535ff1ddf979c",
+      "publicKey": "0496d10b9dace6f139dfebbc50606d5c8234c01b54b1e99759405e845d8f945bdba8e6a716680e5935cfc239da87f677ac30082eb6c44e1e423f256ce9b50d74b2",
+      "pkcs8": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104200d8ccd74774dfb9bc98e4adbeab4e14a197348b6afda7b080cd411fac991eebba1440342000496d10b9dace6f139dfebbc50606d5c8234c01b54b1e99759405e845d8f945bdba8e6a716680e5935cfc239da87f677ac30082eb6c44e1e423f256ce9b50d74b2"
+    },
+    {
+      "name": "bob",
+      "role": "user",
+      "id": "d752484935c16fe3de8cef4ea77f7c5802fb525b05e928d10d515bd239aa65f3",
+      "publicKey": "046be35e4fa046291d32c00662dbeaf9e684b535a576be0e6bfb940278ea96411ce1694baea23aa50cc2bc7ffc95efbe498d7becdd5b2a0c17b427c60d543c8c3f",
+      "pkcs8": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b020101042066884d1560d131a3d6b5b44b857023017503335417dabc898b123ea27f6afaf2a144034200046be35e4fa046291d32c00662dbeaf9e684b535a576be0e6bfb940278ea96411ce1694baea23aa50cc2bc7ffc95efbe498d7becdd5b2a0c17b427c60d543c8c3f"
+    },
+    {
+      "name": "bob-desktop",
+      "role": "device",
+      "id": "20e5b42aae4b400ed28d50de9343ded272c51098bc5b1ce618bf2e468416538e",
+      "publicKey": "045a9cef0ef8a3ff97a53d158a1648a867b6924dde0c7b7b72efa2be3ce748d1fdff4ee0a6dce14d5b75fb213b1947d76cbeb81d80dddc554a1be1556a4c81d6dc",
+      "pkcs8": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b020101042019905496ec6c0a9087d25ebac11f8f0d971a0d6151f95a6339ee3deef4e6074da144034200045a9cef0ef8a3ff97a53d158a1648a867b6924dde0c7b7b72efa2be3ce748d1fdff4ee0a6dce14d5b75fb213b1947d76cbeb81d80dddc554a1be1556a4c81d6dc"
+    },
+    {
+      "name": "eve",
+      "role": "user",
+      "id": "cedc59c1f0282295f44be08916bbce602c7c4cc8b6e711086b6fd2e0a88186ab",
+      "publicKey": "04159970f1bbc5be2822ac5ee0703335eb83a9ea63c3b467e2b7885565392e36a1953dc3d69640863393725dafcb625fc2de5f73fa5792e4438246841bbd4b4f77",
+      "pkcs8": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b020101042046c15ad7a9306cdc0c7fad73c2d8fcf818b2b51df4a52353ff4bf2df258ae3dca14403420004159970f1bbc5be2822ac5ee0703335eb83a9ea63c3b467e2b7885565392e36a1953dc3d69640863393725dafcb625fc2de5f73fa5792e4438246841bbd4b4f77"
+    },
+    {
+      "name": "eve-device",
+      "role": "device",
+      "id": "ad15111102a6525d33081a72deef83e9b3f4751ec4eb3e19c7b5ec40c39afbb3",
+      "publicKey": "044e9535046b1fed68119e0be0473b693ff81838f9ae1e54df1a479ce90c155d44a048da43ba5390cd5d03e7aff41512f035fedcbedf02928a1bd1cc727db73e2d",
+      "pkcs8": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b020101042017d2d8ac795e5f43a5e8aecb925209e71b894a73ab4baa8aa2b64058b9d9b662a144034200044e9535046b1fed68119e0be0473b693ff81838f9ae1e54df1a479ce90c155d44a048da43ba5390cd5d03e7aff41512f035fedcbedf02928a1bd1cc727db73e2d"
+    }
+  ],
+  "vectors": [
+    {
+      "file": "chunk.hex",
+      "tag": 1,
+      "object": "Chunk",
+      "hash": "876ec024932358390e07fcf03610f6cc00f2ff4b9b5589cbbb971188ec45ec7b",
+      "signedBy": null,
+      "verifiedWith": null
+    },
+    {
+      "file": "chunklist.hex",
+      "tag": 2,
+      "object": "ChunkList",
+      "hash": "40320b5737b053ca80a66bb1f6a15a011696e0f8049b792012d773eb3e12377b",
+      "signedBy": null,
+      "verifiedWith": null
+    },
+    {
+      "file": "tree.hex",
+      "tag": 3,
+      "object": "Tree",
+      "hash": "a9d9e0139fef303d680db68560eb46897175ce35b9ed145a9a9e4cd786f43d17",
+      "signedBy": null,
+      "verifiedWith": null
+    },
+    {
+      "file": "entry.hex",
+      "tag": 4,
+      "object": "Entry",
+      "hash": "e197fdd8c5148eda075cdd34373c5bd40d042ec7aed41f708aa72ad8a2655912",
+      "signedBy": "alice-laptop",
+      "verifiedWith": "alice-laptop"
+    },
+    {
+      "file": "manifest.hex",
+      "tag": 5,
+      "object": "Manifest",
+      "hash": "f4d555f253a7eaaafc8180f4c0a4f3b3c92fdf215221c3720bcf0826a0671e80",
+      "signedBy": "alice",
+      "verifiedWith": "ownerKey"
+    },
+    {
+      "file": "roster.hex",
+      "tag": 6,
+      "object": "Roster",
+      "hash": "941e62f480d0b55b04a639027b6b0a9ba9c411b1ff5c1fdaf54f7704d629084c",
+      "signedBy": "alice",
+      "verifiedWith": "userKey"
+    },
+    {
+      "file": "grant.hex",
+      "tag": 7,
+      "object": "Grant",
+      "hash": "fc2da57bbefc935852cff3feb109f5e1d85da8c048191de89d9251d57920e689",
+      "signedBy": "alice",
+      "verifiedWith": "manifest.hex"
+    }
+  ]
+}
