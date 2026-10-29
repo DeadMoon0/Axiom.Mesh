@@ -8,4 +8,9 @@
     <ProjectReference Include="..\..\Axiom.Mesh.Core\Axiom.Mesh.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- One fake clock per test: the store's timestamps, the held buffer's expiry. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
 </Project>

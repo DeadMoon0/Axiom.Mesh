@@ -53,7 +53,8 @@ public abstract class ConventionTests<TAnchor>
     /// <returns>What it may reference, or <see langword="null"/> for an assembly the table does not know.</returns>
     internal static IReadOnlyCollection<string>? AllowedReferences(string package)
     {
-        string[] core = [Model, Protocol, Local, Discovery, ProtoStream, "Axiom.LWSE.Core", "Axiom.LDB.Entity", "Axiom.LDB.Core", "Axiom.LDB.Query"];
+        // Axiom.LDB.Primitives ships inside the Axiom.LDB.Core package (the generated entity code reads rows through it).
+        string[] core = [Model, Protocol, Local, Discovery, ProtoStream, "Axiom.LWSE.Core", "Axiom.LDB.Entity", "Axiom.LDB.Core", "Axiom.LDB.Primitives", "Axiom.LDB.Query"];
         string[] host = [.. core, Core, "System.Security.Cryptography.ProtectedData", "Microsoft.Extensions.Hosting", "Microsoft.Extensions.Configuration.Json"];
         return package switch
         {

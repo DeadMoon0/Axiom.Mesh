@@ -67,3 +67,18 @@ The carriers of the protocol package (M2), by rule; under their own heading so t
 | §6 Every wait a deadline, every queue a bound | `Amp.Definition` (first `Hello` 10 s, idle 5 min, heartbeat 60 s), `PairProtocol.Definition` (10 s, 10 min), `Rules/ListingRule.cs` (`Deadline`), `Rules/WantBudget.cs` (64), `Rules/ObjectQueueRule.cs` (8 MiB), `Pairing/PairingMachine.cs` (`Expires`). Not carried: the 30-second frame completion of SPEC.md §5.1 (the session handler, M6/M7). |
 | §8 Rules are pure functions tested from the spec | `Rules/` and `Pairing/`, each tested in `UnitTests/Axiom.Mesh.Protocol.Tests/Rules` with expected values quoted from SPEC.md, LOCAL-SPEC.md or PAIR-SPEC.md. |
 | §9 A promise only with its test | `Documentation/PAIR-SPEC.md` §12 and the Protocol rows of CONFORMANCE.md and GUARANTEES.md. |
+
+## Axiom.Mesh.Core
+
+What the store, the index, trust and intake (M5) carry, by rule. Transport, replication and the local port join in M6–M8.
+
+| Rule | Carried by |
+|---|---|
+| §1 Honest layers under one dishonest runtime | `Axiom.Mesh.Core/Seams/` (`IEntropy`, `SystemEntropy`, `DeterministicEntropy`) and `Storage/IObjectFiles.cs` (`DirectoryObjectFiles`, `InMemoryObjectFiles`): randomness and disk enter by these seams; the clock is a `TimeProvider` handed to the writer and to LDB; LDB is handed in as a `Database`. |
+| §4 Nothing believed without a hash, a signature or a roster | `Intake/Intake.cs` (copy, `HashedObject.TryVerify`, `Objects.TryParse`, then `IntakeRules.Decide`), `Intake/IntakeRules.cs` (SPEC.md §10.6 by tag over Model's `Verified*.TryVerify` and `EntryAdmission`), `Store/Commands/AdmitCommand.cs` (the writer's only way in takes a `StorableObject`); `Trust/TrustSnapshot.cs` (`TryResolveDevice` pins a key by `H(point)` to a not-removed device of a known user). Proven by `IntakeTests` and `TrustSnapshotTests`. |
+| §5 Every limit a named constant, enforced where the bytes enter | `Intake/HeldBuffer.cs` (`Limits.MaxHeldBytesPerSession`, `MaxHeldBytes`, `HeldAfterDisconnectSeconds`), `Store/StoreWriter.cs` (queue 4 096, batches of 256 commands or 8 MiB), `Store/ChunkStreamer.cs` (`Limits.ChunkLength`, `MaxChunkListChunks`). |
+| §6 Every wait a deadline, every queue a bound | `Store/StoreWriter.cs` (one bounded queue; a full one makes senders wait), `Changes/ChangeBus.cs` and `ChangeSubscription.cs` (a bounded queue per subscriber that lapses alone, never blocking the writer), `Intake/HeldBuffer.cs`. |
+| §7 A failure says who must act | `MeshStoreException.cs` (schema mismatch, a damaged current object, an unwritable store; Fault Environment, never transient). |
+| §8 Rules are pure functions tested from the spec | `Intake/IntakeRules.cs`, `Store/RetentionRule.cs`, `Store/EntryIndex.cs` (keyset order), Model's `CurrentObject`, `RosterRules`, `HeadRule`, `Redactions` applied by `Store/StoreBatch.cs` and `Trust/TrustBuilder.cs`; the shells (`StoreWriter`, `Intake`, `ObjectStore`, `Evictor`) only sequence them. |
+| D8 One writer, immutable snapshots | `Store/StoreWriter.cs` (the only writer of the index and the object files; one LDB transaction per batch, completions after the commit), `Trust/TrustSnapshot.cs` (frozen, swapped whole, read lock-free), `Store/WriterState.cs` (reloaded from the database after a failed commit). |
+| §9 A number only with the command that measured it | `Regression/EntryIndexProbeTests.cs` prints the LDB probe (100 000 Entries) with `dotnet test --filter EntryIndexProbeTests --logger "console;verbosity=detailed" -c Release`. |

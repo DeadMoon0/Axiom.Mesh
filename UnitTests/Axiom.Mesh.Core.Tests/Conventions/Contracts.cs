@@ -21,7 +21,13 @@ public static class Contracts
     public sealed class ExceptionRecoveryContract : ExceptionRecoveryContractTests<MeshNode>
     {
         /// <inheritdoc />
-        protected override IEnumerable<MeshException> Samples() => [];
+        protected override IEnumerable<MeshException> Samples() =>
+        [
+            new MeshStoreException(
+                "The node's database was not made by this version of Axiom.Mesh (schema version 1 expected, found 2).",
+                "Run the version of Axiom.Mesh that made this database, or a later one that can migrate it.",
+                "Or move the data directory aside and start anew."),
+        ];
     }
 
     /// <summary>The suite of Axiom.Mesh.Core keeps the three parts apart and never waits by the wall clock.</summary>
