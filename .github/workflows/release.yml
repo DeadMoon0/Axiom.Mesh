@@ -1,0 +1,106 @@
+name: Release
+
+# Push a tag named <package>-v<version> to publish that one package, for example:
+#   git tag Model-v0.1.0 && git push origin Model-v0.1.0
+# The tag is the source of truth: its version must equal <Version> in the project, or the job fails.
+# One workflow for every package, so nuget.org needs one Trusted Publishing policy (this repository, release.yml).
+#
+# Publish order, each step once the previous packages show on nuget.org:
+#   1. Model
+#   2. Protocol, Local, Discovery
+#   3. Core            (needs Axiom.LWSE.Core 0.3.0 on nuget.org once Core references it)
+#   4. Host, Cli
+#   5. Testing
+# A dependent package's reference is bumped only once the version it needs is on nuget.org.
+
+on:
+  push:
+    tags:
+      - 'Model-v*'
+      - 'Protocol-v*'
+      - 'Local-v*'
+      - 'Discovery-v*'
+      - 'Core-v*'
+      - 'Host-v*'
+      - 'Testing-v*'
+      - 'Cli-v*'
+
+permissions:
+  contents: read
+  id-token: write # NuGet trusted publishing
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Resolve package
+        id: package
+        run: |
+          set -euo pipefail
+          prefix="${GITHUB_REF_NAME%%-v*}"
+          version="${GITHUB_REF_NAME#*-v}"
+          case "$prefix" in
+            Model)     project="Axiom.Mesh.Model/Axiom.Mesh.Model.csproj"
+                       tests="UnitTests/Axiom.Mesh.Model.Tests/Axiom.Mesh.Model.Tests.csproj" ;;
+            Protocol)  project="Axiom.Mesh.Protocol/Axiom.Mesh.Protocol.csproj"
+                       tests="UnitTests/Axiom.Mesh.Protocol.Tests/Axiom.Mesh.Protocol.Tests.csproj" ;;
+            Local)     project="Axiom.Mesh.Local/Axiom.Mesh.Local.csproj"
+                       tests="UnitTests/Axiom.Mesh.Local.Tests/Axiom.Mesh.Local.Tests.csproj" ;;
+            Discovery) project="Axiom.Mesh.Discovery/Axiom.Mesh.Discovery.csproj"
+                       tests="UnitTests/Axiom.Mesh.Discovery.Tests/Axiom.Mesh.Discovery.Tests.csproj" ;;
+            Core)      project="Axiom.Mesh.Core/Axiom.Mesh.Core.csproj"
+                       tests="UnitTests/Axiom.Mesh.Core.Tests/Axiom.Mesh.Core.Tests.csproj" ;;
+            Host)      project="Axiom.Mesh.Host/Axiom.Mesh.Host.csproj"
+                       tests="UnitTests/Axiom.Mesh.Host.Tests/Axiom.Mesh.Host.Tests.csproj" ;;
+            Testing)   project="Axiom.Mesh.Testing/Axiom.Mesh.Testing.csproj"
+                       tests="UnitTests/Axiom.Mesh.Testing.Tests/Axiom.Mesh.Testing.Tests.csproj" ;;
+            Cli)       project="Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj"
+                       tests="UnitTests/Apps/Axiom.Mesh.Cli.Tests/Axiom.Mesh.Cli.Tests.csproj" ;;
+            *) echo "::error::Unknown package prefix '$prefix' in tag $GITHUB_REF_NAME"; exit 1 ;;
+          esac
+          declared=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$project")
+          if [[ "$version" != "$declared" ]]; then
+            echo "::error::Tag version $version does not match <Version>$declared</Version> in $project"
+            exit 1
+          fi
+          echo "project=$project" >> "$GITHUB_OUTPUT"
+          echo "tests=$tests UnitTests/Axiom.Mesh.ReadmeSamples.Tests/Axiom.Mesh.ReadmeSamples.Tests.csproj" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        env:
+          TESTS: ${{ steps.package.outputs.tests }}
+        run: |
+          set -euo pipefail
+          for test in $TESTS; do
+            dotnet test "$test" --configuration Release --logger trx
+          done
+
+      - name: Pack
+        run: dotnet pack "${{ steps.package.outputs.project }}" --configuration Release -p:ContinuousIntegrationBuild=true --output out
+
+      - name: NuGet login
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ vars.NUGET_USER || 'DeadMoon0' }}
+
+      - name: Push
+        run: dotnet nuget push "out/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate

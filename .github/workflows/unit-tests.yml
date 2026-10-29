@@ -1,0 +1,57 @@
+name: Unit Tests
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: unit-tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is not optional: named pipes, DPAPI, SChannel and file-system semantics differ from Linux.
+        os: [ ubuntu-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    # A hung test must not hold a runner for the default six hours.
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore Axiom.Mesh.slnx
+
+      - name: Build
+        run: dotnet build Axiom.Mesh.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Axiom.Mesh.slnx --configuration Release --no-build --logger "trx"
+
+      - name: Pack (package validation)
+        run: dotnet pack Axiom.Mesh.slnx --configuration Release --no-build --output out
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: '**/TestResults/*.trx'
