@@ -360,7 +360,7 @@ internal sealed class StoreBatch
 
     // SPEC.md §8.6: once its parents are held, an Entry naming a parent of another Package, a clock not above a parent's,
     // or a clock more than 2^32 above the greatest is faulty. An Entry stored before its parents (a history walk) is not
-    // checked again when they arrive (STRUCTURAL-DEBT.md 17).
+    // checked again when they arrive (STRUCTURAL-DEBT.md 28).
     private async Task<bool> HasParentFaultAsync(EntryContent content)
     {
         if (content.Parents.IsEmpty)

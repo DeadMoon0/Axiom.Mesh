@@ -165,14 +165,9 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 
 ## 17. Intake does not check an Entry's parents
 
-- **Rule:** SPEC.md §8.6 and §12.2: once its parents are held, an Entry whose parent is of another Package, whose clock
-  is not above every parent's, or exceeds the greatest by more than 2^32, is faulty and not forwarded.
-- **Instead:** intake admits an Entry on its signature and writer (`EntryAdmission`) alone; `Lamport.TryFindParentFault`
-  is not consulted yet.
-- **Evidence:** `Axiom.Mesh.Core/Intake/IntakeRules.cs`.
-- **Tolerated because:** nothing is forwarded before replication exists, and the check needs the history walk that
-  wants the parents in the first place.
-- **Paid in:** M7, with walking history (SPEC.md §10.3).
+Paid in e6a8f57 (M7): the store writer checks `Lamport.TryFindParentFault` against the stored parents before it stores
+an Entry (`StoreBatch.HasParentFaultAsync`, `AdmitOutcome.Faulty`) and the session records the sender as faulty
+(`FaultyContentTests`). What remains, an Entry stored before its parents, is entry 28.
 
 ## 18. Evicting an Entry forgets its Head without electing the next one
 
@@ -180,8 +175,10 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 - **Instead:** when an Entry is evicted (possible only for a Package no longer followed, whose Entries are unpinned),
   its `Heads` row is deleted and no other stored Entry of the device takes its place until one is stored again.
 - **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs`, `UnlinkAsync`.
-- **Tolerated because:** an unfollowed Package is neither listed nor replicated; following it again fetches its Heads.
-- **Paid in:** M7, with the listing (`PackageState.heads` recomputed from the stored Entries on follow).
+- **Tolerated because:** an unfollowed Package is neither listed nor replicated; following it again fetches its Heads
+  from the peers' listings, and M7's `HeadsView` mirrors the `Heads` table exactly.
+- **Paid in:** M9, with the store requests (`Evict` and `GetStore`): electing the next stored Entry of the device on
+  eviction, in the writer and in `HeadsView`.
 
 ## 19. A user who stops being known keeps the stored Roster
 
@@ -197,15 +194,9 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 
 ## 20. A frame is not bounded to 30 seconds from its first byte
 
-- **Rule:** SPEC.md §5.1: a frame MUST be received completely within 30 seconds of its first byte, else the connection is
-  closed with `Bye(Violation)`.
-- **Instead:** a session bounds the first `Hello` (10 s) and silence (5 min), but a peer that starts a frame and trickles
-  it is closed only by the idle timeout.
-- **Evidence:** `Axiom.Mesh.Protocol/Amp.cs` (ProtoStream 0.2.0 has no per-frame deadline); `Axiom.Mesh.Core/Node/PeerSessionHandler.cs`.
-- **Tolerated because:** a frame is at most 4 MiB + 4 KiB and buffered within that bound, admission caps connections per
-  address at 4, and an established session in M6 receives nothing it acts on.
-- **Paid in:** M7, with the replication session handler (a frame timer armed on the first byte, or a ProtoStream
-  `MinPayloadRate`).
+Paid in e6a8f57 (M7): `LinkActivity` follows every AMP/1 frame's length prefix as the bytes pass and arms one timer per
+connection on the node's clock; a frame still incomplete 30 seconds after its first byte closes the session with
+`Bye(Violation)` and counts against the device (`FaultyContentTests.AFrameNotCompletedWithin30SecondsClosesTheSession`).
 
 ## 21. The certificate callback cannot read the ALPN on every platform
 
@@ -248,13 +239,9 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 
 ## 24. An established session answers nothing yet
 
-- **Rule:** SPEC.md §7.5, §7.9, §10: a `Want` is answered with `Object` or `NotFound`, a `RosterQuery` with the Roster or
-  `RosterNotFound`; the listing is sent after establishment.
-- **Instead:** `PeerSessionHandler` sends `Hello`, the Roster follow-up and heartbeats, and reads and drops everything
-  else; the `Hello` carries no capability flag.
-- **Evidence:** `Axiom.Mesh.Core/Node/PeerSessionHandler.cs` (`ServeEstablishedAsync`, `OwnHello`).
-- **Tolerated because:** M6 is the transport; nothing is replicated yet, so nothing is wanted.
-- **Paid in:** M7, which replaces the established loop with the replication session.
+Paid in e6a8f57 (M7): `PeerSessionHandler` hands the established session to a `ReplicationSession`, which lists, wants,
+answers `Want` and `RosterQuery`, takes objects and pushes changes. The `Hello` still carries no capability flag:
+following new Packages automatically (bit 0) is entry 30.
 
 ## 25. A node takes its device key at start only
 
@@ -266,3 +253,76 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 - **Tolerated because:** the TLS layer already reads the credential through a delegate, so swapping it in at run time is
   a field, not a redesign; tests start nodes with keys.
 - **Paid in:** M9, with `CreateIdentity` and `ShowDevice` (the key is written to the key store and the credential swapped).
+
+## 26. A Grant withdrawn by an owner's listing is withdrawn in memory only
+
+- **Rule:** SPEC.md §7.2: a node whose user is not the owner, receiving from a device of the owner a listing that omits a
+  Package it listed before, MUST treat its own Grant for that Package as withdrawn until a newer Grant proves otherwise.
+- **Instead:** the withdrawal is a mark on the trust the writer holds (`PackageTrust.WithdrawnGrant`), not a row: a
+  restart, or a batch that fails and makes the writer reload, forgets it until the owner's next listing omits the
+  Package again.
+- **Evidence:** `Axiom.Mesh.Core/Trust/TrustBuilder.cs` (`WithdrawOwnGrant`), `Store/StoreBatch.cs` (`Withdraw`);
+  `ListingTests.AnOwnersListingThatOmitsAPackageWithdrawsTheGrantUntilANewerGrantProvesOtherwise`.
+- **Tolerated because:** every session with a device of the owner starts with a listing, so the mark returns with the
+  first one; meanwhile the node lists the Package to its own other devices only, which see the same owner.
+- **Paid in:** M9, with the grants requests (`ListGrants` shows it), as a column of `GrantRow` and a schema version step.
+
+## 27. Objects do not stream, and forwarding one allocates more than its copies
+
+- **Rule:** plan §3.5 and the M7 brief: objects go from the store into the writer in pooled 64 KiB slices, with no whole
+  copy on the send path; intake copies a frame once into a pooled buffer.
+- **Instead:** ProtoStream 0.2.0's frame-codec route encodes a whole message into its pooled write buffer and has no
+  payload streaming, so an object is read from the store into one pooled buffer of its size and handed to
+  `ObjectMessage.FromStored`. Forwarding 16 objects of 1 MiB between two in-memory nodes allocates 4.2 to 4.7 MiB per
+  object (net8.0 and net10.0, Windows): 2 MiB are the two in-memory stores' own copies, intake stays within its pooled
+  copy, and the remaining ~1.5 MiB per object lies in the TLS, pipe and frame layers, not yet attributed.
+- **Evidence:** `Axiom.Mesh.Core/Replication/ReplicationSession.cs` (`SendObjectAsync`);
+  `ReplicationRegressionTests.ForwardingAMebibyteObjectAllocatesNoFurtherWholeCopy` (a budget of 5 MiB per object).
+- **Tolerated because:** nothing in it grows with more than one object at a time, the buffers on Mesh's own path are
+  pooled, and the benchmarks that measure throughput come in M12.
+- **Paid in:** M12, with the loopback benchmark (attribute the allocations; ask ProtoStream for a streamed payload on the
+  frame-codec route if the send path needs it).
+
+## 28. An Entry stored before its parents is not checked against them
+
+- **Rule:** SPEC.md §8.6, §12.2: once its parents are held, an Entry whose parent is of another Package, whose clock is
+  not above every parent's, or more than 2^32 above the greatest, is faulty and not forwarded.
+- **Instead:** the writer checks an Entry when its parents are already stored. A history walk stores the newest Entry
+  first and its parents after it; when they arrive, the stored child is not checked again.
+- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs` (`HasParentFaultAsync` returns no fault while a parent is missing).
+- **Tolerated because:** such an Entry was signed by a device that may write (`EntryAdmission`), so a fault costs
+  ordering, not trust; the clock gap rule's purpose, that a writer cannot sort last for ever, still holds for every
+  Entry written after a held one.
+- **Paid in:** M9, with the history requests: the writer checks the stored children of an Entry it stores (a reverse
+  parent index) and marks a faulty one, which is then neither listed as a Head nor served.
+
+## 29. History is walked when an object is stored, not when the policy changes
+
+- **Rule:** SPEC.md §10.3, §11.2: a node wants the payload objects its retention policy asks for.
+- **Instead:** the walk runs from each object as it is stored. A policy that grows later (`SetPolicy` to Everything, or
+  a Package followed again) wants nothing for the Entries already stored; a change subscription that lapses loses the
+  walks of the change sets it dropped until a peer lists the Package again.
+- **Evidence:** `Axiom.Mesh.Core/Replication/Replicator.cs` (`WalkAsync`).
+- **Tolerated because:** a desktop keeps everything from the start, and `Fetch` and `Materialise` (M9) fetch on demand
+  through the same scheduler.
+- **Paid in:** M9, with `SetPolicy`, `Fetch` and `Materialise` (a walk over the stored Entries of a Package).
+
+## 30. Optional replication behaviours are not offered
+
+- **Rule:** SPEC.md §7.6: a node SHOULD send `Have` for hashes it holds but has deferred answering; §10.2: a node that
+  follows new Packages automatically (capability bit 0) MAY start following a Package it is granted.
+- **Instead:** deferred answers are not announced with `Have`, and `Hello` carries no capability flag.
+- **Evidence:** `Axiom.Mesh.Core/Replication/SessionOutbox.cs`, `Node/PeerSessionHandler.cs` (`OwnHello`).
+- **Tolerated because:** both are SHOULD or MAY; a deferred answer is sent once the queue drains, and following is the
+  user's decision in phase 1.
+- **Paid in:** phase 1b, with the Sync service and device policies (DESIGN.md §17).
+
+## 31. Transfers are not recorded for the local protocol
+
+- **Rule:** LOCAL-SPEC.md §5.16 and the `transfers` topic: every object wanted, received, sent, not found, cancelled or
+  dropped is a `Transfer` event.
+- **Instead:** the node records facts (`ObjectStored`, `WantAnswered`, `FaultyContent`) and counters
+  (`MeshNode.Replication`), but no `Transfer` records.
+- **Evidence:** `Axiom.Mesh.Core/Replication/ReplicationSession.cs`, `WantScheduler.cs`.
+- **Tolerated because:** nothing subscribes before the local port exists.
+- **Paid in:** M8, with the local port's subscriptions (a transfer sink the scheduler and the sessions write to).

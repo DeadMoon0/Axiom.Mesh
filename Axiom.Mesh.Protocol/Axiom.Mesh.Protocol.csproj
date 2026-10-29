@@ -14,7 +14,7 @@
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>AMP/1: the sixteen messages with every bound of SPEC.md §7, the frame codec (unknown ids 17 to 255 ignored), the session definition (states, timeouts, heartbeat, violation replies), HelloRule, ListingRule, WantBudget and ObjectQueueRule; the pairing protocol axiom-mesh-pair/1 of PAIR-SPEC.md: messages, definition, code, SAS, checks and state machine.</PackageReleaseNotes>
+    <PackageReleaseNotes>AMP/1: the sixteen messages with every bound of SPEC.md §7, the frame codec (unknown ids 17 to 255 ignored), the session definition (states, timeouts, heartbeat, violation replies), HelloRule, ListingRule, WantBudget and ObjectQueueRule; ObjectMessage.FromStored, which sends an object read back from the sender's own store as it is; the pairing protocol axiom-mesh-pair/1 of PAIR-SPEC.md: messages, definition, code, SAS, checks and state machine.</PackageReleaseNotes>
     <RootNamespace>Axiom.Mesh.Protocol</RootNamespace>
   </PropertyGroup>
 

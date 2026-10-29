@@ -6,7 +6,7 @@ Namespace: `Axiom.Mesh.Core` (the store's seams in `Axiom.Mesh.Core.Storage`). D
 
 ## Status
 
-Phase 1a, in progress. Built: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction (M5); the transport (M6): `MeshNode.StartAsync`, one LWSE server with the mesh port and the adopt-only outbound and local ports, mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, the duplicate rule, refusals, violations and backoff, the peer table and the dialler. An established session only lives for now: replication (M7) and the local port's requests (M8) follow.
+Phase 1a, in progress. Built: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction (M5); the transport (M6): `MeshNode.StartAsync`, one LWSE server with the mesh port and the adopt-only outbound and local ports, mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, the duplicate rule, refusals, violations and backoff, the peer table and the dialler; replication (M7): listings, wants and answers, the history walk, push and relay, the Roster push, flow control, faulty-content and violation bookkeeping, counters, and the node's write seams (`FollowAsync`, `PutAsync`, `WriteEntryAsync`). The local port's requests (M8) follow.
 
 ## Quick Start
 
@@ -120,6 +120,44 @@ What a started node does on its own:
   backs off 10 seconds doubling to 5 minutes, then the node redials on its own; three violations within an hour hold
   dials back for an hour.
 
+## Replicating
+
+Once two nodes are established, replication runs by itself (SPEC.md §10). Each side lists the Packages the other's user
+may see; a node wants what it follows and lacks (the Manifest first, then Grants, then Heads from devices that may
+write, then parents until it reaches Entries it holds, then payload objects as far as the retention policy goes),
+answers what the peer wants after checking the peer may see it, and pushes every change (`PackageChanged`, `Have`) to
+every established peer but the one it came from, so a change crosses any number of hops without polling. A node's own
+writes go through the same store:
+
+```csharp
+static class Replicating
+{
+    // Follow a Channel, write a Message on this device, and see what the sessions carried.
+    public static async Task<ObjectHash> WriteAsync(MeshNode node, PackageId channel, CancellationToken cancellationToken)
+    {
+        await node.FollowAsync(channel, cancellationToken);
+        ObjectHash written = await node.WriteEntryAsync(
+            channel,
+            new MessagePayload { Text = "hello", Attachments = [], ReplyTo = default },
+            cancellationToken);
+
+        ReplicationStatus status = node.Replication;
+        Console.WriteLine($"{status.WantsOutstanding} wants outstanding, {status.ObjectsOut} objects sent");
+        foreach (SessionTraffic session in status.Sessions)
+            Console.WriteLine(session);   // bytes and objects each way, wants each way, queued object bytes
+        return written;
+    }
+}
+```
+
+What replication enforces of the peer: a page out of sequence, a listing over 65 536 Packages or slower than 60 seconds,
+a `PackageChanged` between pages, a `Want` past 64 outstanding, an `Object` whose bytes are not its hash, and a frame not
+completed within 30 seconds of its first byte are violations (`Bye(Violation)`, counted against the device). Content that
+is well-formed but wrong, such as an Entry whose clock jumps more than 2^32 above its parent's, is faulty: dropped,
+recorded against the device (`PeerRecord.Faulty`, a `FaultyContent` fact), never forwarded, and the session goes on.
+Toward the peer, at most 8 MiB of objects wait to be sent; answers past that are deferred while every other message
+flows.
+
 ## What is in it
 
 | Folder | Types |
@@ -127,10 +165,11 @@ What a started node does on its own:
 | `Seams/` | `IEntropy`, `SystemEntropy`, `DeterministicEntropy`, `IKeyStore`, `KeyRole`, `IDialer`, `TcpDialer` (public) |
 | `Transport/` | `DeviceCertificate` (public); `MeshTls` (key, ALPN sets), `MeshTlsLayer`, `MeshTlsOptions`, `PeerCheck` (the two-step validation), `PeerIdentity` (the connection feature), `DeviceCredential`, `PairingWindow`, `PairingGate`, `LinkActivity`, `ActivityStream`, `TlsRole` |
 | `Node/` | `MeshNodeOptions`, `MeshNodeEnvironment`, `MeshNodeException`, `NodeIdentity`, `NodeFacts`, `NodeFact`, `NodeFactKind` (public); `Ports`, `NodeModule`, `NodeObserver`, `PeerSessionHandler`, `LocalPortHandler`, `LoopService`, `NodeLog` |
+| `Replication/` | `ReplicationStatus`, `SessionTraffic` (public); `ReplicationSession` (one per established session: read, write and push loops), `SessionOutbox` (control and object lanes), `ReplicationPlanner` (pure: `Plan`, `Walk`), `WantScheduler` (sources, 64 per peer, re-ask after 30 s; `IWantedSet`), `SourceBook`, `Listings` (pure), `ServedObjects` (visibility of a wanted hash), `Replicator` (the node's walk, held-buffer expiry and cancellations), `EntryWriter`, `NodeReplication`, `TelemetrySink`, `ObjectLinks` |
 | `Peers/` | `PeerRecord`, `PeerState` (public); `PeerTable`, `PeerSession`, `DialPolicy`, `DialDecision`, `SkipReason`, `Backoff`, `ViolationWindow`, `PeerDialler`, `DiscoveryPump`, `DialRequest`, `DialOutcome`, `EstablishVerdict` |
 | `Storage/` | `IObjectFiles`, `DirectoryObjectFiles`, `InMemoryObjectFiles`, `ObjectDeletion` (public); the LDB entities (`UserRow`, `DeviceRow`, `PackageRow`, `GrantRow`, `HeadRow`, `EntryRow`, `ObjectRow`, `PinRow`, `PeerRow`, `MetaRow`, `ReferenceRow`), `MeshDatabase` (tables, store epoch, schema version), `Rows<T>` |
-| `Trust/` | `TrustSnapshot` (immutable `ITrustSnapshotView`, `TryResolveDevice`, `MayList`, `MayServeGrant`, `MayServeRoster`), `TrustBuilder`, `UserTrust`, `PackageTrust`, `SelfIdentity` |
-| `Store/` | `StoreWriter` (the single writer), `StoreBatch`, `PinBook`, the commands, `ObjectStore`, `ObjectHandle`, `Promises`, `Evictor`, `EntryIndex`, `RetentionRule`, `ChunkStreamer` |
+| `Trust/` | `TrustSnapshot` (immutable `ITrustSnapshotView`, `TryResolveDevice`, `MayList`, `MayServeGrant`, `MayServeRoster`, `TryGetCurrent`), `TrustBuilder`, `UserTrust`, `PackageTrust`, `SelfIdentity`, `CurrentSigned` |
+| `Store/` | `StoreWriter` (the single writer), `StoreBatch`, `PinBook`, the commands, `ObjectStore`, `ObjectHandle`, `Promises`, `Evictor`, `EntryIndex`, `HeadsView`, `RetentionRule`, `ChunkStreamer` |
 | `Intake/` | `Intake`, `IntakeRules`, `HeldBuffer`, `IWantedSet` |
 | `Changes/` | `ChangeBus`, `ChangeSubscription`, `ChangeSet` and its records |
 | root | `MeshNode`, `MeshStoreException` |
@@ -150,7 +189,11 @@ What a started node does on its own:
   delivered out of band (what a pairing ends with). Either swaps a new trust snapshot in; the next handshake reads it,
   sessions of devices it no longer lists are closed, and devices discovery heard before are dialled.
 - **Facts, not sleeps.** Everything a node decides about connections and peers is a `NodeFact`, logged once and kept in a
-  bounded ring; take `Facts.LastSequence`, cause something, then `WaitForAsync` the fact after it.
+  bounded ring; take `Facts.LastSequence`, cause something, then `WaitForAsync` the fact after it. Replication adds
+  `ListingDone`, `ObjectStored`, `WantAnswered` and `FaultyContent`, with the object's hash in `NodeFact.Subject`.
+- **Write through the node.** `WriteEntryAsync` chooses clock and parents with the parent rule, signs with the device key
+  and admits the Entry like any other; store the objects its payload names first (`PutAsync`), so they are pinned
+  `Outbound` until a peer fetched each once.
 - **The node's clock is the only clock.** Handshake deadlines, heartbeats, idle timeouts, backoffs and retries all run on
   `MeshNodeEnvironment.Time`. With a fake clock, a dial a timer starts runs after `Advance` returns: move the clock in
   steps no longer than the step you wait for, or the same move expires the handshake it started.

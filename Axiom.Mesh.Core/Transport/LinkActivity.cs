@@ -12,7 +12,7 @@ namespace Axiom.Mesh.Core;
 /// <remarks>
 /// The frame clock follows the <c>u32</c> length prefix of every frame as the bytes pass, one timer per connection, armed
 /// when a read leaves a frame open and disarmed when the frame completes: no allocation per frame. ProtoStream 0.2.0 has
-/// no per-frame deadline of its own (STRUCTURAL-DEBT.md 20).
+/// no per-frame deadline of its own, so the bound lives here, below the protocol.
 /// </remarks>
 internal sealed class LinkActivity : IDisposable
 {
