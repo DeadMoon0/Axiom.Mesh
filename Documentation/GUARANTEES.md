@@ -36,7 +36,7 @@ names no test, or when a proved row names a test that does not exist.
 | Promise | Proved by |
 |---|---|
 | The pipe admits the Host's operating-system user only. | planned: `Host.Tests: PipeAdmissionTests.Decide`, `Integration.Tests: PipeTests.AnotherUserIsRefusedByTheAccessListAndByProcessIdentity` |
-| No record of the local protocol can carry a private key. | planned: `Local.Tests: NoKeyCrossesThePipeTests.NoRecordHasAFieldThatCanHoldAPrivateKey` |
+| No record of the local protocol can carry a private key. | `Local.Tests: NoKeyCrossesThePipeTests.NoRecordHasAFieldThatCanHoldAPrivateKey` |
 
 ## Replication
 
@@ -56,3 +56,14 @@ names no test, or when a proved row names a test that does not exist.
 | Every failure a package throws says who must act, whether retrying can succeed, and at least one step out. | `Shared: ExceptionRecoveryContractTests.EveryExceptionCarriesTheFullRecoveryContract`, `Model.Tests: FailureGuidanceTests.AFailureCannotBeMadeWithoutAMessageOrWithABlankStep` |
 | A compiled consumer keeps working when a minor version adds members. | `Shared: PublicSurfaceTests.NoPublicMemberTakesAnOptionalParameter`, `Shared: PublicSurfaceTests.NoPublicPositionalRecordWithoutAClosedShape` |
 | No package holds state shared by every node of a process. | `Shared: ConventionTests.HoldsNoMutableStaticState` |
+
+## Axiom.Mesh.Local
+
+| Promise | Proved by |
+|---|---|
+| Every bound a frame of the local protocol carries is enforced where the bytes enter: one over is a violation from a client and a lost connection from the Host, at the bound it reads. | `Local.Tests: LimitTests.EveryLimitIsRefusedOneOverAndAcceptedAtTheLimit`, `Local.Tests: BoundsTests.AFieldOutsideItsBoundsInARequestIsAViolation`, `Local.Tests: BoundsTests.AFieldOutsideItsBoundsInAResponseOrAnEventIsAHostDefect` |
+| An id one side does not know never closes the connection: an unknown request is answered `UnknownRequest`, an unknown event discarded, an unknown callback answered. | `Local.Tests: UnknownIdTests.AnUnknownRequestIdIsAnsweredUnknownRequestAndTheConnectionStaysOpen`, `Local.Tests: UnknownIdTests.AnUnknownEventIsDiscardedByTheClient_TheNextOneArrives`, `Local.Tests: UnknownIdTests.AnUnknownCallbackIsAnsweredUnknownRequestByTheService` |
+| A value a newer Host sends that this client does not know is kept, never a failure. | `Local.Tests: EnumToleranceTests.AnUnknownEnumeratedValueInAnEventIsReadAndKept` |
+| A request the Host refuses is a status and an error in the client, never an exception. | `Local.Tests: LocalClientExchangeTests.ARequestIsAnsweredWithItsOkBodyAndARefusalIsAValue` |
+| The client never sends a 65th outstanding request, and a reader that falls behind loses only its own subscription. | `Local.Tests: ClientLimitTests.AClientRefusesA65thOutstandingRequestBeforeSendingIt`, `Local.Tests: ClientLimitTests.AReaderThatFallsBehindLapsesOnlyItsOwnSubscription_OthersAndRequestsContinue` |
+| Nothing of the engine or the daemon is reachable from the package every app and service references. | `Local.Tests: SurfaceTests.NoCoreTypeIsReachableFromLocalsPublicSurface` |

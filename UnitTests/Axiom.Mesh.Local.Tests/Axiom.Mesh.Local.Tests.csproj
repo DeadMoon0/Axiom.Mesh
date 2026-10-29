@@ -8,4 +8,9 @@
     <ProjectReference Include="..\..\Axiom.Mesh.Local\Axiom.Mesh.Local.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Round trips at every byte split, mutation fuzzing and the in-memory transport the client is tested over. -->
+    <PackageReference Include="Axiom.ProtoStream.Testing" />
+  </ItemGroup>
+
 </Project>

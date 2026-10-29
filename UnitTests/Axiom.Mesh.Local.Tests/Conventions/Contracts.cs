@@ -21,7 +21,15 @@ public static class Contracts
     public sealed class ExceptionRecoveryContract : ExceptionRecoveryContractTests<LocalProtocol>
     {
         /// <inheritdoc />
-        protected override IEnumerable<MeshException> Samples() => [];
+        protected override IEnumerable<MeshException> Samples() =>
+        [
+            LocalConnectionException.NotReachable(new PipeLocation { Kind = PipeKind.NamedPipe, Path = @"\\.\pipe\axiom-mesh" }, null),
+            LocalConnectionException.Refused(Bye.Of(ByeReason.Refused, "service")),
+            LocalConnectionException.ClosedByHost(Bye.Of(ByeReason.Shutdown, "")),
+            LocalConnectionException.Lost("the pipe broke.", null),
+            LocalConnectionException.ClosedHere(),
+            new RequestLimitException(),
+        ];
     }
 
     /// <summary>The suite of Axiom.Mesh.Local keeps the three parts apart and never waits by the wall clock.</summary>

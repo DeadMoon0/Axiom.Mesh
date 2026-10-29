@@ -18,6 +18,20 @@ milestone of the [fundamentals plan](#milestones) that builds it.
 | §10 The surface grows without breaking; libraries trimmed and AOT-safe | `Directory.Build.props` (`IsTrimmable`, `IsAotCompatible`, `EnablePackageValidation`, warnings as errors); `UnitTests/Shared/PublicSurfaceTests.cs` (no optional parameters, no open positional records; `Shared/ClosedShapeAttribute.cs`); `ConventionTests.PublicSignaturesUseNoForeignFrameworkTypes`, `HoldsNoMutableStaticState`, `EveryEnumHasAnExplicitZeroMember`. Not yet built: `aot.yml` (M12). |
 | §11 Opt-outs are named options logged at start | Not yet built: the Host configuration (M8). |
 
+## Axiom.Mesh.Local
+
+| Rule | Carried by |
+|---|---|
+| §1 Honest layers | Everything of `Axiom.Mesh.Local` is a function of its inputs except `Pipe/LocalPipe.cs`, the one place it touches the OS (finding and connecting to the pipe); `PipeLocation.Resolve` and `Reconnect.Delay` are pure. |
+| §2 Apps and services reach nothing of the engine | `Conventions/SurfaceTests.NoCoreTypeIsReachableFromLocalsPublicSurface` in `Local.Tests`; the package references Model and ProtoStream only. |
+| §3 No key crosses the pipe | `Conventions/NoKeyCrossesThePipeTests` in `Local.Tests`; `Messages/ServiceToken.cs` (a token opens one service name, compares in fixed time, never prints). |
+| §4 Nothing believed without proof | Not applicable: a client verifies nothing (LOCAL-SPEC.md §1.4); the Host derives every record from verified objects. |
+| §5 Every limit a named constant, enforced where the bytes enter | `Codec/LocalFrameCodecOfTInTOut.cs` (classifies by id range before the body, reads every body exactly to its end, keeps the correlation rules on the Host side), `Wire/FieldBounds.cs` (every field bound of the layouts, the limits of `Limits` where they coincide), `Wire/LocalWire.cs` (counts and lengths checked before content), `LocalProtocol.cs` (one framer of `Limits.MaxFrameLength`); `Rules/LimitTests`, `Rules/BoundsTests`. |
+| §6 Every wait a deadline, every queue a bound | `LocalProtocol.cs` (first message 10 s, idle backstop 120 s), `Client/LocalClient.cs` (at most 64 outstanding requests), `Client/SubscriptionOfTEvent.cs` (256 queued events, then the subscription lapses alone), `Pipe/LocalPipe.cs` (5 s connect). |
+| §7 A failure says who must act | `Client/LocalConnectionException.cs` (refused, closed by the Host, lost; fault and transience per cause), `Client/RequestLimitException.cs`; refusals are `LocalResult<TOk>` values. |
+| §8 Rules are pure and tested from the spec | `Local.Tests/Rules/` (class rules, correlations, bounds, tolerance, Hello layout, epoch, reconnect, pipe location, limits). |
+| §10 The surface grows without breaking | Requests, events and records are sealed records with `init` properties; the frame and body classes are closed (private-protected constructors). |
+
 Repository-wide conventions that serve several rules: `RepositoryConventionTests.EveryFileDeclaresExactlyOneTopLevelTypeNamedLikeTheFile`
 and `ReadmeCompileTests` (in `UnitTests/Axiom.Mesh.ReadmeSamples.Tests`).
 
