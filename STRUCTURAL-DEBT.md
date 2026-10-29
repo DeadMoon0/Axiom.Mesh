@@ -194,3 +194,75 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 - **Tolerated because:** the snapshot trusts devices of known users only, so the Roster is not acted on; following one
   of the user's Packages again needs it.
 - **Paid in:** M9, with `ForgetUser` and the users requests.
+
+## 20. A frame is not bounded to 30 seconds from its first byte
+
+- **Rule:** SPEC.md §5.1: a frame MUST be received completely within 30 seconds of its first byte, else the connection is
+  closed with `Bye(Violation)`.
+- **Instead:** a session bounds the first `Hello` (10 s) and silence (5 min), but a peer that starts a frame and trickles
+  it is closed only by the idle timeout.
+- **Evidence:** `Axiom.Mesh.Protocol/Amp.cs` (ProtoStream 0.2.0 has no per-frame deadline); `Axiom.Mesh.Core/Node/PeerSessionHandler.cs`.
+- **Tolerated because:** a frame is at most 4 MiB + 4 KiB and buffered within that bound, admission caps connections per
+  address at 4, and an established session in M6 receives nothing it acts on.
+- **Paid in:** M7, with the replication session handler (a frame timer armed on the first byte, or a ProtoStream
+  `MinPayloadRate`).
+
+## 21. The certificate callback cannot read the ALPN on every platform
+
+- **Rule:** PAIR-SPEC.md §4.2: under `axiom-mesh/1` an unknown key MUST NOT be accepted; SPEC.md §4.3 lets the accepting
+  side refuse before its handshake completes.
+- **Instead:** while a pairing waits on the showing side, the certificate callback lets an unknown P-256 key through when
+  the platform cannot yet say which ALPN was negotiated, and `PeerCheck.Decide` refuses it right after the handshake when
+  the ALPN is `axiom-mesh/1`: closed before a protocol byte, but after a completed handshake. Outside a pairing nothing
+  changes: an unknown key is refused inside the handshake.
+- **Evidence:** probed on 2026-10-29 on Windows 11: `SslStream.NegotiatedApplicationProtocol` read inside the server's
+  certificate callback throws `InvalidOperationException` on .NET 8.0.32 and answers on .NET 10.0.13; Linux (OpenSSL) not
+  probed. `Axiom.Mesh.Core/Transport/PeerCheck.cs` (`NegotiatedSoFar`, `Decide`);
+  `HandshakeTests.UnderTheMeshAlpnAnUnknownKeyIsRefusedWhileAPairingWaits_UnderThePairingAlpnItIsLetThrough`.
+- **Tolerated because:** no AMP/1 byte reaches such a peer, the window is open only while a pairing waits (at most 10
+  minutes, one at a time), and the design's alternative, a second port during pairing, contradicts PAIR-SPEC.md §4.1
+  (the code's addresses are the mesh listener). Where the callback can read the ALPN the refusal stays inside the handshake.
+- **Paid in:** not planned; it disappears when net8.0 is dropped, if Linux behaves like .NET 10 on Windows (probe in M11 on
+  the Linux runner).
+
+## 22. A pairing connection reaches the AMP/1 handler
+
+- **Rule:** DESIGN.md §6.3 and PAIR-SPEC.md §5.1: a pairing connection speaks `axiom-mesh-pair/1` from its first frame.
+- **Instead:** the mesh port has one entry protocol, AMP/1, so a connection under the pairing ALPN opens an AMP/1 session;
+  `PeerSessionHandler` aborts it at once, before any frame, because the pairing shell is not built.
+- **Evidence:** `Axiom.Mesh.Core/Node/PeerSessionHandler.cs` (`IsPairing` → `connection.Abort()`).
+- **Tolerated because:** no pairing exists before M10, and nothing is sent on such a connection.
+- **Paid in:** M10. LWSE's `ConnectionContext.SwitchAsync` sends a final message of the old protocol, which AMP/1 must not
+  send here; M10 serves the pairing session from the handler with `PairProtocol.Definition` on the connection's stream, or
+  asks LWSE for a switch without a final message.
+
+## 23. The peer table is not persisted
+
+- **Rule:** SPEC.md §12.1: a device that caused three violations within an hour SHOULD NOT be dialled for an hour; §4.4's
+  backoff is per address.
+- **Instead:** backoffs, failures and violations live in memory and start empty after a restart; the `Peers` table of the
+  index (`PeerRow`) is not written yet.
+- **Evidence:** `Axiom.Mesh.Core/Peers/PeerTable.cs`; `Axiom.Mesh.Core/Storage/PeerRow.cs`.
+- **Tolerated because:** both are SHOULDs and a restart is rare; a hostile peer still costs one handshake per attempt.
+- **Paid in:** M9, with the peers requests (`ListPeers`, static peers), which read and write `PeerRow`.
+
+## 24. An established session answers nothing yet
+
+- **Rule:** SPEC.md §7.5, §7.9, §10: a `Want` is answered with `Object` or `NotFound`, a `RosterQuery` with the Roster or
+  `RosterNotFound`; the listing is sent after establishment.
+- **Instead:** `PeerSessionHandler` sends `Hello`, the Roster follow-up and heartbeats, and reads and drops everything
+  else; the `Hello` carries no capability flag.
+- **Evidence:** `Axiom.Mesh.Core/Node/PeerSessionHandler.cs` (`ServeEstablishedAsync`, `OwnHello`).
+- **Tolerated because:** M6 is the transport; nothing is replicated yet, so nothing is wanted.
+- **Paid in:** M7, which replaces the established loop with the replication session.
+
+## 25. A node takes its device key at start only
+
+- **Rule:** LOCAL-SPEC.md §6.1: `CreateIdentity` creates the device key, the user key and the first Roster on a running
+  Host.
+- **Instead:** `MeshNode.StartAsync` reads the device key once; a node started without one listens but completes no
+  handshake until it is restarted with a key. `AdoptIdentityAsync` needs the key to exist already.
+- **Evidence:** `Axiom.Mesh.Core/MeshNode.cs` (`LoadCredentialAsync`, the `Credential` delegate of `MeshTlsOptions`).
+- **Tolerated because:** the TLS layer already reads the credential through a delegate, so swapping it in at run time is
+  a field, not a redesign; tests start nodes with keys.
+- **Paid in:** M9, with `CreateIdentity` and `ShowDevice` (the key is written to the key store and the credential swapped).

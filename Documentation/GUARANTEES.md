@@ -10,16 +10,16 @@ names no test, or when a proved row names a test that does not exist.
 
 | Promise | Proved by |
 |---|---|
-| A peer whose key is in no current roster is closed before a protocol byte is sent. | planned: `Core.Tests: HandshakeTests.APeerWhoseKeyIsInNoRosterIsClosedWithoutAProtocolByte` |
+| A peer whose key is in no current roster is closed before a protocol byte is sent. | `Core.Tests: HandshakeTests.APeerWhoseKeyIsInNoRosterIsClosedWithoutAProtocolByte`, `Core.Tests: EveScenarioTests.EveIsClosedWithoutAByte_NeverDialled_AndNeverEstablished` |
 | A removed device stays removed in every later roster of its user, whatever that roster says; an omitted device counts as removed. | `Model.Tests: RosterTests.RemovalIsPermanent_AnOmittedDeviceCountsAsRemoved_ADeviceIdInTwoUsersRostersIsRemovedInTheLater` |
-| A removed device is closed and refused for ever at the handshake. | planned: `Core.Tests: HandshakeTests.ARemovedDeviceIsRefusedAtTheHandshake` |
+| A removed device is closed and refused for ever at the handshake. | `Core.Tests: HandshakeTests.ARemovedDeviceIsRefusedAtTheHandshake`, `Core.Tests: EstablishmentTests.AnEstablishedSessionOfADeviceRemovedLaterIsClosedWithByeUnauthorized` |
 | No object becomes storable without its hash, its form and its signer checked: a signed object outside Model cannot be made storable without verification, and one flipped bit makes it invalid. | `Model.Tests: StorableObjectSurfaceTests.NoStorableObjectCanBeMadeOutsideModelWithoutVerification`, `Model.Tests: SignedObjectTests.OneFlippedBitInTheBodyMakesAnEntryManifestRosterOrGrantInvalidAndRenamesIt` |
 | An Entry is stored only from a device of the owner or of a current write grantee, and stays valid once stored. | `Model.Tests: AdmissionTests.AnEntryIsValidOnlyFromADeviceOfTheOwnerOrAWriteGrantee_AndStaysValidAfterItsDeviceIsRemoved` |
 | Nothing unverified is stored, served or forwarded: an object is checked against its hash, its form and its signer before anything acts on it. | `Core.Tests: IntakeTests.ObjectsApplyInTheOrderRosterManifestGrantEntryPayloadWhateverTheirArrival_Bounded8MiBPerSession64MiBInAll` |
 | A Package is listed, claimed and served only to its owner and its current grantees. | planned: `Core.Tests: VisibilityTests.TheListingHoldsExactlyThePackagesWhoseOwnerOrCurrentGranteeIsThePeersUser`, `Core.Tests: VisibilityTests.AChunkIsServedThroughAnyVisiblePackageThatReferencesIt_ElseNotFound` |
 | A revocation reaches the revoked user, who is then no longer listed or served. | planned: `Core.Tests: VisibilityTests.ARevokedUserIsNoLongerListedOrServed_ButReceivesTheRevocationGrant` |
 | Two nodes holding two sessions to each other decide which one to keep identically, without talking. | `Model.Tests: DuplicateSessionTests.Decide` |
-| One session per device id: two nodes that connect twice keep the same one without talking. | planned: `Testing.Tests: MeshScenarios.DuplicateConnectionsSettleOnOneSessionPerDevice` |
+| One session per device id: two nodes that connect twice keep the same one without talking. | `Core.Tests: DuplicateSessionTests.BothDialAtOnce_ExactlyOneSessionPerDeviceSurvives_TheSameConnectionOnBothNodes`, `Core.Tests: DuplicateSessionTests.TwoSessionsDialledByDifferentDevices_TheOneDialledByTheLowerDeviceIdIsKept` |
 
 ## Bounds
 
@@ -65,7 +65,7 @@ names no test, or when a proved row names a test that does not exist.
 | No datagram or packet on the LAN makes discovery throw: every byte string is read or refused. | `Discovery.Tests: ParserFuzzTests.MutatedDnsPacketsAreReadOrRefusedButNeverThrow_Seed42`, `Discovery.Tests: ParserFuzzTests.MutatedBroadcastDatagramsAreReadOrRefusedButNeverThrow_Seed42` |
 | A node announces at most once per second per interface, however many queries it receives. | `Discovery.Tests: AnnounceGateTests.AtMostOneAnnouncementPerSecondPerInterface`, `Discovery.Tests: AnnounceGateTests.AFloodOfQueriesIsAnsweredOncePerSecond` |
 | Nothing from the network can pose as a static peer: no parser yields an all-zero id. | `Discovery.Tests: BroadcastDatagramTests.ADatagramClaimingAZeroIdOrPortZeroIsIgnored`, `Discovery.Tests: DnsSdRecordTests.ARecordWhoseIdsOrInstanceNameAreNotOfTheSpecifiedFormIsIgnored`, `Discovery.Tests: StaticPeerTests.AStaticPeerAnnouncementHasAllZeroIds` |
-| An unknown device found by discovery is never dialled. | planned: `Core.Tests: PeerTableTests.AnAnnouncementOfADeviceOfNoKnownUserIsNeverDialled` |
+| An unknown device found by discovery is never dialled. | `Core.Tests: PeerTableTests.AnAnnouncementOfADeviceOfNoKnownUserIsNeverDialled` |
 
 ## Axiom.Mesh.Protocol
 
@@ -102,3 +102,12 @@ names no test, or when a proved row names a test that does not exist.
 | A store sequence is never reused, survives a restart, and the store epoch changes only with a new database. | `Core.Tests: StoreSequenceTests.TheFirstEntryStoredIs1ThenPlusOne_AnEvictedEntryStoredAgainGetsANewSeq_AndItSurvivesARestart`, `Core.Tests: StoreSequenceTests.TheStoreEpochIsCreatedOnceWithTheDatabaseAndStableAcrossReopening` |
 | An older Manifest, Roster or Grant never rolls back the current one, and a removed device stays removed across restarts. | `Core.Tests: TrustSnapshotTests.TheCurrentManifestRosterOrGrantIsTheHighestSeqTiesBrokenByTheLowerHash`, `Core.Tests: TrustSnapshotTests.RemovalIsPermanent_AnOmittedDeviceCountsAsRemoved_ADeviceIdInTwoUsersRostersIsRemovedInTheLater` |
 | A reader of the store's changes that falls behind loses only its own subscription; the writer never waits for it. | `Core.Tests: ChangeBusTests.ASubscriberThatFallsBehindLapsesAlone_TheOthersReceiveEveryChangeSetInOrder` |
+| Every connection is a full TLS 1.3 handshake on a fresh `SslStream`: no session tickets, no resumption, no renegotiation; a client certificate and the ALPN `axiom-mesh/1` are required. | `Core.Tests: HandshakeTests.NoSessionTicketsAndNoEarlyData`, `Core.Tests: HandshakeTests.AHandshakeWithoutAClientCertificateOrWithoutAlpnFails_AndCompletesWithin10Seconds` |
+| A handshake that does not complete within 10 seconds on the node's clock is closed, and not before. | `Core.Tests: HandshakeTests.AHandshakeWithoutAClientCertificateOrWithoutAlpnFails_AndCompletesWithin10Seconds` |
+| While a pairing waits, an unknown key is still refused under AMP/1's ALPN; only the pairing ALPN lets it through, and only then. | `Core.Tests: HandshakeTests.UnderTheMeshAlpnAnUnknownKeyIsRefusedWhileAPairingWaits_UnderThePairingAlpnItIsLetThrough` |
+| A peer that closes before its `Hello` is a refusal: the node holds its next dial back 10 seconds, doubling to 5 minutes, and redials on its own. | `Core.Tests: EstablishmentTests.ACloseAfterTheHandshakeBeforeHelloCountsAsARefusalAndBacksOff`, `Core.Tests: BackoffTests.AFailedDialWaits10SecondsThenDoublesToAtMost5Minutes` |
+| A peer's `Hello` that names another device or another user is answered `Bye(Unauthorized)` and counted against the device. | `Core.Tests: HelloTests.ADeviceIdThatIsNotTheHashOfTheTlsKeyOrNotInTheUsersCurrentRosterIsByeUnauthorized` |
+| A node admits at most 4 connections per peer address. | `Core.Tests: AdmissionTests.AdmissionPerAddressIs4` |
+| Two nodes with nothing to say keep their session on heartbeats alone. | `Core.Tests: LivenessTests.AnEstablishedSessionSurvivesFiveMinutesOfSilenceWithHeartbeats` |
+| A stopping node ends every session with `Bye(Shutdown)`. | `Core.Tests: EstablishmentTests.AStoppingNodeSaysByeShutdownToItsPeers` |
+| Two in-memory nodes connect through the same TLS, protocol, admission and drain as on sockets; a restarted node comes back with what it kept; a partition cuts and a heal rejoins. | `Testing.Tests: TestMeshTests.TwoNodesWhoseUsersKnowEachOtherConnect_OneSessionEach`, `Testing.Tests: TestMeshTests.AStoppedNodeIsGone_AndARestartedOneComesBackWithItsIdentityAndReconnects`, `Testing.Tests: TestMeshTests.APartitionCutsTheSession_AndHealingReconnects` |
