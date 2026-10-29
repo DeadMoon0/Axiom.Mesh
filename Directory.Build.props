@@ -1,0 +1,76 @@
+<Project>
+
+  <!--
+    One place for the settings every project in this repo shares. Nothing below may be repeated per project, and
+    never behind a '$(Configuration)|$(Platform)' condition: a guarded TreatWarningsAsErrors quietly lets every other
+    configuration build with warnings.
+
+    Layout: the packages at the top (Axiom.Mesh.Model, .Protocol, .Local, .Discovery, .Core, .Host, .Testing), the
+    applications under Apps/. Every project has its own test project (<Project>.Tests) under UnitTests/, mirroring
+    that layout; fixtures shared by all test projects live in UnitTests/Shared. Spikes/ is throwaway code with its
+    own props that stop this file from reaching it.
+  -->
+  <PropertyGroup>
+    <IsTestProject Condition="$(MSBuildProjectName.EndsWith('.Tests'))">true</IsTestProject>
+    <IsLibrary Condition="'$(IsLibrary)' == '' and '$(IsTestProject)' == 'true'">false</IsLibrary>
+    <!-- Every other project ships as a package: the libraries, the daemon (Testing depends on it) and the CLI tool. -->
+    <IsLibrary Condition="'$(IsLibrary)' == ''">true</IsLibrary>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!--
+    Shipped projects: trimmable, AOT-safe, documented, packed with symbols and SourceLink. The package metadata itself
+    (title, description, version, icon, readme, urls, release notes, the test project its internals open to) lives in
+    each project's csproj, as in the LWSE, LDB and ProtoStream repositories.
+  -->
+  <PropertyGroup Condition="'$(IsLibrary)' == 'true'">
+    <IsPackable>true</IsPackable>
+    <IsTrimmable>true</IsTrimmable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- Every public member is documented: a missing comment (CS1591) is a warning, and so an error. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <!-- Code-style rules set to warning in .editorconfig (unused usings) fail the build like any other warning. -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!--
+      Pack fails when the net8.0 and net10.0 builds expose different APIs. Once a version is on nuget.org, set
+      PackageValidationBaselineVersion so pack also fails on a breaking change against the shipped release.
+    -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsLibrary)' != 'true'">
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsLibrary)' == 'true'">
+    <!-- Marker attribute the PublicSurface convention test reads; compiled into every shipped project. -->
+    <Compile Include="$(MSBuildThisFileDirectory)Shared/ClosedShapeAttribute.cs" Link="Shared/ClosedShapeAttribute.cs" />
+    <None Include="$(MSBuildThisFileDirectory)Assets/Icon.png" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- Test projects: xunit and the shared convention fixtures. -->
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+    <Using Include="Xunit" />
+    <Compile Include="$(MSBuildThisFileDirectory)UnitTests/Shared/*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
+</Project>

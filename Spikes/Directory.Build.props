@@ -1,0 +1,8 @@
+<Project>
+
+  <!--
+    The spikes are throwaway code pinned to the packages they answered their question with (LWSE 0.2.0). This file
+    stops the repository's Directory.Build.props from reaching them, so they keep building exactly as they did.
+  -->
+
+</Project>

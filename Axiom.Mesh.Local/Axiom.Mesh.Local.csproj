@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Title>Axiom.Mesh.Local</Title>
+    <Authors>DeadMoon0</Authors>
+    <Product>Axiom</Product>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>Axiom;Mesh;pipe;ipc;protocol;protostream;client</PackageTags>
+    <PackageIcon>Icon.png</PackageIcon>
+    <Description>Part of the Axiom family. axiom-mesh-local/1, the protocol every program on a device speaks to the Axiom.Mesh Host over the pipe, both roles, with the client library; the one package an app, a script or a service references.</Description>
+    <Version>0.1.0</Version>
+    <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
+    <PackageReleaseNotes>Skeleton: the name of the local protocol.</PackageReleaseNotes>
+    <RootNamespace>Axiom.Mesh.Local</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The package's own test project, and nobody else. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Axiom.Mesh.Local.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Axiom.Mesh.Model\Axiom.Mesh.Model.csproj" />
+    <PackageReference Include="Axiom.ProtoStream" />
+  </ItemGroup>
+
+</Project>

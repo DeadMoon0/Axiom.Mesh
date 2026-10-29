@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Title>Axiom.Mesh.Host</Title>
+    <Authors>DeadMoon0</Authors>
+    <Product>Axiom</Product>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>Axiom;Mesh;daemon;host;pipe</PackageTags>
+    <PackageIcon>Icon.png</PackageIcon>
+    <Description>Part of the Axiom family. axiom-meshd, the Axiom.Mesh daemon: the one process on a device that holds the keys, the store, the database and every connection, with its configuration and the pipe its clients connect to.</Description>
+    <Version>0.1.0</Version>
+    <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
+    <PackageReleaseNotes>Skeleton: axiom-meshd version.</PackageReleaseNotes>
+    <RootNamespace>Axiom.Mesh.Host</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The package's own test project, and nobody else. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Axiom.Mesh.Host.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Axiom.Mesh.Core\Axiom.Mesh.Core.csproj" />
+  </ItemGroup>
+
+</Project>

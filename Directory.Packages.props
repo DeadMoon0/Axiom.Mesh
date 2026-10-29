@@ -1,0 +1,42 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The Axiom family, from nuget.org only (NuGet.config). -->
+    <PackageVersion Include="Axiom.ProtoStream" Version="0.2.0" />
+    <PackageVersion Include="Axiom.ProtoStream.Testing" Version="0.2.0" />
+    <PackageVersion Include="Axiom.LDB.Core" Version="0.1.0" />
+    <PackageVersion Include="Axiom.LDB.Query" Version="0.1.0" />
+    <PackageVersion Include="Axiom.LDB.Entity" Version="0.1.0" />
+    <!--
+      Merged on LWSE's v2 branch, not yet on nuget.org: no project may reference these until both versions are
+      published (the adopt-only port milestone checks api.nuget.org first).
+    -->
+    <PackageVersion Include="Axiom.LWSE.Core" Version="0.3.0" />
+    <PackageVersion Include="Axiom.LWSE.Testing" Version="0.3.0" />
+
+    <!-- Libraries: the Host's runtime. -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.14" />
+    <!-- DPAPI key wrapping on Windows; the Host alone references it. -->
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.14" />
+
+    <!-- Tests and benchmarks -->
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+    <!-- ReadmeSamples.Tests compiles README blocks and parses the repository's sources with Roslyn. -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+  </ItemGroup>
+
+</Project>

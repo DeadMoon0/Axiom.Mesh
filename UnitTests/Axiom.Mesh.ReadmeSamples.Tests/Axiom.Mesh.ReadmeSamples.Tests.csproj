@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The repository's own suite: every C# block of every README compiles against the packages, every test the
+    documents name exists, and the source-level conventions that span the whole repository hold. README samples may
+    cross packages, so this project references all of them.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Axiom.Mesh.ReadmeSamples.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Axiom.Mesh.Model\Axiom.Mesh.Model.csproj" />
+    <ProjectReference Include="..\..\Axiom.Mesh.Protocol\Axiom.Mesh.Protocol.csproj" />
+    <ProjectReference Include="..\..\Axiom.Mesh.Local\Axiom.Mesh.Local.csproj" />
+    <ProjectReference Include="..\..\Axiom.Mesh.Discovery\Axiom.Mesh.Discovery.csproj" />
+    <ProjectReference Include="..\..\Axiom.Mesh.Core\Axiom.Mesh.Core.csproj" />
+    <ProjectReference Include="..\..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
+    <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+    <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- README blocks are compiled, and the repository's sources parsed, with Roslyn. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+</Project>
