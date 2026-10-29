@@ -23,4 +23,13 @@ public sealed record MeshNodeOptions
 
     /// <summary>How long a stopping node lets its sessions say <c>Bye</c> before it aborts what is left. Default 5 seconds.</summary>
     public TimeSpan DrainTimeout { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The store budget in bytes (LOCAL-SPEC.md §5.10, §6.5): eviction keeps the store under it, and a local write that would
+    /// raise the pinned bytes above it is <c>StoreFull</c>. 0 for none. Default 0.
+    /// </summary>
+    public long StoreBudgetBytes { get; init; }
+
+    /// <summary>What the local port is told: services, confinement of user-key requests, the drain's grace. Default <see cref="LocalPortOptions.Default"/>.</summary>
+    public LocalPortOptions Local { get; init; } = LocalPortOptions.Default;
 }

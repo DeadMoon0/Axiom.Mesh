@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.LDB;
@@ -70,7 +71,11 @@ internal sealed class WriterState
 
         if (meta.TryGetValue(MetaKeys.SelfUserKey, out MetaRow? user) && meta.TryGetValue(MetaKeys.SelfDevice, out MetaRow? device)
             && PublicKey.TryParse(user.Bytes, out PublicKey? userKey))
-            trust.SetSelf(new SelfIdentity(userKey, new DeviceId(RowKeys.Hash(device.Bytes!))));
+            trust.SetSelf(new SelfIdentity(userKey, new DeviceId(RowKeys.Hash(device.Bytes!)))
+            {
+                UserName = meta.TryGetValue(MetaKeys.SelfName, out var name) && name.Bytes is { } utf8 ? Encoding.UTF8.GetString(utf8) : string.Empty,
+                CreatedMs = (long)Number(meta, MetaKeys.SelfCreated),
+            });
 
         List<HeadRow> heads = await context.Set<HeadRow>().ReadOnlyQuery().ToListAsync(cancellationToken).ConfigureAwait(false);
         return new WriterState(trust, trust.Build(), keys)

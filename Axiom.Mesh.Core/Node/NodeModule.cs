@@ -19,6 +19,7 @@ internal sealed class NodeModule : LWSEModule
     private readonly IServerObserver observer;
     private readonly IReadOnlyList<IServerService> services;
     private readonly PeerDialler dialler;
+    private readonly LocalPort port;
 
     /// <summary>The module of one node.</summary>
     /// <param name="mesh">The AMP/1 handler.</param>
@@ -26,18 +27,21 @@ internal sealed class NodeModule : LWSEModule
     /// <param name="observer">The observer that records facts.</param>
     /// <param name="services">The node's loops, in start order.</param>
     /// <param name="dialler">The dialler, which receives the server's adoption seam when the server is built.</param>
+    /// <param name="port">The local port, which receives the same seam to adopt pipe connections and in-process services.</param>
     public NodeModule(
         ISessionHandler<MeshMessage, MeshMessage> mesh,
         ISessionHandler<IClientMessage, IHostMessage> local,
         IServerObserver observer,
         IReadOnlyList<IServerService> services,
-        PeerDialler dialler)
+        PeerDialler dialler,
+        LocalPort port)
     {
         this.mesh = mesh;
         this.local = local;
         this.observer = observer;
         this.services = services;
         this.dialler = dialler;
+        this.port = port;
     }
 
     /// <inheritdoc />
@@ -55,5 +59,9 @@ internal sealed class NodeModule : LWSEModule
     }
 
     /// <inheritdoc />
-    protected override void Build(ModuleBuildContext context) => dialler.Use(context.Adoption);
+    protected override void Build(ModuleBuildContext context)
+    {
+        dialler.Use(context.Adoption);
+        port.Use(context.Adoption);
+    }
 }

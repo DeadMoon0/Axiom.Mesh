@@ -10,6 +10,9 @@ using Axiom.LWSE;
 using Axiom.LWSE.Admission;
 using Axiom.LWSE.Server;
 using Axiom.Mesh.Core.Storage;
+using LocalDevice = Axiom.Mesh.Local.Device;
+using LocalIdentity = Axiom.Mesh.Local.Identity;
+using Status = Axiom.Mesh.Local.Status;
 
 namespace Axiom.Mesh.Core;
 
@@ -41,34 +44,39 @@ public sealed class MeshNode : IAsyncDisposable
     private readonly MeshDatabase database;
     private readonly StoreWriter writer;
     private readonly ObjectStore store;
-    private readonly DeviceCredential? credential;
+    private readonly CredentialSlot credentials;
     private readonly PeerTable table;
     private readonly LWSEServer server;
     private readonly NodeReplication replication;
-    private readonly EntryWriter? entries;
+    private readonly SemaphoreSlim identityLock = new(1, 1);
+    private readonly TaskCompletionSource<NodeIdentity> identityKnown = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int userKeyHeld;
     private int stopped;
 
-    private MeshNode(MeshNodeOptions options, MeshNodeEnvironment environment, MeshDatabase database, StoreWriter writer, ObjectStore store, DeviceCredential? credential, PeerTable table, NodeFacts facts, PairingGate pairing, LWSEServer server, NodeReplication replication)
+    private MeshNode(MeshNodeOptions options, MeshNodeEnvironment environment, MeshDatabase database, StoreWriter writer, ObjectStore store, CredentialSlot credentials, PeerTable table, NodeFacts facts, PairingGate pairing, LWSEServer server, NodeReplication replication, LocalPort local, bool userKeyHeld)
     {
         this.options = options;
         this.environment = environment;
         this.database = database;
         this.writer = writer;
         this.store = store;
-        this.credential = credential;
+        this.credentials = credentials;
         this.table = table;
         this.server = server;
         this.replication = replication;
-        entries = credential is null ? null : new EntryWriter(writer, credential.Signer);
         Facts = facts;
         Pairing = pairing;
+        Local = local;
+        this.userKeyHeld = userKeyHeld ? 1 : 0;
+        if (Identity is { } known)
+            identityKnown.TrySetResult(known);
     }
 
     /// <summary>Who this node is; <see langword="null"/> until it has an identity (a device key and its user's Roster).</summary>
-    public NodeIdentity? Identity => writer.Trust.Self is { } self && credential is not null ? new NodeIdentity(self.Device, self.User) : null;
+    public NodeIdentity? Identity => writer.Trust.Self is { } self && credentials.Credential is not null ? new NodeIdentity(self.Device, self.User) : null;
 
     /// <summary>This node's device id, from its device key; <see langword="null"/> while the key store holds none.</summary>
-    public DeviceId? Device => credential?.Device;
+    public DeviceId? Device => credentials.Credential?.Device;
 
     /// <summary>Every peer device the node knows of and where it stands, as of the last change.</summary>
     public IReadOnlyList<PeerRecord> Peers => table.View;
@@ -106,6 +114,169 @@ public sealed class MeshNode : IAsyncDisposable
     internal PairingGate Pairing { get; }
 
     /// <summary>
+    /// The local port (LOCAL-SPEC.md): where the Host adopts every pipe connection with its process identity, and where
+    /// in-process services connect.
+    /// </summary>
+    public LocalPort Local { get; }
+
+    /// <summary>Whether the user's private key is on this device (LOCAL-SPEC.md §5.1 <c>userKeyPresent</c>).</summary>
+    internal bool UserKeyHeld => Volatile.Read(ref userKeyHeld) != 0;
+
+    /// <summary>The node's object files.</summary>
+    internal IObjectFiles Files => environment.Files;
+
+    /// <summary>The node's discovery, whose cache <c>ListDiscovered</c> reads.</summary>
+    internal Discovery.IDiscovery Discovery => environment.Discovery;
+
+    /// <summary>The node's clock.</summary>
+    internal TimeProvider Time => environment.Time;
+
+    /// <summary>
+    /// Waits until the node has an identity: at once when it started with one, else when one is created or adopted
+    /// (LOCAL-SPEC.md §6.1). The Host starts the discovery that announces the device then.
+    /// </summary>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>The identity.</returns>
+    public Task<NodeIdentity> WhenIdentityAsync(CancellationToken cancellationToken) => identityKnown.Task.WaitAsync(cancellationToken);
+
+    /// <summary>
+    /// Creates the identity on the running node (LOCAL-SPEC.md §6.1): the user key and the device key (unless one is held
+    /// already) from the node's randomness, both written to the key store; the device credential swapped in so that
+    /// handshakes present it from now on; a Roster with seq 1 holding this device, signed with the user key; and the
+    /// identity recorded with the Roster stored.
+    /// </summary>
+    /// <param name="userName">The user's display name, kept on this device.</param>
+    /// <param name="deviceName">This device's name in the Roster.</param>
+    /// <param name="cancellationToken">Cancels waiting for the key store and the store.</param>
+    /// <returns>The identity; <see langword="null"/> when one exists already (<c>AlreadyExists</c>).</returns>
+    internal async Task<LocalIdentity?> CreateIdentityAsync(string userName, string deviceName, CancellationToken cancellationToken)
+    {
+        await identityLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (writer.Trust.Self is not null)
+                return null;
+
+            DateTimeOffset now = environment.Time.GetUtcNow();
+            DeviceCredential device = credentials.Credential ?? credentials.Install(await CreateDeviceCredentialAsync(now, cancellationToken).ConfigureAwait(false));
+            byte[] userKey = KeyFactory.CreatePkcs8(environment.Entropy);
+            VerifiedRoster roster;
+            try
+            {
+                using EcdsaSigner user = EcdsaSigner.FromPkcs8(userKey);
+                roster = new RosterDraft
+                {
+                    Seq = 1,
+                    Devices = [new RosterDevice(device.Key, deviceName, (ulong)now.ToUnixTimeMilliseconds(), removed: false)],
+                }.Sign(user);
+                await environment.Keys.WriteAsync(KeyRole.User, userKey, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(userKey);
+            }
+
+            Volatile.Write(ref userKeyHeld, 1);
+            await AdoptAsync(roster, device, userName, cancellationToken).ConfigureAwait(false);
+            return LocalRecords.IdentityOf(writer.Trust, userKeyHeld: true);
+        }
+        finally
+        {
+            identityLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Renames a device of the own user (LOCAL-SPEC.md §6.1): a Roster with seq one higher, signed with the user key and
+    /// stored, which the node pushes to every established peer (SPEC.md §7.6).
+    /// </summary>
+    /// <param name="device">The device.</param>
+    /// <param name="name">Its new name.</param>
+    /// <param name="cancellationToken">Cancels waiting for the key store and the store.</param>
+    /// <returns>Ok with the device; <c>UserKeyAbsent</c>, <c>NotFound</c> for a device not the own user's, <c>Invalid</c> for a removed one.</returns>
+    internal async Task<(Status Status, LocalDevice? Device)> RenameDeviceAsync(DeviceId device, string name, CancellationToken cancellationToken)
+    {
+        await identityLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            TrustSnapshot trust = writer.Trust;
+            if (trust.Self is not { } self || !trust.TryGetUser(self.User, out UserTrust? user) || user.Roster is not { } current)
+                return (Status.NoIdentity, null);
+            byte[]? userKey = await environment.Keys.ReadAsync(KeyRole.User, cancellationToken).ConfigureAwait(false);
+            if (userKey is null)
+                return (Status.UserKeyAbsent, null);
+
+            VerifiedRoster renamed;
+            try
+            {
+                if (!current.Content.TryGetDevice(device, out _))
+                    return (Status.NotFound, null);
+                if (user.Devices.Any(d => d.Device.Id == device && d.IsRemoved))
+                    return (Status.Invalid, null);
+                using EcdsaSigner signer = EcdsaSigner.FromPkcs8(userKey);
+                renamed = new RosterDraft
+                {
+                    Seq = current.Content.Seq + 1,
+                    Devices = [.. current.Content.Devices.Select(d => d.Id == device ? new RosterDevice(d.Key, name, d.AddedAt, d.Removed) : d)],
+                }.Sign(signer);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(userKey);
+            }
+
+            await store.PutAsync(renamed, cancellationToken).ConfigureAwait(false);
+            TrustSnapshot now = writer.Trust;
+            UserTrust after = now.TryGetUser(self.User, out UserTrust? stored) ? stored : user;
+            EffectiveDevice effective = after.Devices.FirstOrDefault(d => d.Device.Id == device);
+            return (Status.Ok, LocalRecords.DeviceOf(effective, self.User, self.Device, table.Find(device)?.LastSeen));
+        }
+        finally
+        {
+            identityLock.Release();
+        }
+    }
+
+    // Records the identity and stores the Roster; the identity is known from then on.
+    private async Task<bool> AdoptAsync(VerifiedRoster roster, DeviceCredential own, string userName, CancellationToken cancellationToken)
+    {
+        var identity = new SelfIdentity(roster.Content.UserKey, own.Device)
+        {
+            UserName = userName,
+            CreatedMs = environment.Time.GetUtcNow().ToUnixTimeMilliseconds(),
+        };
+        bool changed = await writer.SendAsync(new IdentityCommand(identity), cancellationToken).ConfigureAwait(false);
+        await store.PutAsync(roster, cancellationToken).ConfigureAwait(false);
+        if (Identity is { } known)
+            identityKnown.TrySetResult(known);
+        return changed;
+    }
+
+    // The device key: the one the key store holds (an earlier ShowDevice pairing made it), else a new one, written first.
+    private async Task<DeviceCredential> CreateDeviceCredentialAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        byte[] pkcs8 = await environment.Keys.ReadAsync(KeyRole.Device, cancellationToken).ConfigureAwait(false) ?? KeyFactory.CreatePkcs8(environment.Entropy);
+        try
+        {
+            await environment.Keys.WriteAsync(KeyRole.Device, pkcs8, cancellationToken).ConfigureAwait(false);
+            return DeviceCredential.Create(pkcs8, now);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pkcs8);
+        }
+    }
+
+    private static async Task<bool> HoldsUserKeyAsync(IKeyStore keys, CancellationToken cancellationToken)
+    {
+        byte[]? key = await keys.ReadAsync(KeyRole.User, cancellationToken).ConfigureAwait(false);
+        if (key is null)
+            return false;
+        CryptographicOperations.ZeroMemory(key);
+        return true;
+    }
+
+    /// <summary>
     /// Starts a node: opens its store, loads its device key, builds its server with the three ports, binds (or, in
     /// memory, opens) the mesh port and starts dialling the peers discovery names.
     /// </summary>
@@ -124,15 +295,20 @@ public sealed class MeshNode : IAsyncDisposable
         var bus = new ChangeBus();
         StoreWriter? writer = null;
         DeviceCredential? credential = null;
+        CredentialSlot? slot = null;
         LWSEServer? server = null;
         NodeReplication? replication = null;
         try
         {
-            writer = await StoreWriter.StartAsync(database, environment.Files, StoreOptions.Default, time, bus, new Promises(), cancellationToken).ConfigureAwait(false);
+            StoreOptions storeOptions = StoreOptions.Default with { BudgetBytes = options.StoreBudgetBytes > 0 ? options.StoreBudgetBytes : long.MaxValue };
+            writer = await StoreWriter.StartAsync(database, environment.Files, storeOptions, time, bus, new Promises(), cancellationToken).ConfigureAwait(false);
             credential = await LoadCredentialAsync(environment, writer.Trust, cancellationToken).ConfigureAwait(false);
+            bool userKeyHeld = await HoldsUserKeyAsync(environment.Keys, cancellationToken).ConfigureAwait(false);
 
             StoreWriter running = writer;
-            DeviceCredential? presented = credential;
+            slot = new CredentialSlot(running, credential);
+            credential = null;
+            CredentialSlot credentials = slot;
             var facts = new NodeFacts(time, environment.Loggers.CreateLogger("Axiom.Mesh.Node"), NodeFacts.DefaultCapacity);
             var table = new PeerTable(() => running.Trust, time, facts);
             var pairing = new PairingGate();
@@ -143,9 +319,11 @@ public sealed class MeshNode : IAsyncDisposable
             var store = new ObjectStore(running, environment.Files);
             replication = new NodeReplication(running, bus, store, table, facts, time);
             NodeReplication replicating = replication;
+            var local = new LocalPort(options.Local, facts, time, environment.Loggers.CreateLogger("Axiom.Mesh.Local"), bus);
+            table.OnChanged(local.Hub.PeersChanged);
             var module = new NodeModule(
                 new PeerSessionHandler(() => running.Trust, table, facts, time, replicating),
-                new LocalPortHandler(),
+                local.Handler,
                 new NodeObserver(facts),
                 [
                     new LoopService("dialler", started.Task, dialler.RunAsync, facts),
@@ -153,9 +331,12 @@ public sealed class MeshNode : IAsyncDisposable
                     new LoopService("trust", started.Task, pump.FollowTrustAsync, facts),
                     new LoopService("evictor", started.Task, evictor.RunAsync, facts),
                     new LoopService("replicator", started.Task, replicating.Replicator.RunAsync, facts),
+                    new LoopService("local events", started.Task, local.Hub.RunChangesAsync, facts),
+                    new LoopService("local peers", started.Task, local.Hub.RunPeersAsync, facts),
                 ],
-                dialler);
-            var tls = new Func<TlsRole, MeshTlsOptions>(role => new MeshTlsOptions { Role = role, Credential = () => presented, Trust = () => running.Trust, Pairing = pairing, Time = time });
+                dialler,
+                local);
+            var tls = new Func<TlsRole, MeshTlsOptions>(role => new MeshTlsOptions { Role = role, Credential = () => credentials.Credential, Trust = () => running.Trust, Pairing = pairing, Time = time });
             var serverOptions = new ServerOptions
             {
                 Admission = new AdmissionOptions { PerClient = Limits.AdmissionPerAddress },
@@ -174,7 +355,9 @@ public sealed class MeshNode : IAsyncDisposable
             }
 
             started.TrySetResult();
-            return new MeshNode(options, environment, database, running, store, credential, table, facts, pairing, server, replicating);
+            var node = new MeshNode(options, environment, database, running, store, credentials, table, facts, pairing, server, replicating, local, userKeyHeld);
+            local.Attach(node);
+            return node;
         }
         catch
         {
@@ -182,6 +365,7 @@ public sealed class MeshNode : IAsyncDisposable
                 await server.DisposeAsync().ConfigureAwait(false);
             replication?.Dispose();
             credential?.Dispose();
+            slot?.Dispose();
             if (writer is not null)
                 await writer.StopAsync().ConfigureAwait(false);
             await database.DisposeAsync().ConfigureAwait(false);
@@ -215,7 +399,7 @@ public sealed class MeshNode : IAsyncDisposable
     public async Task<bool> AdoptIdentityAsync(VerifiedRoster roster, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(roster);
-        DeviceCredential own = credential ?? throw new MeshNodeException(
+        DeviceCredential own = credentials.Credential ?? throw new MeshNodeException(
             MeshFault.Caller,
             "This node has no device key, so it cannot become a device of a user.",
             "Store a device key in the node's key store before the node starts.");
@@ -227,9 +411,7 @@ public sealed class MeshNode : IAsyncDisposable
                 "Adopt a Roster that lists this device's key and does not remove it.");
         }
 
-        bool changed = await writer.SendAsync(new IdentityCommand(new SelfIdentity(roster.Content.UserKey, own.Device)), cancellationToken).ConfigureAwait(false);
-        await store.PutAsync(roster, cancellationToken).ConfigureAwait(false);
-        return changed;
+        return await AdoptAsync(roster, own, string.Empty, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -294,7 +476,7 @@ public sealed class MeshNode : IAsyncDisposable
     /// <returns>The Entry's hash.</returns>
     /// <exception cref="MeshNodeException">The node has no identity, does not follow the Package, may not write to it, or its store is full.</exception>
     public Task<ObjectHash> WriteEntryAsync(PackageId package, EntryPayload payload, CancellationToken cancellationToken) =>
-        (entries ?? throw new MeshNodeException(MeshFault.Caller, "This node has no device key, so it cannot sign an Entry.", "Store a device key in the node's key store before the node starts."))
+        (credentials.Entries ?? throw new MeshNodeException(MeshFault.Caller, "This node has no device key, so it cannot sign an Entry.", "Store a device key in the node's key store before the node starts."))
             .WriteAsync(package, payload, cancellationToken);
 
     /// <summary>Whether the node holds an object, as of the last committed batch.</summary>
@@ -316,6 +498,7 @@ public sealed class MeshNode : IAsyncDisposable
             return;
         try
         {
+            await Local.DrainAsync(cancellationToken).ConfigureAwait(false);
             await server.StopAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -323,10 +506,10 @@ public sealed class MeshNode : IAsyncDisposable
             table.Dispose();
             await server.DisposeAsync().ConfigureAwait(false);
             replication.Dispose();
-            entries?.Dispose();
             await writer.StopAsync().ConfigureAwait(false);
             await database.DisposeAsync().ConfigureAwait(false);
-            credential?.Dispose();
+            credentials.Dispose();
+            identityLock.Dispose();
         }
     }
 

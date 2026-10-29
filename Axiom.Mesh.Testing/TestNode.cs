@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core;
+using Axiom.Mesh.Local;
 
 namespace Axiom.Mesh.Testing;
 
@@ -19,6 +22,7 @@ namespace Axiom.Mesh.Testing;
 public sealed class TestNode
 {
     private readonly PackageBook packages;
+    private readonly List<LocalClient> clients = [];
     private MeshNode? node;
 
     internal TestNode(TestIdentity identity, IPEndPoint address, TestNodeEnvironment environment, FakeDiscovery discovery, InMemoryDialer dialer, PackageBook packages)
@@ -175,6 +179,84 @@ public sealed class TestNode
                 "Check that the node follows the Package and a peer that holds the object is established with it.",
                 "Advance the mesh's Clock when the step waits for time (a backoff, a re-ask after 30 seconds).");
         }
+    }
+
+    /// <summary>
+    /// Connects a user client to the node's local port over an in-memory pair, as a program of the served user would
+    /// connect over the pipe (LOCAL-SPEC.md §2.2), and says <c>Hello</c>. The mesh closes it when it stops the node.
+    /// </summary>
+    /// <param name="name">The client's name, for the node's facts.</param>
+    /// <param name="cancellationToken">Cancels the opening.</param>
+    /// <returns>The client, Ready.</returns>
+    public Task<LocalClient> ConnectUserAsync(string name, CancellationToken cancellationToken) =>
+        ConnectAsync(new LocalClientOptions { Name = name }, TestProcess.Served, cancellationToken);
+
+    /// <summary>Connects a client in the service role from a program of the served user, presenting a token (LOCAL-SPEC.md §4.2).</summary>
+    /// <param name="name">The service's name, as the node's configuration lists it.</param>
+    /// <param name="token">The spawned or external service's token; <see cref="ServiceToken.None"/> for none.</param>
+    /// <param name="cancellationToken">Cancels the opening.</param>
+    /// <returns>The client, Ready.</returns>
+    public Task<LocalClient> ConnectServiceAsync(string name, ServiceToken token, CancellationToken cancellationToken) =>
+        ConnectAsync(new LocalClientOptions { Role = Role.Service, Name = name, Token = token }, TestProcess.Served, cancellationToken);
+
+    /// <summary>Connects a client with any options from any process, and says <c>Hello</c>.</summary>
+    /// <param name="options">Who the client says it is; its clock becomes the mesh's.</param>
+    /// <param name="process">The process the local port sees.</param>
+    /// <param name="cancellationToken">Cancels the opening.</param>
+    /// <returns>The client, Ready.</returns>
+    /// <exception cref="LocalConnectionException">The node refused the <c>Hello</c>.</exception>
+    public async Task<LocalClient> ConnectAsync(LocalClientOptions options, TestProcess process, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(process);
+        LocalClient client = await LocalClient.OpenAsync(ConnectRaw(process), options with { TimeProvider = Environment.Clock }, cancellationToken).ConfigureAwait(false);
+        lock (clients)
+            clients.Add(client);
+        return client;
+    }
+
+    /// <summary>
+    /// Connects an in-process service over the node's in-memory pair for it (LOCAL-SPEC.md §4.2), and says <c>Hello</c>.
+    /// </summary>
+    /// <param name="name">The service's name, as the node's configuration lists it in process.</param>
+    /// <param name="cancellationToken">Cancels the opening.</param>
+    /// <returns>The client, Ready.</returns>
+    public async Task<LocalClient> ConnectInProcessAsync(string name, CancellationToken cancellationToken)
+    {
+        var options = new LocalClientOptions { Role = Role.Service, Name = name, TimeProvider = Environment.Clock };
+        LocalClient client = await LocalClient.OpenAsync(Node.Local.ConnectInProcess(name), options, cancellationToken).ConfigureAwait(false);
+        lock (clients)
+            clients.Add(client);
+        return client;
+    }
+
+    /// <summary>
+    /// The raw end of a new local connection from <paramref name="process"/>, for tests that speak the protocol frame by
+    /// frame; the test closes it.
+    /// </summary>
+    /// <param name="process">The process the local port sees.</param>
+    /// <returns>The client's end of the connection.</returns>
+    public Stream ConnectRaw(TestProcess process)
+    {
+        ArgumentNullException.ThrowIfNull(process);
+        (Stream client, Stream port) = InMemoryDuplex.Create();
+        _ = Node.Local.AdoptAsync(port, process.Identity, CancellationToken.None);
+        return client;
+    }
+
+    /// <summary>Says <c>Bye</c> on every client this node handed out, before the node stops.</summary>
+    /// <returns>A task that completes when they are closed.</returns>
+    internal async Task CloseClientsAsync()
+    {
+        LocalClient[] open;
+        lock (clients)
+        {
+            open = [.. clients];
+            clients.Clear();
+        }
+
+        foreach (LocalClient client in open)
+            await client.DisposeAsync().ConfigureAwait(false);
     }
 
     internal void Running(MeshNode? running) => node = running;

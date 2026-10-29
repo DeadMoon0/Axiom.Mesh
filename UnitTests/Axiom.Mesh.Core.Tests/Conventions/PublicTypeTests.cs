@@ -37,6 +37,12 @@ public sealed class PublicTypeTests
         typeof(ObjectDeletion), // what an IObjectFiles answers on delete
         typeof(DirectoryObjectFiles), // the Host's
         typeof(InMemoryObjectFiles), // Testing's
+        typeof(LocalPort), // MeshNode.Local: the Host adopts each pipe connection, Testing connects clients
+        typeof(LocalPortOptions), // MeshNodeOptions.Local: what the Host's configuration tells the port
+        typeof(LocalService), // one configured service
+        typeof(ServiceProvenance), // how it proves its name
+        typeof(ProcessIdentity), // who is on a local connection: the Host's pipe listeners read it
+        typeof(ProcessKind), // pipe or in process
     ];
 
     // The store, the writer, trust, intake, the transport and the entities are the engine's; the Host and Testing reach

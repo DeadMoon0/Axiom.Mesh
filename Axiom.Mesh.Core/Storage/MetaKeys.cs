@@ -26,4 +26,10 @@ internal static class MetaKeys
 
     /// <summary>The own device id, 32 bytes; absent before an identity exists.</summary>
     public const string SelfDevice = "self.device";
+
+    /// <summary>The own user's display name, UTF-8, at most 64 bytes (LOCAL-SPEC.md §5.1); absent when none was given.</summary>
+    public const string SelfName = "self.name";
+
+    /// <summary>When the identity was created or enrolled here, milliseconds since the Unix epoch (LOCAL-SPEC.md §5.1).</summary>
+    public const string SelfCreated = "self.created";
 }

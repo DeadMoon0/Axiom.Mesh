@@ -149,8 +149,8 @@ public sealed class NodeFacts
     private static LogLevel LevelOf(NodeFactKind kind) => kind switch
     {
         NodeFactKind.HandlerFaulted => LogLevel.Error,
-        NodeFactKind.Violation or NodeFactKind.HelloRefused or NodeFactKind.Unauthorized or NodeFactKind.FaultyContent => LogLevel.Warning,
-        NodeFactKind.Established or NodeFactKind.SessionEnded or NodeFactKind.BackedOff => LogLevel.Information,
+        NodeFactKind.Violation or NodeFactKind.HelloRefused or NodeFactKind.Unauthorized or NodeFactKind.FaultyContent or NodeFactKind.LocalRefused => LogLevel.Warning,
+        NodeFactKind.Established or NodeFactKind.SessionEnded or NodeFactKind.BackedOff or NodeFactKind.LocalAdmitted or NodeFactKind.LocalEnded => LogLevel.Information,
         _ => LogLevel.Debug,
     };
 

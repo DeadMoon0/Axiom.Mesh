@@ -23,6 +23,9 @@ public sealed class PeerRecord
     /// <summary>The discovery mechanisms that reported it.</summary>
     public required DiscoverySource Sources { get; init; }
 
+    /// <summary>When it was first heard of or connected since the node started; <see langword="null"/> when never.</summary>
+    public DateTimeOffset? FirstSeen { get; init; }
+
     /// <summary>When it was last heard of or connected; <see langword="null"/> when never.</summary>
     public DateTimeOffset? LastSeen { get; init; }
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core.Storage;
@@ -586,6 +587,8 @@ internal sealed class StoreBatch
         state.Trust.SetSelf(identity);
         await tables.Meta.PutAsync(new MetaRow { Name = MetaKeys.SelfUserKey, Bytes = identity.UserKey.Encoded.ToArray() }, CancellationToken.None).ConfigureAwait(false);
         await tables.Meta.PutAsync(new MetaRow { Name = MetaKeys.SelfDevice, Bytes = RowKeys.Of(identity.Device.Value) }, CancellationToken.None).ConfigureAwait(false);
+        await tables.Meta.PutAsync(new MetaRow { Name = MetaKeys.SelfName, Bytes = Encoding.UTF8.GetBytes(identity.UserName) }, CancellationToken.None).ConfigureAwait(false);
+        await tables.Meta.PutAsync(new MetaRow { Name = MetaKeys.SelfCreated, Number = (ulong)Math.Max(0, identity.CreatedMs) }, CancellationToken.None).ConfigureAwait(false);
         await PutPairedAsync(identity.UserKey).ConfigureAwait(false);
         return true;
     }

@@ -68,4 +68,13 @@ public enum NodeFactKind
     /// dropped, never forwarded, and the device recorded as faulty; the session goes on. <see cref="NodeFact.Subject"/> is its hash.
     /// </summary>
     FaultyContent = 20,
+
+    /// <summary>A local connection said <c>Hello</c> and is Ready (LOCAL-SPEC.md §4.2); the detail names its role, name and process identity.</summary>
+    LocalAdmitted = 21,
+
+    /// <summary>A local connection's <c>Hello</c> was refused (LOCAL-SPEC.md §4.2); the detail names the <c>Bye</c> and the process identity.</summary>
+    LocalRefused = 22,
+
+    /// <summary>A local connection ended (LOCAL-SPEC.md §2.3), for the reason in the detail; everything tied to it ended with it.</summary>
+    LocalEnded = 23,
 }

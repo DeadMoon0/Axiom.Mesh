@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using Axiom.Mesh.Core;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Axiom.Mesh.Testing;
 
@@ -23,6 +26,18 @@ public sealed record TestMeshOptions
     /// other node. Default none.
     /// </summary>
     public IReadOnlyList<(string A, string B)> Severed { get; init; } = [];
+
+    /// <summary>
+    /// The nodes that start without an identity: their key store holds the published device key, but no user key and no
+    /// Roster, as a fresh Host; create one over the local port with <see cref="TestMesh.CreateIdentityAsync"/>. Default none.
+    /// </summary>
+    public IReadOnlyList<string> WithoutIdentity { get; init; } = [];
+
+    /// <summary>What every node's local port is told: services, confinement, drain grace. Default <see cref="LocalPortOptions.Default"/>.</summary>
+    public LocalPortOptions Local { get; init; } = LocalPortOptions.Default;
+
+    /// <summary>Where every node logs. Default nowhere.</summary>
+    public ILoggerFactory Loggers { get; init; } = NullLoggerFactory.Instance;
 
     /// <summary>The seed of every node's randomness: the same seed gives the same store epochs and names. Default 1.</summary>
     public ulong Seed { get; init; } = 1;

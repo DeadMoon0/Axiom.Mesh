@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Discovery;
+using Axiom.Mesh.Local;
+using PeerState = Axiom.Mesh.Core.PeerState;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Axiom.Mesh.Testing;
@@ -27,12 +29,14 @@ public sealed class TestMesh : IAsyncDisposable
     public static TimeSpan Deadline { get; } = TimeSpan.FromSeconds(15);
 
     private readonly Dictionary<string, TestNode> nodes;
+    private readonly MeshNodeOptions nodeOptions;
 
-    private TestMesh(FakeTimeProvider clock, InMemoryNetwork network, Dictionary<string, TestNode> nodes)
+    private TestMesh(FakeTimeProvider clock, InMemoryNetwork network, Dictionary<string, TestNode> nodes, MeshNodeOptions nodeOptions)
     {
         Clock = clock;
         Network = network;
         this.nodes = nodes;
+        this.nodeOptions = nodeOptions;
     }
 
     /// <summary>The mesh's one clock: every node's server, sessions, database and backoffs run on it.</summary>
@@ -77,23 +81,25 @@ public sealed class TestMesh : IAsyncDisposable
             {
                 IsSilent = options.Silent.Contains(identity.Name),
             };
-            nodes[identity.Name] = new TestNode(identity, address, new TestNodeEnvironment(identity, clock, options.Seed + (ulong)i), discovery, new InMemoryDialer(network, address.Address), packages);
+            nodes[identity.Name] = new TestNode(identity, address, new TestNodeEnvironment(identity, clock, options.Seed + (ulong)i) { Loggers = options.Loggers }, discovery, new InMemoryDialer(network, address.Address), packages);
         }
 
-        var mesh = new TestMesh(clock, network, nodes);
+        var nodeOptions = MeshNodeOptions.Default with { Local = options.Local with { HostUser = TestProcess.ServedUser } };
+        var mesh = new TestMesh(clock, network, nodes, nodeOptions);
         network.Hold();
         try
         {
             foreach (TestNode node in nodes.Values)
             {
                 await mesh.RunAsync(node, cancellationToken).ConfigureAwait(false);
-                await node.Node.AdoptIdentityAsync(TestIdentity.RosterOf(node.Identity.UserName), cancellationToken).ConfigureAwait(false);
+                if (!options.WithoutIdentity.Contains(node.Name))
+                    await node.Node.AdoptIdentityAsync(TestIdentity.RosterOf(node.Identity.UserName), cancellationToken).ConfigureAwait(false);
             }
 
             foreach ((string name, string knows) in options.Trust.Pairs)
             {
                 TestNode other = mesh[knows];
-                if (other.Identity.UserName != mesh[name].Identity.UserName)
+                if (other.Identity.UserName != mesh[name].Identity.UserName && !options.WithoutIdentity.Contains(name))
                     await mesh[name].Node.AcceptUserAsync(TestIdentity.RosterOf(other.Identity.UserName), cancellationToken).ConfigureAwait(false);
             }
         }
@@ -200,6 +206,35 @@ public sealed class TestMesh : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Creates a node's identity over its local port, as the command line does (LOCAL-SPEC.md §6.1): the node creates the
+    /// user key, a Roster with seq 1 holding its device, and swaps its device credential in. For a node of
+    /// <see cref="TestMeshOptions.WithoutIdentity"/>.
+    /// </summary>
+    /// <param name="name">The node.</param>
+    /// <param name="user">The user's display name.</param>
+    /// <param name="device">The device's name in the Roster.</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>The identity the node answered with.</returns>
+    /// <exception cref="TestMeshException">The node refused the request.</exception>
+    public async Task<Identity> CreateIdentityAsync(string name, string user, string device, CancellationToken cancellationToken)
+    {
+        TestNode node = this[name];
+        LocalClient client = await node.ConnectUserAsync("test-mesh", cancellationToken).ConfigureAwait(false);
+        await using (client.ConfigureAwait(false))
+        {
+            LocalResult<Identity> created = await client.SendAsync(new CreateIdentity { UserName = user, DeviceName = device }, cancellationToken).ConfigureAwait(false);
+            if (!created.IsOk)
+            {
+                throw new TestMeshException(
+                    $"{name} refused CreateIdentity with {created.Status}: {created.Error?.Message}",
+                    "Start the node without an identity (TestMeshOptions.WithoutIdentity), and create it once.");
+            }
+
+            return created.Value;
+        }
+    }
+
     /// <summary>Stops a node as a shutdown would: its sessions say <c>Bye(Shutdown)</c>, its announcement leaves the board.</summary>
     /// <param name="name">The node.</param>
     /// <param name="cancellationToken">Cuts the drain short.</param>
@@ -211,6 +246,7 @@ public sealed class TestMesh : IAsyncDisposable
             return;
         Network.Unlisten(node.Address);
         node.Discovery.Withdraw();
+        await node.CloseClientsAsync().ConfigureAwait(false);
         await node.Node.StopAsync(cancellationToken).ConfigureAwait(false);
         node.Running(null);
         await node.Environment.CloseAsync().ConfigureAwait(false);
@@ -346,7 +382,7 @@ public sealed class TestMesh : IAsyncDisposable
         MeshNode running;
         try
         {
-            running = await MeshNode.StartAsync(MeshNodeOptions.Default, environment, cancellationToken).ConfigureAwait(false);
+            running = await MeshNode.StartAsync(nodeOptions, environment, cancellationToken).ConfigureAwait(false);
         }
         catch
         {

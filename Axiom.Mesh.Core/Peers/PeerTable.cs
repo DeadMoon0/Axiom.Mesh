@@ -33,6 +33,7 @@ internal sealed class PeerTable : IDisposable
     private readonly TimeProvider time;
     private readonly NodeFacts facts;
     private PeerRecord[] view = [];
+    private Action<IReadOnlyList<PeerRecord>>? changed;
     private bool stopped;
 
     /// <summary>An empty table.</summary>
@@ -51,6 +52,17 @@ internal sealed class PeerTable : IDisposable
 
     /// <summary>The dials decided on, for the dialler; each address is dialled at most once at a time.</summary>
     public ChannelReader<DialRequest> Requests => requests.Reader;
+
+    /// <summary>
+    /// Hands every new view to <paramref name="observer"/>, in the order the views were made, under the table's lock: the
+    /// local port turns them into <c>PeerChanged</c> events (LOCAL-SPEC.md §7.2). The observer must not block.
+    /// </summary>
+    /// <param name="observer">What to call; replaces the previous one.</param>
+    public void OnChanged(Action<IReadOnlyList<PeerRecord>> observer)
+    {
+        lock (gate)
+            changed = observer;
+    }
 
     /// <summary>Takes an announcement: records the device if a known user's Roster lists it, and dials when the policy says so.</summary>
     /// <param name="announcement">What discovery heard, or a static peer's address.</param>
@@ -126,6 +138,7 @@ internal sealed class PeerTable : IDisposable
             DateTimeOffset now = time.GetUtcNow();
             Entry entry = EntryOf(session.Device);
             entry.User = session.Peer.User;
+            entry.FirstSeen ??= now;
             entry.LastSeen = now;
             entry.Sessions.Add(session);
             if (session.IsDialledHere)
@@ -157,6 +170,7 @@ internal sealed class PeerTable : IDisposable
             entry.Failures = 0;
             entry.FailedUntil = null;
             entry.Refused = false;
+            entry.FirstSeen ??= now;
             entry.LastSeen = now;
 
             PeerSession? existing = entry.Established;
@@ -261,6 +275,7 @@ internal sealed class PeerTable : IDisposable
                 entry.Sessions.Remove(session);
                 if (ReferenceEquals(entry.Established, session))
                     entry.Established = null;
+                entry.FirstSeen ??= now;
                 entry.LastSeen = now;
             }
 
@@ -324,6 +339,7 @@ internal sealed class PeerTable : IDisposable
         entry ??= EntryOf(announcement.Device);
         entry.User = announcement.User;
         entry.Sources |= announcement.Source;
+        entry.FirstSeen ??= now;
         entry.LastSeen = now;
         entry.AddAddress(announcement.Address);
         if (!decision.ShouldDial || attempts.ContainsKey(announcement.Address))
@@ -398,8 +414,12 @@ internal sealed class PeerTable : IDisposable
         return entry;
     }
 
-    private void Publish(DateTimeOffset now) =>
-        Volatile.Write(ref view, devices.Values.Select(e => e.Record(now)).ToArray());
+    private void Publish(DateTimeOffset now)
+    {
+        PeerRecord[] next = devices.Values.Select(e => e.Record(now)).ToArray();
+        Volatile.Write(ref view, next);
+        changed?.Invoke(next);
+    }
 
     private readonly record struct Pending(NodeFactKind Kind, long Connection, IPEndPoint? Remote, DeviceId Device, string Detail);
 
@@ -417,6 +437,8 @@ internal sealed class PeerTable : IDisposable
         public List<IPEndPoint> Addresses { get; } = [];
 
         public DiscoverySource Sources { get; set; }
+
+        public DateTimeOffset? FirstSeen { get; set; }
 
         public DateTimeOffset? LastSeen { get; set; }
 
@@ -467,6 +489,7 @@ internal sealed class PeerTable : IDisposable
             State = StateAt(now),
             Addresses = Addresses.ToArray(),
             Sources = Sources,
+            FirstSeen = FirstSeen,
             LastSeen = LastSeen,
             BackoffUntil = BackoffUntil is { } until && until > now ? until : null,
             Failures = Failures,

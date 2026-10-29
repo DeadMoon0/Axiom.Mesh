@@ -7,4 +7,10 @@ internal sealed record SelfIdentity(PublicKey UserKey, DeviceId Device)
 {
     /// <summary>The own user id.</summary>
     public UserId User => UserKey.AsUserId();
+
+    /// <summary>The user's display name, local to this device's database (LOCAL-SPEC.md §5.1); empty when none was given.</summary>
+    public string UserName { get; init; } = string.Empty;
+
+    /// <summary>When the identity was created or enrolled on this device, in milliseconds since the Unix epoch; 0 when unknown.</summary>
+    public long CreatedMs { get; init; }
 }
