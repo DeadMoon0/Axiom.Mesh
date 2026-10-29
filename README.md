@@ -1,4 +1,4 @@
-![Icon](https://raw.githubusercontent.com/DeadMoon0/Axiom/refs/heads/main/Assets/Icon.svg)
+![Icon](https://raw.githubusercontent.com/DeadMoon0/Axiom.Mesh/main/Assets/Icon.svg)
 
 # Axiom.Mesh
 

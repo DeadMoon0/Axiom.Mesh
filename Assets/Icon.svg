@@ -1,11 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" fill="none" viewBox="-2 -2 100 100">
-  <path fill="url(#a)" d="M35.157 6.616c5.925-8.821 18.953-8.821 24.877 0l.281.434 32.591 52.145c4.954 7.927 1.53 18.405-7.15 21.877l-32.59 13.036a15.002 15.002 0 0 1-11.142 0L9.434 81.072C.755 77.6-2.669 67.122 2.285 59.195L34.875 7.05l.282-.434Zm16.679 5.734c-1.959-3.133-6.522-3.133-8.48 0l-32.59 52.145c-1.652 2.642-.51 6.134 2.382 7.292l32.59 13.036a5.002 5.002 0 0 0 3.49.084l.225-.084 32.59-13.036c2.802-1.121 3.961-4.434 2.53-7.042l-.147-.25-32.59-52.145Zm-6.86 16.608c.979-1.567 3.26-1.567 4.24 0L69.01 60.629a2.5 2.5 0 0 1-1.192 3.647l-19.795 7.918a2.501 2.501 0 0 1-1.857 0l-19.795-7.918a2.5 2.5 0 0 1-1.191-3.647l19.794-31.671Z"/>
   <defs>
-    <linearGradient id="a" x1="0" x2="95.191" y1="47.59" y2="47.59" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#D9D9D9"/>
-      <stop offset=".5" stop-color="#D9D9D9"/>
-      <stop offset=".5" stop-color="#9F9F9F"/>
-      <stop offset="1" stop-color="#9F9F9F"/>
+    <linearGradient id="g" x1="0" x2="96" y1="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D9D9D9"/><stop offset=".5" stop-color="#D9D9D9"/><stop offset=".5" stop-color="#9F9F9F"/><stop offset="1" stop-color="#9F9F9F"/>
+    </linearGradient>
+    <linearGradient id="s" x1="0" x2="1" y1="0" y2="0">
+      <stop stop-color="#D9D9D9"/><stop offset=".5" stop-color="#D9D9D9"/><stop offset=".5" stop-color="#9F9F9F"/><stop offset="1" stop-color="#9F9F9F"/>
     </linearGradient>
   </defs>
+  <!-- the same, but the cell is lit as one body like the family A: devices left of the ridge are lit, right of it in shadow -->
+  <path fill="#E8E8E8" d="M48 48.5 L31.5 39.0 L48 29.5 L64.5 39.0 Z"/>
+  <path fill="#D9D9D9" d="M48 48.5 L31.5 39.0 V58.0 L48 67.5 Z"/>
+  <path fill="#9F9F9F" d="M48 48.5 L64.5 39.0 V58.0 L48 67.5 Z"/>
+  <circle fill="#BDBDBD" cx="56.5" cy="13.9" r="3.6"/>
+  <circle fill="#BDBDBD" cx="65.0" cy="18.8" r="3.6"/>
+  <circle fill="#BDBDBD" cx="73.5" cy="23.6" r="3.6"/>
+  <circle fill="#BDBDBD" cx="82.0" cy="38.3" r="3.6"/>
+  <circle fill="#BDBDBD" cx="82.0" cy="48.0" r="3.6"/>
+  <circle fill="#BDBDBD" cx="82.0" cy="57.8" r="3.6"/>
+  <circle fill="#BDBDBD" cx="73.5" cy="72.4" r="3.6"/>
+  <circle fill="#BDBDBD" cx="65.0" cy="77.3" r="3.6"/>
+  <circle fill="#BDBDBD" cx="56.5" cy="82.1" r="3.6"/>
+  <circle fill="#BDBDBD" cx="39.5" cy="82.1" r="3.6"/>
+  <circle fill="#BDBDBD" cx="31.0" cy="77.3" r="3.6"/>
+  <circle fill="#BDBDBD" cx="22.5" cy="72.4" r="3.6"/>
+  <circle fill="#BDBDBD" cx="14.0" cy="57.8" r="3.6"/>
+  <circle fill="#BDBDBD" cx="14.0" cy="48.0" r="3.6"/>
+  <circle fill="#BDBDBD" cx="14.0" cy="38.3" r="3.6"/>
+  <circle fill="#BDBDBD" cx="22.5" cy="23.6" r="3.6"/>
+  <circle fill="#BDBDBD" cx="31.0" cy="18.8" r="3.6"/>
+  <circle fill="#BDBDBD" cx="39.5" cy="13.9" r="3.6"/>
+  <circle fill="url(#g)" cx="48" cy="9" r="8.5"/>
+  <circle fill="url(#g)" cx="82" cy="28.5" r="8.5"/>
+  <circle fill="url(#g)" cx="82" cy="67.5" r="8.5"/>
+  <circle fill="url(#g)" cx="48" cy="87" r="8.5"/>
+  <circle fill="url(#g)" cx="14" cy="67.5" r="8.5"/>
+  <circle fill="url(#g)" cx="14" cy="28.5" r="8.5"/>
 </svg>
