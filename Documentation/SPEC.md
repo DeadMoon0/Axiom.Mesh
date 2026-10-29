@@ -141,6 +141,10 @@ Discovery answers which addresses on the local network claim to run a node and w
 A claim is a hint, never trusted: only the TLS handshake (§4.3) proves it. A node MUST NOT dial a discovered
 address whose claimed device id is not, in a roster it holds, a device of a known user (its own included).
 
+A record or datagram that claims an all-zero device id or user id, or port 0, MUST be ignored: no key hashes to
+the zero id, so such a claim names no node. Two claims are the same claim when they name the same device id,
+user id and address, whichever mechanism carried them.
+
 ### 3.1 mDNS / DNS-SD
 
 A node SHOULD announce the service `_axiom-mesh._tcp` with the instance name equal to the first 32 hex
@@ -153,8 +157,9 @@ these TXT records:
 | `d` | device id, hex, 64 characters |
 | `u` | user id, hex, 64 characters |
 
-Unknown keys MUST be ignored. A record whose `v` is not `1`, or whose `d` does not start with the instance
-name, MUST be ignored.
+Unknown keys MUST be ignored. Keys compare without regard to case, and of a key that appears more than once
+only the first counts (RFC 6763 §6.4). A record whose `v` is not `1`, or whose `d` does not start with the
+instance name, MUST be ignored; the instance name and `d` compare as DNS names do, without regard to case.
 
 ### 3.2 UDP broadcast
 
@@ -169,14 +174,17 @@ port:       u16        the TCP port of the mesh listener
 ```
 
 A query carries the sender's own ids and port and asks every listener to answer with an announcement, sent
-unicast to the query's source address. A node MUST NOT send more than one announcement per second per
-interface and MUST ignore datagrams of any other length, magic or flag bits. Nothing in the datagram is
-authenticated; it is a hint like a DNS-SD record.
+unicast to the query's source address. A query is itself a claim: a receiver MAY treat its ids and port as it
+treats an announcement's. A node MUST NOT send more than one announcement per second per interface; the bound
+counts every announcement sent on that interface, over IPv4 and IPv6 alike and answers to queries included
+(queries themselves are not bounded by it). A node MUST ignore datagrams of any other length, magic or flag
+bits. IPv6 has no broadcast: there the datagram is sent to the link-local all-nodes group `ff02::1` of each
+interface. Nothing in the datagram is authenticated; it is a hint like a DNS-SD record.
 
 ### 3.3 Static peers
 
-A node MAY hold a list of `host:port` addresses to dial on start and on a schedule. The TLS handshake
-decides whether the node there is acceptable.
+A node MAY hold a list of `host:port` addresses to dial on start and on a schedule, by default every 60
+seconds. The TLS handshake decides whether the node there is acceptable.
 
 ## 4. Connection
 
@@ -299,7 +307,7 @@ Connected ───────────────────────�
 - **Connected:** the TLS handshake completed with ALPN `axiom-mesh/1`. Each side MUST send `Hello` as its
   first frame, immediately, without waiting for the peer's. Before the peer's `Hello`, a node accepts only
   `Hello` and `Bye`; any other frame is a violation. If no `Hello` arrives within 10 seconds, the connection
-  is closed.
+  is closed with `Bye(Idle)`.
 - **Established:** both `Hello`s were received and validated (§7.1). Every message of §7 may flow in either
   direction at any time. The protocol is symmetric: there is no client and no server above TLS.
 - **Switched:** the connection was handed to a service protocol (§7.10). No AMP/1 frame is exchanged, `Bye`
@@ -381,7 +389,8 @@ owner or holds a current `Read` or `Write` Grant (§8.9), and no other. Rules fo
   more, or later, is a violation.
 - Between the pages of one listing the sender MUST NOT send another `Packages` or `PackageChanged`; other
   messages MAY interleave. A `Packages` with `page = 0` while a listing is incomplete discards the partial
-  listing and starts over.
+  listing and starts over; the 60 seconds then count from the new page 0, unless the discarded listing was
+  already past its own 60 seconds, which remains a violation.
 - A page MUST be cut so that its frame stays within §5.1; the list maximum of 64 is a bound on count, not a
   guarantee of fit.
 - The receiver replaces its view of the sender's state when `last` is true.
@@ -425,7 +434,8 @@ hashes:     list<hash>(64)
 "Send these if you have them." The receiver answers each hash with `Object` or `NotFound`, in any order, and
 MUST answer every hash eventually unless a `Cancel` for it arrives first. A node MUST NOT have more than 64
 hashes outstanding (wanted, not yet answered or cancelled) toward one peer; a `Want` that would exceed that
-on the receiving side is a violation.
+on the receiving side is a violation. Hashes count per `Want`: a hash that appears in two outstanding `Want`s
+counts twice, and each is settled by its own answer or by the `Cancel` that names it.
 
 ### 7.6 `Object` (6), Established only
 
@@ -444,7 +454,9 @@ objects other than those.
 
 A sender MUST NOT have more than 8 MiB of `Object` payload queued toward one peer. Past that it continues to
 read and parse frames (so `Ping`, `Pong` and `Cancel` are still processed) but defers answering further
-`Want`s until the queue drains. The 64-outstanding bound of §7.5 covers deferred wants too.
+`Want`s until the queue drains. The 8 MiB bound counts the `object` fields queued, not the frames around
+them. Only answers with an `Object` are deferred; a `NotFound` is sent without waiting for the queue. The
+64-outstanding bound of §7.5 covers deferred wants too.
 
 ### 7.7 `NotFound` (7), Established only
 
@@ -914,8 +926,9 @@ regular file holding the target text.
 A violation is any of: a frame outside its bounds or not completed in time, an unknown message id 0 to 16,
 a message in the wrong state, a message field outside its stated limits, a malformed `string` in a
 message, a `Hello` that fails its checks, an `Object` whose hash does not match, a `Want` that exceeds the
-outstanding bound, a second `ServiceOpen` while one's own is outstanding, or a `Packages` listing that
-breaks the rules of §7.2. On a violation a node MUST close the connection with `Bye` (reason `Violation`,
+outstanding bound, a second `ServiceOpen` while one's own is outstanding, a `ServiceAccepted` or
+`ServiceRefused` that answers a `ServiceOpen` this node never sent, or a `Packages` listing that breaks the
+rules of §7.2. On a violation a node MUST close the connection with `Bye` (reason `Violation`,
 or `Unauthorized` for a failed `Hello`) and SHOULD record it against the device. A device that causes three
 violations within an hour SHOULD NOT be dialled for an hour.
 
