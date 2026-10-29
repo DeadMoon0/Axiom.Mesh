@@ -228,6 +228,26 @@ internal sealed class PeerTable : IDisposable
         Record(backedOff);
     }
 
+    /// <summary>
+    /// The device sent faulty content (SPEC.md §12.2): well-formed on the wire, wrong in substance. Not a violation; the
+    /// session goes on, the content is dropped and never forwarded, and the device is recorded as faulty for it.
+    /// </summary>
+    /// <param name="device">The device.</param>
+    /// <param name="connection">The connection it came on.</param>
+    /// <param name="hash">The faulty object's hash.</param>
+    /// <param name="detail">What is wrong with it.</param>
+    public void Faulty(DeviceId device, long connection, ObjectHash hash, string detail)
+    {
+        lock (gate)
+        {
+            DateTimeOffset now = time.GetUtcNow();
+            EntryOf(device).Faulty++;
+            Publish(now);
+        }
+
+        facts.Record(NodeFactKind.FaultyContent, connection, null, device, hash.Value, detail);
+    }
+
     /// <summary>A session ended, established or not.</summary>
     /// <param name="session">The session.</param>
     /// <param name="detail">Why it ended, for the facts.</param>
@@ -408,6 +428,8 @@ internal sealed class PeerTable : IDisposable
 
         public ViolationWindow Violations { get; set; }
 
+        public int Faulty { get; set; }
+
         public DateTimeOffset? ViolatedUntil { get; set; }
 
         public bool Dialling { get; set; }
@@ -450,6 +472,7 @@ internal sealed class PeerTable : IDisposable
             Failures = Failures,
             Violations = Violations.Count != 0 && now - Violations.Since < TimeSpan.FromSeconds(Limits.ViolationWindowSeconds) ? Violations.Count : 0,
             Sessions = Sessions.Count,
+            Faulty = Faulty,
         };
     }
 

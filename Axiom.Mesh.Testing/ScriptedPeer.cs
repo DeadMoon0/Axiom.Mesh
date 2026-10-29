@@ -221,6 +221,28 @@ public sealed class ScriptedPeer : IAsyncDisposable
         await tls.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Writes only the first <paramref name="length"/> bytes of a message's frame straight to the TLS stream, so the node
+    /// sees a frame begin and not end (SPEC.md §5.1). Allowed with a session open, while it writes nothing itself: nothing
+    /// is sent automatically before 60 seconds of silence.
+    /// </summary>
+    /// <param name="message">The message whose frame is begun.</param>
+    /// <param name="length">How many of its bytes to write; fewer than the whole frame.</param>
+    /// <param name="cancellationToken">Cancels writing.</param>
+    /// <returns>A task that completes when the bytes were written.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The length is not below the frame's.</exception>
+    public async Task SendFrameStartAsync(MeshMessage message, int length, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        var frame = new ArrayBufferWriter<byte>();
+        using (var codec = new CodecRunner<MeshMessage, MeshMessage>(Amp.Definition))
+            codec.Encode(message, frame);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(length, frame.WrittenCount);
+        await tls.WriteAsync(frame.WrittenMemory[..length], cancellationToken).ConfigureAwait(false);
+        await tls.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Reads until the node sends <c>Bye</c>, passing over what comes before it.</summary>
     /// <param name="cancellationToken">Stops waiting.</param>
     /// <returns>The node's <c>Bye</c>.</returns>

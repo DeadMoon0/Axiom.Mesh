@@ -20,4 +20,10 @@ internal enum AdmitOutcome
 
     /// <summary>Its bytes would raise the pinned bytes above the budget (LOCAL-SPEC.md §6.5): not stored.</summary>
     StoreFull = 5,
+
+    /// <summary>
+    /// An Entry whose parents are held and fail SPEC.md §8.6 (another Package, a clock not above a parent's, a gap above
+    /// 2^32): faulty content (§12.2), not stored and never forwarded.
+    /// </summary>
+    Faulty = 6,
 }

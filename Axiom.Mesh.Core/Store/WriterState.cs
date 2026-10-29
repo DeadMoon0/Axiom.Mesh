@@ -44,6 +44,9 @@ internal sealed class WriterState
     /// <summary>One key instance per device, across snapshots.</summary>
     public Dictionary<DeviceId, PublicKey> Keys { get; }
 
+    /// <summary>The stored Heads; a batch replaces the view, the writer publishes it once the batch committed.</summary>
+    public HeadsView Heads { get; set; } = HeadsView.Empty;
+
     /// <summary>Reads the counters and trust the database holds.</summary>
     /// <param name="database">The database.</param>
     /// <param name="files">The object files the current Rosters, Manifests and Grants are read from.</param>
@@ -69,8 +72,12 @@ internal sealed class WriterState
             && PublicKey.TryParse(user.Bytes, out PublicKey? userKey))
             trust.SetSelf(new SelfIdentity(userKey, new DeviceId(RowKeys.Hash(device.Bytes!))));
 
+        List<HeadRow> heads = await context.Set<HeadRow>().ReadOnlyQuery().ToListAsync(cancellationToken).ConfigureAwait(false);
         return new WriterState(trust, trust.Build(), keys)
         {
+            Heads = HeadsView.Of(heads.Select(h => new KeyValuePair<PackageId, Head>(
+                new PackageId(RowKeys.Hash(h.Package)),
+                new Head(new DeviceId(RowKeys.Hash(h.Device)), new ObjectHash(RowKeys.Hash(h.Entry)), h.Clock)))),
             StoreSeq = Number(meta, MetaKeys.StoreSeq),
             Objects = (long)Number(meta, MetaKeys.StoreObjects),
             Bytes = (long)Number(meta, MetaKeys.StoreBytes),

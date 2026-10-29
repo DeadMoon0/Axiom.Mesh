@@ -53,4 +53,19 @@ public enum NodeFactKind
 
     /// <summary>A handler failed with an exception: a defect of the node, logged as an error.</summary>
     HandlerFaulted = 16,
+
+    /// <summary>A listing from the peer completed: this node's view of what the peer holds was replaced (SPEC.md §7.2).</summary>
+    ListingDone = 17,
+
+    /// <summary>An object was stored, from a peer or written here; <see cref="NodeFact.Subject"/> is its hash (SPEC.md §11.1).</summary>
+    ObjectStored = 18,
+
+    /// <summary>This node answered one hash of a peer's <c>Want</c>, with <c>Object</c> or <c>NotFound</c> (SPEC.md §7.5); <see cref="NodeFact.Subject"/> is the hash.</summary>
+    WantAnswered = 19,
+
+    /// <summary>
+    /// A peer sent faulty content (SPEC.md §12.2): malformed, an invalid signature, an Entry whose parents fail §8.6. It was
+    /// dropped, never forwarded, and the device recorded as faulty; the session goes on. <see cref="NodeFact.Subject"/> is its hash.
+    /// </summary>
+    FaultyContent = 20,
 }

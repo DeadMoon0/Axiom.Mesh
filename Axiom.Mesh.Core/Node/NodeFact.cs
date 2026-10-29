@@ -27,6 +27,9 @@ public sealed class NodeFact
     /// <summary>The peer's device, when known; zero otherwise.</summary>
     public DeviceId Device { get; init; }
 
+    /// <summary>What it is about besides the peer: an object's hash, or zero.</summary>
+    public Hash32 Subject { get; init; }
+
     /// <summary>More about it, for logs; never interpreted.</summary>
     public string Detail { get; init; } = string.Empty;
 
@@ -36,7 +39,8 @@ public sealed class NodeFact
         string device = Device.Value.IsZero ? string.Empty : " device " + Device.ToString()[..16];
         string remote = Remote is null ? string.Empty : " " + Remote;
         string connection = Connection == 0 ? string.Empty : " #" + Connection;
+        string subject = Subject.IsZero ? string.Empty : " " + Subject.ToHex()[..16];
         string detail = Detail.Length == 0 ? string.Empty : ": " + Detail;
-        return $"{Sequence} {Kind}{connection}{remote}{device}{detail}";
+        return $"{Sequence} {Kind}{connection}{remote}{device}{subject}{detail}";
     }
 }

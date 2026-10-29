@@ -25,8 +25,13 @@ namespace Axiom.Mesh.Core;
 /// clients. Admission allows four connections per peer address (SPEC.md §4.6).
 /// </para>
 /// <para>
+/// Every established session replicates (SPEC.md §10): the node lists what each peer may see, wants what it follows and
+/// lacks, answers what peers want, and pushes every change on at once, so a change crosses any number of hops without
+/// polling. <see cref="Replication"/> says where that stands.
+/// </para>
+/// <para>
 /// Start it with <see cref="StartAsync"/>, stop it with <see cref="StopAsync"/>: every session says <c>Bye(Shutdown)</c>
-/// before the node lets go of its store. Replication and the local port's requests follow in later versions.
+/// before the node lets go of its store. The local port's requests follow in a later version.
 /// </para>
 /// </remarks>
 public sealed class MeshNode : IAsyncDisposable
@@ -39,20 +44,24 @@ public sealed class MeshNode : IAsyncDisposable
     private readonly DeviceCredential? credential;
     private readonly PeerTable table;
     private readonly LWSEServer server;
+    private readonly NodeReplication replication;
+    private readonly EntryWriter? entries;
     private int stopped;
 
-    private MeshNode(MeshNodeOptions options, MeshNodeEnvironment environment, MeshDatabase database, StoreWriter writer, DeviceCredential? credential, PeerTable table, NodeFacts facts, PairingGate pairing, LWSEServer server)
+    private MeshNode(MeshNodeOptions options, MeshNodeEnvironment environment, MeshDatabase database, StoreWriter writer, ObjectStore store, DeviceCredential? credential, PeerTable table, NodeFacts facts, PairingGate pairing, LWSEServer server, NodeReplication replication)
     {
         this.options = options;
         this.environment = environment;
         this.database = database;
         this.writer = writer;
+        this.store = store;
         this.credential = credential;
         this.table = table;
         this.server = server;
+        this.replication = replication;
+        entries = credential is null ? null : new EntryWriter(writer, credential.Signer);
         Facts = facts;
         Pairing = pairing;
-        store = new ObjectStore(writer, environment.Files);
     }
 
     /// <summary>Who this node is; <see langword="null"/> until it has an identity (a device key and its user's Roster).</summary>
@@ -75,8 +84,20 @@ public sealed class MeshNode : IAsyncDisposable
         ? new IPEndPoint(IPAddress.IPv6Any, options.MeshPort)
         : server.Endpoints.FirstOrDefault() ?? new IPEndPoint(IPAddress.IPv6Any, options.MeshPort);
 
+    /// <summary>Where replication stands now: wants, counters, and each established session's traffic (LOCAL-SPEC.md §5.8).</summary>
+    public ReplicationStatus Replication => replication.Status();
+
     /// <summary>The node's trust now.</summary>
     internal TrustSnapshot Trust => writer.Trust;
+
+    /// <summary>The store writer.</summary>
+    internal StoreWriter Writer => writer;
+
+    /// <summary>The object store.</summary>
+    internal ObjectStore Store => store;
+
+    /// <summary>What the node's sessions share for replication.</summary>
+    internal NodeReplication Replicating => replication;
 
     /// <summary>The node's peer table.</summary>
     internal PeerTable Table => table;
@@ -104,6 +125,7 @@ public sealed class MeshNode : IAsyncDisposable
         StoreWriter? writer = null;
         DeviceCredential? credential = null;
         LWSEServer? server = null;
+        NodeReplication? replication = null;
         try
         {
             writer = await StoreWriter.StartAsync(database, environment.Files, StoreOptions.Default, time, bus, new Promises(), cancellationToken).ConfigureAwait(false);
@@ -118,8 +140,11 @@ public sealed class MeshNode : IAsyncDisposable
             var dialler = new PeerDialler(table, environment.Dialer, facts);
             var pump = new DiscoveryPump(environment.Discovery, table, bus, () => running.Trust);
             var evictor = new Evictor(running, bus);
+            var store = new ObjectStore(running, environment.Files);
+            replication = new NodeReplication(running, bus, store, table, facts, time);
+            NodeReplication replicating = replication;
             var module = new NodeModule(
-                new PeerSessionHandler(() => running.Trust, table, facts, time),
+                new PeerSessionHandler(() => running.Trust, table, facts, time, replicating),
                 new LocalPortHandler(),
                 new NodeObserver(facts),
                 [
@@ -127,6 +152,7 @@ public sealed class MeshNode : IAsyncDisposable
                     new LoopService("discovery", started.Task, pump.ObserveAsync, facts),
                     new LoopService("trust", started.Task, pump.FollowTrustAsync, facts),
                     new LoopService("evictor", started.Task, evictor.RunAsync, facts),
+                    new LoopService("replicator", started.Task, replicating.Replicator.RunAsync, facts),
                 ],
                 dialler);
             var tls = new Func<TlsRole, MeshTlsOptions>(role => new MeshTlsOptions { Role = role, Credential = () => presented, Trust = () => running.Trust, Pairing = pairing, Time = time });
@@ -148,12 +174,13 @@ public sealed class MeshNode : IAsyncDisposable
             }
 
             started.TrySetResult();
-            return new MeshNode(options, environment, database, running, credential, table, facts, pairing, server);
+            return new MeshNode(options, environment, database, running, store, credential, table, facts, pairing, server, replicating);
         }
         catch
         {
             if (server is not null)
                 await server.DisposeAsync().ConfigureAwait(false);
+            replication?.Dispose();
             credential?.Dispose();
             if (writer is not null)
                 await writer.StopAsync().ConfigureAwait(false);
@@ -221,6 +248,62 @@ public sealed class MeshNode : IAsyncDisposable
     }
 
     /// <summary>
+    /// Follows a Package (LOCAL-SPEC.md §6.3): its Manifest, Grants and Entries are replicated and pinned from now on, and
+    /// its payload objects as far as its retention policy goes (SPEC.md §10.2, §11.2). Following a Package nobody listed
+    /// yet waits for its Manifest from the first peer that lists it.
+    /// </summary>
+    /// <param name="package">The Package.</param>
+    /// <param name="cancellationToken">Cancels waiting for the store.</param>
+    /// <returns><see langword="true"/> when the node did not follow it before.</returns>
+    public Task<bool> FollowAsync(PackageId package, CancellationToken cancellationToken) =>
+        writer.SendAsync(new PackageCommand(PackageCommandKind.Follow, package, LocalRetention.Default), cancellationToken);
+
+    /// <summary>
+    /// Stops following a Package (LOCAL-SPEC.md §6.3): it is listed again, its wants are cancelled, and what it pinned for
+    /// history and policy may be evicted; what this device wrote stays pinned until sent once (SPEC.md §11.2). The own
+    /// Packages cannot be unfollowed.
+    /// </summary>
+    /// <param name="package">The Package.</param>
+    /// <param name="cancellationToken">Cancels waiting for the store.</param>
+    /// <returns><see langword="true"/> when the node followed it before.</returns>
+    public Task<bool> UnfollowAsync(PackageId package, CancellationToken cancellationToken) =>
+        writer.SendAsync(new PackageCommand(PackageCommandKind.Unfollow, package, LocalRetention.Default), cancellationToken);
+
+    /// <summary>
+    /// Stores an object made here (SPEC.md §11.1): a Manifest or Grant the own user signed, a Chunk, ChunkList or Tree of
+    /// a file about to be published. Only a <see cref="StorableObject"/> is taken, so only what verified is stored; a
+    /// Manifest is kept only for a followed Package, a Grant only with its Manifest.
+    /// </summary>
+    /// <param name="storable">The object.</param>
+    /// <param name="cancellationToken">Cancels waiting for the store.</param>
+    /// <returns><see langword="true"/> when the object is stored now, whether by this call or before.</returns>
+    public async Task<bool> PutAsync(StorableObject storable, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(storable);
+        return (await store.PutAsync(storable, cancellationToken).ConfigureAwait(false)).IsStored;
+    }
+
+    /// <summary>
+    /// Writes an Entry on this device (SPEC.md §9.3; LOCAL-SPEC.md §9.4): clock and parents chosen by the parent rule,
+    /// signed with the device key, stored, and pushed to every peer that may see the Package. Store the objects the payload
+    /// names first; they stay pinned <c>Outbound</c> until a peer fetched each once (SPEC.md §11.2).
+    /// </summary>
+    /// <param name="package">The Package; followed, with its Manifest held, and the device's user its owner or a Write grantee.</param>
+    /// <param name="payload">What the Entry says.</param>
+    /// <param name="cancellationToken">Cancels waiting for the store.</param>
+    /// <returns>The Entry's hash.</returns>
+    /// <exception cref="MeshNodeException">The node has no identity, does not follow the Package, may not write to it, or its store is full.</exception>
+    public Task<ObjectHash> WriteEntryAsync(PackageId package, EntryPayload payload, CancellationToken cancellationToken) =>
+        (entries ?? throw new MeshNodeException(MeshFault.Caller, "This node has no device key, so it cannot sign an Entry.", "Store a device key in the node's key store before the node starts."))
+            .WriteAsync(package, payload, cancellationToken);
+
+    /// <summary>Whether the node holds an object, as of the last committed batch.</summary>
+    /// <param name="hash">The object's hash.</param>
+    /// <param name="cancellationToken">Cancels reading.</param>
+    /// <returns><see langword="true"/> when stored.</returns>
+    public Task<bool> ContainsAsync(ObjectHash hash, CancellationToken cancellationToken) => store.ContainsAsync(hash, cancellationToken);
+
+    /// <summary>
     /// Stops the node: stops accepting and dialling, lets every session say <c>Bye(Shutdown)</c> within the drain
     /// timeout, stops its loops and the store writer, and releases the database it opened over the caller's. The
     /// caller's database, object files and key store stay the caller's.
@@ -239,6 +322,8 @@ public sealed class MeshNode : IAsyncDisposable
         {
             table.Dispose();
             await server.DisposeAsync().ConfigureAwait(false);
+            replication.Dispose();
+            entries?.Dispose();
             await writer.StopAsync().ConfigureAwait(false);
             await database.DisposeAsync().ConfigureAwait(false);
             credential?.Dispose();

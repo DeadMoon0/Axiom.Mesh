@@ -11,11 +11,12 @@ namespace Axiom.Mesh.Core;
 /// </summary>
 internal sealed class DeviceCredential : IDisposable
 {
-    private DeviceCredential(X509Certificate2 certificate, SslStreamCertificateContext context, PublicKey key)
+    private DeviceCredential(X509Certificate2 certificate, SslStreamCertificateContext context, PublicKey key, EcdsaSigner signer)
     {
         Certificate = certificate;
         Context = context;
         Key = key;
+        Signer = signer;
     }
 
     /// <summary>The device certificate with its private key.</summary>
@@ -23,6 +24,9 @@ internal sealed class DeviceCredential : IDisposable
 
     /// <summary>The TLS stack's context for the certificate, offered as server and as client certificate.</summary>
     public SslStreamCertificateContext Context { get; }
+
+    /// <summary>The device key as a signer of Entries (SPEC.md §8.6); the private half never leaves it.</summary>
+    public EcdsaSigner Signer { get; }
 
     /// <summary>The device key's public half.</summary>
     public PublicKey Key { get; }
@@ -48,19 +52,26 @@ internal sealed class DeviceCredential : IDisposable
         }
 
         X509Certificate2 certificate = DeviceCertificate.Create(key, now);
+        EcdsaSigner? signer = null;
         try
         {
             if (!DeviceCertificate.TryGetPoint(certificate, out ReadOnlyMemory<byte> point) || !PublicKey.TryParse(point.Span, out PublicKey? publicKey))
                 throw new ArgumentException("The device key's public point is not on P-256.", nameof(pkcs8));
-            return new DeviceCredential(certificate, SslStreamCertificateContext.Create(certificate, null, offline: true), publicKey);
+            signer = EcdsaSigner.FromPkcs8(pkcs8);
+            return new DeviceCredential(certificate, SslStreamCertificateContext.Create(certificate, null, offline: true), publicKey, signer);
         }
         catch
         {
+            signer?.Dispose();
             certificate.Dispose();
             throw;
         }
     }
 
     /// <inheritdoc />
-    public void Dispose() => Certificate.Dispose();
+    public void Dispose()
+    {
+        Signer.Dispose();
+        Certificate.Dispose();
+    }
 }

@@ -87,6 +87,9 @@ internal sealed class StoreBatch
             case EvictUnderBudgetCommand underBudget:
                 Defer(underBudget, await EvictUnderBudgetAsync().ConfigureAwait(false));
                 break;
+            case WithdrawGrantCommand withdraw:
+                Defer(withdraw, Withdraw(withdraw));
+                break;
             default:
                 throw new InvalidOperationException($"The store writer has no handler for {command.GetType().Name}.");
         }
@@ -184,7 +187,7 @@ internal sealed class StoreBatch
             }
         }
 
-        await StoreRowAsync(command).ConfigureAwait(false);
+        await StoreRowAsync(command, ObjectLinks.None).ConfigureAwait(false);
         await pins.PinAsync(roster.Hash, PinReason.Head, user.Value).ConfigureAwait(false);
         if (previous is not null)
             await pins.UnpinAsync(previous.Hash, PinReason.Head, user.Value).ConfigureAwait(false);
@@ -213,7 +216,7 @@ internal sealed class StoreBatch
         row.Manifest = RowKeys.Of(manifest.Hash.Value);
         row.ManifestSeq = manifest.Content.Seq;
         await tables.Packages.PutAsync(row, CancellationToken.None).ConfigureAwait(false);
-        await StoreRowAsync(command).ConfigureAwait(false);
+        await StoreRowAsync(command, ObjectLinks.None).ConfigureAwait(false);
         if (package.IsFollowed)
         {
             await pins.PinAsync(manifest.Hash, PinReason.Head, id.Value).ConfigureAwait(false);
@@ -250,7 +253,7 @@ internal sealed class StoreBatch
             Rights = grant.Content.Rights,
             Seq = grant.Content.Seq,
         }, CancellationToken.None).ConfigureAwait(false);
-        await StoreRowAsync(command).ConfigureAwait(false);
+        await StoreRowAsync(command, ObjectLinks.None).ConfigureAwait(false);
         await pins.PinAsync(grant.Hash, PinReason.Head, id.Value).ConfigureAwait(false);
         if (current is not null)
             await pins.UnpinAsync(current.Hash, PinReason.Head, id.Value).ConfigureAwait(false);
@@ -266,12 +269,15 @@ internal sealed class StoreBatch
         PackageId id = content.Package;
         if (!state.Trust.TryGetPackage(id, out PackageTrust? package) || !package.IsFollowed || package.Manifest is null)
             return new AdmitResult(AdmitOutcome.NotWanted, 0);
+        if (await HasParentFaultAsync(content).ConfigureAwait(false))
+            return new AdmitResult(AdmitOutcome.Faulty, 0);
         if (Overflows(command))
             return new AdmitResult(AdmitOutcome.StoreFull, 0);
         if (!await WriteAsync(command).ConfigureAwait(false))
             return null;
 
-        await StoreRowAsync(command).ConfigureAwait(false);
+        bool newest = content.Kind == EntryKind.Version && await RecordNewestVersionAsync(content).ConfigureAwait(false);
+        await StoreRowAsync(command, ObjectLinks.Of(entry, newest)).ConfigureAwait(false);
         ulong storeSeq = ++state.StoreSeq;
         byte[] hashKey = RowKeys.Of(entry.Hash.Value);
         var row = new EntryRow
@@ -298,7 +304,6 @@ internal sealed class StoreBatch
         foreach (ObjectHash reference in references)
             await PutReferenceAsync(entry.Hash, reference).ConfigureAwait(false);
 
-        bool newest = content.Kind == EntryKind.Version && await RecordNewestVersionAsync(content).ConfigureAwait(false);
         await pins.ApplyPolicyAsync(package, references, content.Kind, newest).ConfigureAwait(false);
         if (state.Trust.Self is { } self && content.Device == self.Device)
         {
@@ -317,7 +322,7 @@ internal sealed class StoreBatch
         if (!await WriteAsync(command).ConfigureAwait(false))
             return null;
 
-        await StoreRowAsync(command).ConfigureAwait(false);
+        await StoreRowAsync(command, ObjectLinks.Of(command.Object, false)).ConfigureAwait(false);
         IEnumerable<ObjectHash> children = command.Object switch
         {
             Tree tree => tree.Entries.Select(e => e.Hash),
@@ -353,7 +358,35 @@ internal sealed class StoreBatch
         }
     }
 
-    private async Task StoreRowAsync(AdmitCommand command)
+    // SPEC.md §8.6: once its parents are held, an Entry naming a parent of another Package, a clock not above a parent's,
+    // or a clock more than 2^32 above the greatest is faulty. An Entry stored before its parents (a history walk) is not
+    // checked again when they arrive (STRUCTURAL-DEBT.md 17).
+    private async Task<bool> HasParentFaultAsync(EntryContent content)
+    {
+        if (content.Parents.IsEmpty)
+            return false;
+        var parents = new EntryFacts[content.Parents.Count];
+        for (int i = 0; i < parents.Length; i++)
+        {
+            EntryRow? parent = await tables.Entries.FindAsync(RowKeys.Of(content.Parents[i].Value), CancellationToken.None).ConfigureAwait(false);
+            if (parent is null)
+                return false;
+            parents[i] = FactsOf(parent);
+        }
+
+        return Lamport.TryFindParentFault(content, parents, out _);
+    }
+
+    private bool Withdraw(WithdrawGrantCommand command)
+    {
+        if (!state.Trust.WithdrawOwnGrant(command.Package))
+            return false;
+        Changes.Package(new PackageChange(command.Package, PackageChangeKind.Grant, command.Origin));
+        Changes.TrustChanged = true;
+        return true;
+    }
+
+    private async Task StoreRowAsync(AdmitCommand command, ObjectLinks links)
     {
         StorableObject storable = command.Object;
         long size = storable.Bytes.Length;
@@ -367,7 +400,7 @@ internal sealed class StoreBatch
         }, CancellationToken.None).ConfigureAwait(false);
         state.Objects++;
         state.Bytes += size;
-        Changes.Stored.Add(new StoredObject(storable.Hash, (byte)storable.Tag, size, command.Origin, command.Context));
+        Changes.Stored.Add(new StoredObject(storable.Hash, (byte)storable.Tag, size, command.Origin, command.Context) { Links = links });
     }
 
     private Task PutReferenceAsync(ObjectHash referrer, ObjectHash target) => tables.References.PutAsync(new ReferenceRow
@@ -412,6 +445,7 @@ internal sealed class StoreBatch
             Entry = RowKeys.Of(content.Hash.Value),
             Clock = content.Clock,
         }, CancellationToken.None).ConfigureAwait(false);
+        state.Heads = state.Heads.With(content.Package, candidate);
         Changes.Package(new PackageChange(content.Package, PackageChangeKind.Head, command.Origin));
     }
 
@@ -657,6 +691,8 @@ internal sealed class StoreBatch
         await tables.References.DeleteWhereAsync(ReferenceRow.Columns.Referrer == row.Hash, CancellationToken.None).ConfigureAwait(false);
         if ((ObjectTag)row.Tag == ObjectTag.Entry)
         {
+            if (await tables.Entries.FindAsync(row.Hash, CancellationToken.None).ConfigureAwait(false) is { } entry)
+                state.Heads = state.Heads.Without(new PackageId(RowKeys.Hash(entry.Package)), hash);
             await tables.Entries.DeleteAsync(row.Hash, CancellationToken.None).ConfigureAwait(false);
             await tables.Heads.DeleteWhereAsync(HeadRow.Columns.Entry == row.Hash, CancellationToken.None).ConfigureAwait(false);
         }

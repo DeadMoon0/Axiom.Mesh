@@ -22,6 +22,8 @@ public sealed class PublicTypeTests
         typeof(NodeFactKind), // its kind
         typeof(PeerRecord), // MeshNode.Peers: the CLI's peers list, Testing's waits
         typeof(PeerState), // where a peer stands
+        typeof(ReplicationStatus), // MeshNode.Replication: Testing settles on it, the Host's Sessions request reads it
+        typeof(SessionTraffic), // one session in it (LOCAL-SPEC.md §5.8)
         typeof(MeshStoreException), // what the Host shows when the store cannot open
         typeof(IEntropy), // the Host and Testing choose the randomness
         typeof(SystemEntropy), // the Host's

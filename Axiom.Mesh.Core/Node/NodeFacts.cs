@@ -105,13 +105,24 @@ public sealed class NodeFacts
     /// <param name="device">The peer's device, or zero.</param>
     /// <param name="detail">More, for logs.</param>
     /// <returns>The fact.</returns>
-    internal NodeFact Record(NodeFactKind kind, long connection, IPEndPoint? remote, DeviceId device, string detail)
+    internal NodeFact Record(NodeFactKind kind, long connection, IPEndPoint? remote, DeviceId device, string detail) =>
+        Record(kind, connection, remote, device, default, detail);
+
+    /// <summary>Records and logs a fact about an object, and completes every waiter it matches.</summary>
+    /// <param name="kind">What happened.</param>
+    /// <param name="connection">The connection's number, or 0.</param>
+    /// <param name="remote">The peer's address, if known.</param>
+    /// <param name="device">The peer's device, or zero.</param>
+    /// <param name="subject">The object's hash.</param>
+    /// <param name="detail">More, for logs.</param>
+    /// <returns>The fact.</returns>
+    internal NodeFact Record(NodeFactKind kind, long connection, IPEndPoint? remote, DeviceId device, Hash32 subject, string detail)
     {
         List<Waiter>? matched = null;
         NodeFact fact;
         lock (gate)
         {
-            fact = new NodeFact { Sequence = ++last, At = time.GetUtcNow(), Kind = kind, Connection = connection, Remote = remote, Device = device, Detail = detail };
+            fact = new NodeFact { Sequence = ++last, At = time.GetUtcNow(), Kind = kind, Connection = connection, Remote = remote, Device = device, Subject = subject, Detail = detail };
             ring[next] = fact;
             next = (next + 1) % ring.Length;
             count = Math.Min(count + 1, ring.Length);
@@ -138,7 +149,7 @@ public sealed class NodeFacts
     private static LogLevel LevelOf(NodeFactKind kind) => kind switch
     {
         NodeFactKind.HandlerFaulted => LogLevel.Error,
-        NodeFactKind.Violation or NodeFactKind.HelloRefused or NodeFactKind.Unauthorized => LogLevel.Warning,
+        NodeFactKind.Violation or NodeFactKind.HelloRefused or NodeFactKind.Unauthorized or NodeFactKind.FaultyContent => LogLevel.Warning,
         NodeFactKind.Established or NodeFactKind.SessionEnded or NodeFactKind.BackedOff => LogLevel.Information,
         _ => LogLevel.Debug,
     };

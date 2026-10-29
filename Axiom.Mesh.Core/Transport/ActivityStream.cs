@@ -6,7 +6,8 @@ using System.Threading.Tasks;
 namespace Axiom.Mesh.Core;
 
 /// <summary>
-/// The TLS stream as the protocol sees it, recording each read that returned bytes in a <see cref="LinkActivity"/>.
+/// The TLS stream as the protocol sees it, recording each read that returned bytes, and each write, in a
+/// <see cref="LinkActivity"/>.
 /// Everything else passes through; disposing it disposes the TLS stream and so the connection.
 /// </summary>
 internal sealed class ActivityStream(Stream inner, LinkActivity activity) : Stream
@@ -35,7 +36,7 @@ internal sealed class ActivityStream(Stream inner, LinkActivity activity) : Stre
     {
         int read = await inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
         if (read > 0)
-            activity.Received();
+            activity.Received(buffer.Span[..read]);
         return read;
     }
 
@@ -48,20 +49,30 @@ internal sealed class ActivityStream(Stream inner, LinkActivity activity) : Stre
     {
         int read = inner.Read(buffer, offset, count);
         if (read > 0)
-            activity.Received();
+            activity.Received(buffer.AsSpan(offset, read));
         return read;
     }
 
     /// <inheritdoc />
-    public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
-        inner.WriteAsync(buffer, cancellationToken);
+    public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        activity.Sent(buffer.Length);
+        return inner.WriteAsync(buffer, cancellationToken);
+    }
 
     /// <inheritdoc />
-    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
-        inner.WriteAsync(buffer, offset, count, cancellationToken);
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    {
+        activity.Sent(count);
+        return inner.WriteAsync(buffer, offset, count, cancellationToken);
+    }
 
     /// <inheritdoc />
-    public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
+    public override void Write(byte[] buffer, int offset, int count)
+    {
+        activity.Sent(count);
+        inner.Write(buffer, offset, count);
+    }
 
     /// <inheritdoc />
     public override Task FlushAsync(CancellationToken cancellationToken) => inner.FlushAsync(cancellationToken);
@@ -76,13 +87,20 @@ internal sealed class ActivityStream(Stream inner, LinkActivity activity) : Stre
     public override void SetLength(long value) => throw new NotSupportedException();
 
     /// <inheritdoc />
-    public override ValueTask DisposeAsync() => inner.DisposeAsync();
+    public override ValueTask DisposeAsync()
+    {
+        activity.Dispose();
+        return inner.DisposeAsync();
+    }
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
         if (disposing)
+        {
+            activity.Dispose();
             inner.Dispose();
+        }
         base.Dispose(disposing);
     }
 }

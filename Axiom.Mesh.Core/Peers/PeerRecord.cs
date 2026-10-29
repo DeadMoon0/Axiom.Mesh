@@ -35,6 +35,9 @@ public sealed class PeerRecord
     /// <summary>Violations within the current hour (SPEC.md §12.1).</summary>
     public required int Violations { get; init; }
 
+    /// <summary>How many objects the device sent that were faulty content (SPEC.md §12.2), since the node started.</summary>
+    public int Faulty { get; init; }
+
     /// <summary>Sessions open to it now, established or awaiting the peer's <c>Hello</c>.</summary>
     public required int Sessions { get; init; }
 

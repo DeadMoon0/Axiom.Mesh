@@ -12,14 +12,18 @@ internal sealed class PackageTrust
     /// <param name="manifest">The current Manifest, or <see langword="null"/>.</param>
     /// <param name="grants">The current Grant per grantee.</param>
     /// <param name="policy">The local retention policy.</param>
-    public PackageTrust(PackageId id, PackageState state, VerifiedManifest? manifest, IReadOnlyDictionary<UserId, VerifiedGrant> grants, LocalRetention policy)
+    /// <param name="withdrawnGrant">The own user's Grant an owner's listing withdrew (SPEC.md §7.2), or <see langword="null"/>.</param>
+    public PackageTrust(PackageId id, PackageState state, VerifiedManifest? manifest, IReadOnlyDictionary<UserId, VerifiedGrant> grants, LocalRetention policy, ObjectHash? withdrawnGrant = null)
     {
         Id = id;
         State = state;
         Manifest = manifest;
         Grants = grants;
         Policy = policy;
-        Audience = manifest is null ? null : new PackageAudience(manifest.Content.Owner, grants.ToDictionary(g => g.Key, g => g.Value.Content.Rights));
+        WithdrawnGrant = withdrawnGrant;
+        Audience = manifest is null ? null : new PackageAudience(
+            manifest.Content.Owner,
+            grants.ToDictionary(g => g.Key, g => g.Value.Hash == withdrawnGrant ? GrantRights.None : g.Value.Content.Rights));
     }
 
     /// <summary>The Package id.</summary>
@@ -39,6 +43,12 @@ internal sealed class PackageTrust
 
     /// <summary>The local retention policy (LOCAL-SPEC.md §14.14).</summary>
     public LocalRetention Policy { get; }
+
+    /// <summary>
+    /// The own user's current Grant that a listing from an owner's device withdrew by omitting the Package (SPEC.md §7.2):
+    /// it counts as rights <c>None</c> until a newer Grant replaces it. Kept in memory only (STRUCTURAL-DEBT.md 26).
+    /// </summary>
+    public ObjectHash? WithdrawnGrant { get; }
 
     /// <summary>The owner and the current Grants' rights, or <see langword="null"/> without a Manifest.</summary>
     public PackageAudience? Audience { get; }

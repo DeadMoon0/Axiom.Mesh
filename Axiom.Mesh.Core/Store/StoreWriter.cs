@@ -39,7 +39,9 @@ internal sealed class StoreWriter : IAsyncDisposable
     private readonly Task loop;
     private WriterState state;
     private TrustSnapshot trust;
+    private HeadsView heads;
     private StoreTotals totals;
+    private int pending;
     private Exception? fault;
 
     private StoreWriter(MeshDatabase database, IObjectFiles files, StoreOptions options, TimeProvider time, ChangeBus bus, Promises promises, WriterState state)
@@ -52,12 +54,19 @@ internal sealed class StoreWriter : IAsyncDisposable
         Promises = promises;
         this.state = state;
         trust = state.Snapshot;
+        heads = state.Heads;
         totals = TotalsOf(state, options.BudgetBytes);
         loop = Task.Run(RunAsync);
     }
 
     /// <summary>The trust that holds now: read lock-free by TLS callbacks, sessions, intake and the local port.</summary>
     public TrustSnapshot Trust => Volatile.Read(ref trust);
+
+    /// <summary>The stored Heads as of the last committed batch, read lock-free by sessions (SPEC.md §7.2).</summary>
+    public HeadsView Heads => Volatile.Read(ref heads);
+
+    /// <summary>Commands queued or being applied: zero when the writer has nothing left to do.</summary>
+    public int Pending => Volatile.Read(ref pending);
 
     /// <summary>The store's totals after the last committed batch.</summary>
     public StoreTotals Totals => Volatile.Read(ref totals);
@@ -117,17 +126,20 @@ internal sealed class StoreWriter : IAsyncDisposable
     public async ValueTask<Task<T>> EnqueueAsync<T>(StoreCommand<T> command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+        Interlocked.Increment(ref pending);
         try
         {
             await queue.Writer.WriteAsync(command, cancellationToken).ConfigureAwait(false);
         }
         catch (ChannelClosedException)
         {
+            Interlocked.Decrement(ref pending);
             command.Release();
             throw new ObjectDisposedException(nameof(StoreWriter), "The store writer stopped; nothing more is stored.");
         }
         catch (OperationCanceledException)
         {
+            Interlocked.Decrement(ref pending);
             command.Release();
             throw;
         }
@@ -141,7 +153,11 @@ internal sealed class StoreWriter : IAsyncDisposable
     public bool TryPost(StoreCommand command)
     {
         ArgumentNullException.ThrowIfNull(command);
-        return queue.Writer.TryWrite(command);
+        Interlocked.Increment(ref pending);
+        if (queue.Writer.TryWrite(command))
+            return true;
+        Interlocked.Decrement(ref pending);
+        return false;
     }
 
     /// <summary>Waits until every command queued before this call is committed.</summary>
@@ -181,6 +197,7 @@ internal sealed class StoreWriter : IAsyncDisposable
             await ApplyAsync(batch).ConfigureAwait(false);
             foreach (StoreCommand command in batch)
                 command.Release();
+            Interlocked.Add(ref pending, -batch.Count);
             batch.Clear();
         }
     }
@@ -216,6 +233,7 @@ internal sealed class StoreWriter : IAsyncDisposable
             Volatile.Write(ref trust, state.Snapshot);
         }
 
+        Volatile.Write(ref heads, state.Heads);
         StoreTotals now = TotalsOf(state, Options.BudgetBytes);
         Volatile.Write(ref totals, now);
         if (!applied.Changes.IsEmpty)
@@ -231,6 +249,7 @@ internal sealed class StoreWriter : IAsyncDisposable
         {
             state = await WriterState.LoadAsync(database.Database, files, CancellationToken.None).ConfigureAwait(false);
             Volatile.Write(ref trust, state.Snapshot);
+            Volatile.Write(ref heads, state.Heads);
         }
         catch (Exception e)
         {

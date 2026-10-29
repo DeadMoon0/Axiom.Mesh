@@ -42,7 +42,10 @@ public sealed class NodeFactsTests
         await mesh.StopNodeAsync("alice-laptop", CancellationToken.None);
         await mesh.WaitForFactAsync("bob-desktop", f => f.Kind == NodeFactKind.Closed && f.Connection == connection, 0, "the connection closed", CancellationToken.None);
 
-        NodeFactKind[] story = [.. mesh["bob-desktop"].Node.Facts.Recent().Where(f => f.Connection == connection).Select(f => f.Kind)];
+        // The replication facts of the session (its listing, the wants it answered) come between Established and SessionEnded.
+        NodeFactKind[] story = [.. mesh["bob-desktop"].Node.Facts.Recent()
+            .Where(f => f.Connection == connection && f.Kind is not (NodeFactKind.ListingDone or NodeFactKind.WantAnswered))
+            .Select(f => f.Kind)];
         Assert.Equal([NodeFactKind.Accepted, NodeFactKind.SessionOpened, NodeFactKind.Established, NodeFactKind.SessionEnded, NodeFactKind.Closed], story);
     }
 }

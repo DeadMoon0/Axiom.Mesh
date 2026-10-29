@@ -6,4 +6,8 @@ namespace Axiom.Mesh.Core;
 /// <param name="Size">Its length in bytes.</param>
 /// <param name="Origin">Who sent it; it is not announced back there.</param>
 /// <param name="Context">The Package it was wanted or written for, when known.</param>
-internal sealed record StoredObject(ObjectHash Hash, byte Tag, long Size, Origin Origin, PackageId? Context);
+internal sealed record StoredObject(ObjectHash Hash, byte Tag, long Size, Origin Origin, PackageId? Context)
+{
+    /// <summary>What the object names, read off it while it was stored: the history walk's input (SPEC.md §10.3).</summary>
+    public ObjectLinks Links { get; init; } = ObjectLinks.None;
+}

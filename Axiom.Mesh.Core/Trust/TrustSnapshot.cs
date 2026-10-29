@@ -23,6 +23,7 @@ internal sealed class TrustSnapshot : ITrustSnapshotView
     private readonly FrozenDictionary<PackageId, PackageTrust> packages;
     private readonly FrozenDictionary<DeviceId, TrustedDevice> devices;
     private readonly FrozenSet<UserId> known;
+    private readonly FrozenDictionary<ObjectHash, CurrentSigned> current;
 
     /// <summary>Freezes what the writer holds.</summary>
     /// <param name="version">A number that grows with every snapshot the writer swaps in.</param>
@@ -39,6 +40,7 @@ internal sealed class TrustSnapshot : ITrustSnapshotView
         this.packages = packages.ToFrozenDictionary(p => p.Id);
         known = KnownUsers(this.users.Values, this.packages.Values).ToFrozenSet();
         devices = Devices(this.users.Values.Where(u => known.Contains(u.Id)), keys);
+        current = Current(this.users.Values.Where(u => known.Contains(u.Id)), this.packages.Values);
     }
 
     /// <summary>The trust of a node that holds nothing yet.</summary>
@@ -139,6 +141,15 @@ internal sealed class TrustSnapshot : ITrustSnapshotView
         Self is { } self
         && Visibility.MayServeRoster(rosterUser, peerUser, self.User, packages.Values.Where(p => p.IsFollowed && p.Audience is not null).Select(p => p.Audience!));
 
+    /// <summary>
+    /// What a current Roster (of a known user), Manifest or Grant (of a followed Package) is about, by its hash: a
+    /// <c>Want</c> for any other signed object is answered <c>NotFound</c> (SPEC.md §9.7, §9.8).
+    /// </summary>
+    /// <param name="hash">The object's hash.</param>
+    /// <param name="held">What it is about.</param>
+    /// <returns><see langword="true"/> when the hash names a current Roster, Manifest or Grant.</returns>
+    public bool TryGetCurrent(ObjectHash hash, out CurrentSigned held) => current.TryGetValue(hash, out held);
+
     /// <inheritdoc />
     public bool TryGetManifest(PackageId package, [NotNullWhen(true)] out VerifiedManifest? manifest)
     {
@@ -155,6 +166,25 @@ internal sealed class TrustSnapshot : ITrustSnapshotView
 
     /// <inheritdoc />
     public bool TryGetDevice(DeviceId device, out TrustedDevice trusted) => devices.TryGetValue(device, out trusted);
+
+    private static FrozenDictionary<ObjectHash, CurrentSigned> Current(IEnumerable<UserTrust> knownUsers, IEnumerable<PackageTrust> packages)
+    {
+        var current = new Dictionary<ObjectHash, CurrentSigned>();
+        foreach (UserTrust user in knownUsers)
+        {
+            if (user.Roster is { } roster)
+                current[roster.Hash] = new CurrentSigned(ObjectTag.Roster, default, user.Id);
+        }
+
+        foreach (PackageTrust package in packages.Where(p => p.IsFollowed && p.Manifest is not null))
+        {
+            current[package.Manifest!.Hash] = new CurrentSigned(ObjectTag.Manifest, package.Id, default);
+            foreach (VerifiedGrant grant in package.Grants.Values)
+                current[grant.Hash] = new CurrentSigned(ObjectTag.Grant, package.Id, grant.Content.Grantee);
+        }
+
+        return current.ToFrozenDictionary();
+    }
 
     private static IEnumerable<UserId> KnownUsers(IEnumerable<UserTrust> users, IEnumerable<PackageTrust> packages)
     {

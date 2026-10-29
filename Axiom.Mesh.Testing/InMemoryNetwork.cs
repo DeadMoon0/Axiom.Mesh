@@ -23,6 +23,7 @@ public sealed class InMemoryNetwork
     private readonly List<InMemoryLink> links = [];
     private readonly Dictionary<DeviceId, Announcement> board = [];
     private readonly List<Observer> observers = [];
+    private readonly HashSet<(IPAddress, IPAddress)> severed = [];
     private HashSet<IPAddress>? isolated;
     private bool held;
 
@@ -135,12 +136,36 @@ public sealed class InMemoryNetwork
             link.Cut();
     }
 
-    /// <summary>Joins the two sides again; every node hears again the announcements of the other side.</summary>
+    /// <summary>
+    /// Cuts the link between two addresses alone, both ways: their connections end, their dials fail and they no longer
+    /// hear each other, while each still reaches every other address. Shapes a mesh that is not fully connected, such as
+    /// a relay through a third node.
+    /// </summary>
+    /// <param name="a">One address.</param>
+    /// <param name="b">The other.</param>
+    public void Sever(IPAddress a, IPAddress b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        InMemoryLink[] crossing;
+        lock (gate)
+        {
+            severed.Add((a, b));
+            severed.Add((b, a));
+            crossing = [.. links.Where(l => !Reachable(l.From.Address, l.To.Address))];
+        }
+
+        foreach (InMemoryLink link in crossing)
+            link.Cut();
+    }
+
+    /// <summary>Joins the two sides again and mends every severed link; every node hears again what it could not.</summary>
     public void Heal()
     {
         lock (gate)
         {
             isolated = null;
+            severed.Clear();
             foreach (Observer observer in observers)
                 Replay(observer);
         }
@@ -211,7 +236,7 @@ public sealed class InMemoryNetwork
     }
 
     private bool Reachable(IPAddress a, IPAddress b) =>
-        isolated is null || isolated.Contains(a) == isolated.Contains(b);
+        (isolated is null || isolated.Contains(a) == isolated.Contains(b)) && !severed.Contains((a, b));
 
     private sealed record Observer(DeviceId Self, IPAddress Address, Channel<Announcement> Queue);
 }

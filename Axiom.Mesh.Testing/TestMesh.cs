@@ -66,6 +66,7 @@ public sealed class TestMesh : IAsyncDisposable
         var clock = new FakeTimeProvider(TestIdentity.Epoch);
         var network = new InMemoryNetwork();
         var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);
+        var packages = new PackageBook(options.Seed);
         for (int i = 0; i < options.Nodes.Count; i++)
         {
             TestIdentity identity = TestIdentity.Of(options.Nodes[i]);
@@ -76,7 +77,7 @@ public sealed class TestMesh : IAsyncDisposable
             {
                 IsSilent = options.Silent.Contains(identity.Name),
             };
-            nodes[identity.Name] = new TestNode(identity, address, new TestNodeEnvironment(identity, clock, options.Seed + (ulong)i), discovery, new InMemoryDialer(network, address.Address));
+            nodes[identity.Name] = new TestNode(identity, address, new TestNodeEnvironment(identity, clock, options.Seed + (ulong)i), discovery, new InMemoryDialer(network, address.Address), packages);
         }
 
         var mesh = new TestMesh(clock, network, nodes);
@@ -102,6 +103,8 @@ public sealed class TestMesh : IAsyncDisposable
             throw;
         }
 
+        foreach ((string a, string b) in options.Severed)
+            mesh.Sever(a, b);
         network.Release();
         return mesh;
     }
@@ -227,8 +230,64 @@ public sealed class TestMesh : IAsyncDisposable
         Network.Partition(names.Select(n => this[n].Address.Address));
     }
 
-    /// <summary>Joins the network again; the nodes hear each other again and redial.</summary>
+    /// <summary>Joins the network again and mends every severed link; the nodes hear each other again and redial.</summary>
     public void Heal() => Network.Heal();
+
+    /// <summary>
+    /// Cuts the link between two nodes alone: their session ends and they never dial each other, while each still reaches
+    /// every other node. A third node between them then relays (SPEC.md Appendix B).
+    /// </summary>
+    /// <param name="a">One node.</param>
+    /// <param name="b">The other.</param>
+    public void Sever(string a, string b) => Network.Sever(this[a].Address.Address, this[b].Address.Address);
+
+    /// <summary>
+    /// Waits until replication has nothing left to do on any running node: no command for a store, no change unhandled,
+    /// no want asked or askable, every session's lanes empty, and every message one node sent handled by its peer. A want
+    /// that waits for a source no node offers does not hold it up. Read on the nodes' <see cref="MeshNode.Replication"/>,
+    /// re-checked after every fact and every few milliseconds; settled means three checks in a row agree.
+    /// </summary>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>A task that completes when the mesh is settled.</returns>
+    /// <exception cref="TestMeshException">It did not settle within the deadline.</exception>
+    public async Task SettleAsync(CancellationToken cancellationToken)
+    {
+        using var deadline = new CancellationTokenSource(Deadline);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+        int agreeing = 0;
+        try
+        {
+            while (true)
+            {
+                TestNode[] running = [.. nodes.Values.Where(n => n.IsRunning)];
+                long[] seen = [.. running.Select(n => n.Node.Facts.LastSequence)];
+                if (IsSettled(running))
+                {
+                    if (++agreeing >= 3)
+                        return;
+                }
+                else
+                {
+                    agreeing = 0;
+                }
+
+                using var pause = new CancellationTokenSource(SettleRecheck);
+                using var either = CancellationTokenSource.CreateLinkedTokenSource(pause.Token, linked.Token);
+                try
+                {
+                    await Task.WhenAny(running.Select((n, i) => n.Node.Facts.WaitForAsync(_ => true, seen[i], either.Token))).Unwrap().ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (pause.IsCancellationRequested && !linked.IsCancellationRequested)
+                {
+                    // Nothing recorded meanwhile; look again.
+                }
+            }
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw Timeout(nodes.Keys.First(), "replication to settle: " + string.Join(" / ", nodes.Values.Where(n => n.IsRunning).Select(n => $"{n.Name}: {n.Node.Replication}")));
+        }
+    }
 
     /// <summary>Stops every node.</summary>
     /// <returns>A task that completes when all stopped.</returns>
@@ -236,6 +295,37 @@ public sealed class TestMesh : IAsyncDisposable
     {
         foreach (TestNode node in nodes.Values)
             await StopNodeAsync(node.Name, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private static TimeSpan SettleRecheck { get; } = TimeSpan.FromMilliseconds(5);
+
+    // Every node idle with one session per peer (the duplicate rule settled), and between every two established sessions
+    // what one sent the other handled, both ways.
+    private static bool IsSettled(TestNode[] running)
+    {
+        var statuses = running.ToDictionary(n => n.Device, n => n.Node.Replication);
+        foreach (TestNode node in running)
+        {
+            ReplicationStatus status = statuses[node.Device];
+            if (!status.IsIdle || status.Sessions.DistinctBy(s => s.Device).Count() != status.Sessions.Count)
+                return false;
+            if (node.Node.Peers.Any(p => p.Sessions > 1 || (p.Sessions == 1 && status.Sessions.All(s => s.Device != p.Device))))
+                return false;
+        }
+
+        foreach ((DeviceId device, ReplicationStatus status) in statuses)
+        {
+            foreach (SessionTraffic session in status.Sessions)
+            {
+                if (!statuses.TryGetValue(session.Device, out ReplicationStatus? other))
+                    continue;
+                SessionTraffic? back = other.Sessions.FirstOrDefault(s => s.Device == device);
+                if (back is null || back.MessagesHandled != session.MessagesSent || back.MessagesSent != session.MessagesHandled)
+                    return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool IsEstablishedWith(MeshNode node, DeviceId peer) =>

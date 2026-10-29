@@ -18,6 +18,12 @@ public sealed record TestMeshOptions
     /// </summary>
     public IReadOnlyList<string> Silent { get; init; } = [];
 
+    /// <summary>
+    /// Pairs of nodes that cannot reach each other, from the start (<see cref="TestMesh.Sever"/>): each still reaches every
+    /// other node. Default none.
+    /// </summary>
+    public IReadOnlyList<(string A, string B)> Severed { get; init; } = [];
+
     /// <summary>The seed of every node's randomness: the same seed gives the same store epochs and names. Default 1.</summary>
     public ulong Seed { get; init; } = 1;
 

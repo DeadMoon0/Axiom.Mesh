@@ -54,7 +54,7 @@ internal sealed class MeshTlsLayer : ITransportLayer
 
             PeerIdentity identity = check.Decide(tls, options.Pairing.Current, out string refusal)
                 ?? throw new AuthenticationException($"The peer is refused after the handshake: {refusal} (SPEC.md §4.3).");
-            var activity = new LinkActivity(options.Time);
+            var activity = new LinkActivity(options.Time, tracksFrames: !identity.IsPairing);
             connection.SetFeature(identity);
             connection.SetFeature(activity);
             return new TransportResult(new ActivityStream(tls, activity));

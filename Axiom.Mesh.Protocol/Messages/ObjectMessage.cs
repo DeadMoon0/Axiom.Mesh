@@ -10,7 +10,9 @@ namespace Axiom.Mesh.Protocol;
 /// <remarks>
 /// <para>
 /// To send, make one with <see cref="From"/>: only a <see cref="StorableObject"/> (hash matched, form parsed, signature
-/// verified) may be sent, so nothing unverified is ever forwarded. Its bytes are not copied.
+/// verified) may be sent, so nothing unverified is ever forwarded. Its bytes are not copied. An object the sender's own
+/// store holds goes out with <see cref="FromStored"/>: the store takes nothing but storable objects, so its bytes were
+/// verified when they were stored, and they are neither parsed nor verified again on the way out.
 /// </para>
 /// <para>
 /// A received one is decoded only when its hash equals <c>H(object)</c>; a mismatch is a violation (§7.6). It is a
@@ -22,11 +24,17 @@ public sealed class ObjectMessage : MeshMessage, IWireMessage<ObjectMessage>
 {
     private readonly HashedObject received;
     private readonly StorableObject? sent;
+    private readonly Stored? stored;
     private readonly MessageStamp stamp;
 
     private ObjectMessage(StorableObject sent)
     {
         this.sent = sent;
+    }
+
+    private ObjectMessage(Stored stored)
+    {
+        this.stored = stored;
     }
 
     private ObjectMessage(HashedObject received, MessageStamp stamp)
@@ -45,7 +53,7 @@ public sealed class ObjectMessage : MeshMessage, IWireMessage<ObjectMessage>
         get
         {
             stamp.ThrowIfStale();
-            return sent?.Hash ?? received.Hash;
+            return stored?.Hash ?? sent?.Hash ?? received.Hash;
         }
     }
 
@@ -56,7 +64,7 @@ public sealed class ObjectMessage : MeshMessage, IWireMessage<ObjectMessage>
         get
         {
             stamp.ThrowIfStale();
-            return sent?.Bytes ?? received.Bytes;
+            return stored?.Bytes ?? sent?.Bytes ?? received.Bytes;
         }
     }
 
@@ -71,7 +79,7 @@ public sealed class ObjectMessage : MeshMessage, IWireMessage<ObjectMessage>
         get
         {
             stamp.ThrowIfStale();
-            return sent is null ? received : HashedObject.Of(sent.Bytes);
+            return stored is not null ? HashedObject.Of(stored.Bytes) : sent is null ? received : HashedObject.Of(sent.Bytes);
         }
     }
 
@@ -85,6 +93,27 @@ public sealed class ObjectMessage : MeshMessage, IWireMessage<ObjectMessage>
     {
         ArgumentNullException.ThrowIfNull(storable);
         return new ObjectMessage(storable);
+    }
+
+    /// <summary>
+    /// The message that sends an object read back from the sender's own store (SPEC.md §7.6, §11.1): the store holds only
+    /// objects that were storable when they were stored (hash matched, form parsed, signature verified, Entry admitted), and
+    /// a stored Entry stays valid and forwardable whatever later Rosters and Grants say (§9.6), so its bytes go out as they
+    /// are, without hashing, parsing or verifying them again.
+    /// </summary>
+    /// <param name="hash">The object's name, as the store files it.</param>
+    /// <param name="bytes">Every byte of the object, read from the store; they must stay unchanged until the message was written.</param>
+    /// <returns>The message.</returns>
+    /// <remarks>
+    /// Only the store's send path may call this; bytes from anywhere else go through <see cref="From"/>. Axiom.Mesh.Core
+    /// keeps that rule with a convention test, since a type cannot say where bytes came from.
+    /// </remarks>
+    /// <exception cref="ArgumentException">More bytes than an object may hold.</exception>
+    public static ObjectMessage FromStored(ObjectHash hash, ReadOnlyMemory<byte> bytes)
+    {
+        if (bytes.Length > Limits.MaxObjectLength)
+            throw new ArgumentException($"An object holds at most {Limits.MaxObjectLength} bytes (SPEC.md §8.1); these are {bytes.Length}.", nameof(bytes));
+        return new ObjectMessage(new Stored(hash, bytes));
     }
 
     /// <summary>
@@ -116,6 +145,9 @@ public sealed class ObjectMessage : MeshMessage, IWireMessage<ObjectMessage>
         Hash.Write(ref writer);
         Wire.WriteBlob(ref writer, Bytes.Span, Limits.MaxObjectLength);
     }
+
+    // An object read back from the store: kept apart, so a received message stays as small as it was.
+    private sealed record Stored(ObjectHash Hash, ReadOnlyMemory<byte> Bytes);
 
     /// <inheritdoc />
     public override string ToString() => stamp.IsCurrent ? $"Object {Hash} ({Bytes.Length} bytes)" : "Object (stale)";

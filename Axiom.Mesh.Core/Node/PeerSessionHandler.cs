@@ -13,12 +13,13 @@ namespace Axiom.Mesh.Core;
 /// <summary>
 /// Serves one AMP/1 session after the TLS handshake (SPEC.md §6, §7.1): sends this node's <c>Hello</c> at once, checks
 /// the peer's with <see cref="HelloRule.Check"/>, applies the duplicate rule through the peer table, sends the Roster
-/// follow-up, then keeps the session established until it ends, is asked to close, or the node drains. Refusals and
-/// violations are counted against the device (§6.2, §12.1).
+/// follow-up, then hands the established session to a <see cref="ReplicationSession"/> (§10) until it ends, is asked to
+/// close, or the node drains. Refusals and violations are counted against the device (§6.2, §12.1); a frame not completed
+/// within 30 seconds of its first byte is a violation (§5.1).
 /// </summary>
 /// <remarks>
-/// The replication of §10 is not here yet: an established session reads and drops what arrives, and the definition
-/// answers <c>Ping</c> and refuses every <c>ServiceOpen</c> on its own. One instance serves every session of the node.
+/// The definition answers <c>Ping</c> and refuses every <c>ServiceOpen</c> on its own. One instance serves every session
+/// of the node.
 /// </remarks>
 internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMessage>
 {
@@ -28,22 +29,27 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
     private readonly PeerTable table;
     private readonly NodeFacts facts;
     private readonly TimeProvider time;
+    private readonly NodeReplication replication;
 
     /// <summary>The handler of a node.</summary>
     /// <param name="trust">The node's trust now.</param>
     /// <param name="table">The node's peer table.</param>
     /// <param name="facts">Where to record what happens.</param>
     /// <param name="time">The node's clock.</param>
-    public PeerSessionHandler(Func<TrustSnapshot> trust, PeerTable table, NodeFacts facts, TimeProvider time)
+    /// <param name="replication">What the node's sessions share for replication.</param>
+    public PeerSessionHandler(Func<TrustSnapshot> trust, PeerTable table, NodeFacts facts, TimeProvider time, NodeReplication replication)
     {
         this.trust = trust;
         this.table = table;
         this.facts = facts;
         this.time = time;
+        this.replication = replication;
     }
 
     /// <inheritdoc />
     public ProtocolDefinition<MeshMessage, MeshMessage> Definition => Amp.Definition;
+
+    private static string FrameLate => $"a frame not completed within {Limits.FrameCompletionSeconds} seconds of its first byte (SPEC.md §5.1)";
 
     /// <inheritdoc />
     public async ValueTask ServeAsync(ConnectionContext connection, Session<MeshMessage, MeshMessage> session, CancellationToken stopping)
@@ -65,10 +71,25 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
         facts.Record(NodeFactKind.SessionOpened, connection.Id, connection.Remote, peer.Device, $"{peer.Protocol} {peer.CipherSuite} as {peer.Role}");
         bool established = false;
         string ended = "closed";
+        using var frameLate = new CancellationTokenSource();
+        activity.OnFrameOverdue(() => Cancel(frameLate));
+        using var reading = CancellationTokenSource.CreateLinkedTokenSource(stopping, frameLate.Token);
         try
         {
-            await session.WriteAsync(OwnHello(current, self), stopping).ConfigureAwait(false);
-            ProtocolReadResult<MeshMessage> first = await session.ReadAsync(stopping).ConfigureAwait(false);
+            Hello own = OwnHello(current, self);
+            await session.WriteAsync(own, stopping).ConfigureAwait(false);
+            ProtocolReadResult<MeshMessage> first;
+            try
+            {
+                first = await session.ReadAsync(reading.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (frameLate.IsCancellationRequested)
+            {
+                table.RefusedBeforeHello(tracked, FrameLate);
+                ended = await ViolatedAsync(session, tracked, FrameLate).ConfigureAwait(false);
+                return;
+            }
+
             if (first.Message is not Hello hello)
             {
                 table.RefusedBeforeHello(tracked, first.Message is Bye bye ? bye.ToString() : "closed without a Hello");
@@ -80,7 +101,7 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
             if (outcome is HelloOutcome.Refused refused)
             {
                 facts.Record(NodeFactKind.HelloRefused, connection.Id, connection.Remote, peer.Device, refused.Bye.Detail);
-                table.Violation(peer.Device, connection.Id, "Hello: " + refused.Bye.Detail);
+                Count(peer.Device, connection.Id, "Hello: " + refused.Bye.Detail);
                 await SendByeAsync(session, refused.Bye).ConfigureAwait(false);
                 return;
             }
@@ -95,8 +116,8 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
             }
 
             verdict.CloseOther?.RequestClose(ByeReason.Duplicate);
-            await FollowUpAsync(session, (HelloOutcome.Ok)outcome, current, peer.User, stopping).ConfigureAwait(false);
-            ended = await ServeEstablishedAsync(session, tracked, stopping).ConfigureAwait(false);
+            int sent = await FollowUpAsync(session, (HelloOutcome.Ok)outcome, current, peer.User, stopping).ConfigureAwait(false);
+            ended = await ServeEstablishedAsync(session, tracked, own.RosterSeq, sent, frameLate, stopping).ConfigureAwait(false);
         }
         catch (ProtocolViolationException violation)
         {
@@ -104,7 +125,7 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
             if (!established)
                 table.RefusedBeforeHello(tracked, Describe(violation.Violation));
             if (violation.Violation.Code != ViolationCode.Timeout)
-                table.Violation(peer.Device, connection.Id, Describe(violation.Violation));
+                Count(peer.Device, connection.Id, Describe(violation.Violation));
         }
         catch (Exception ex) when (ex is ProtoStreamException or IOException or ObjectDisposedException || (ex is OperationCanceledException && stopping.IsCancellationRequested))
         {
@@ -131,35 +152,64 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
     private static ulong HeldRosterSeq(TrustSnapshot trust, UserId user) =>
         trust.TryGetUser(user, out UserTrust? held) && held.Roster is { } roster ? roster.Content.Seq : 0;
 
-    // SPEC.md §7.1: the peer's user's Roster, when the peer holds an older one; a query, when it holds a newer one.
-    private static async ValueTask FollowUpAsync(Session<MeshMessage, MeshMessage> session, HelloOutcome.Ok ok, TrustSnapshot trust, UserId user, CancellationToken stopping)
+    private static void Cancel(CancellationTokenSource source)
     {
-        if (ok.FollowUp == RosterFollowUp.SendHeldRoster && trust.TryGetUser(user, out UserTrust? held) && held.Roster is { } roster)
-            await session.WriteAsync(ObjectMessage.From(roster), stopping).ConfigureAwait(false);
-        else if (ok.FollowUp == RosterFollowUp.QueryRoster)
-            await session.WriteAsync(new RosterQuery(user), stopping).ConfigureAwait(false);
+        try
+        {
+            source.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The session ended meanwhile.
+        }
     }
 
-    private async ValueTask<string> ServeEstablishedAsync(Session<MeshMessage, MeshMessage> session, PeerSession tracked, CancellationToken stopping)
+    // SPEC.md §7.1: the peer's user's Roster, when the peer holds an older one; a query, when it holds a newer one.
+    private static async ValueTask<int> FollowUpAsync(Session<MeshMessage, MeshMessage> session, HelloOutcome.Ok ok, TrustSnapshot trust, UserId user, CancellationToken stopping)
+    {
+        if (ok.FollowUp == RosterFollowUp.SendHeldRoster && trust.TryGetUser(user, out UserTrust? held) && held.Roster is { } roster)
+        {
+            await session.WriteAsync(ObjectMessage.From(roster), stopping).ConfigureAwait(false);
+            return 1;
+        }
+
+        if (ok.FollowUp == RosterFollowUp.QueryRoster)
+        {
+            await session.WriteAsync(new RosterQuery(user), stopping).ConfigureAwait(false);
+            return 1;
+        }
+
+        return 0;
+    }
+
+    // SPEC.md §10: replication runs until the peer leaves, breaks a rule, or the session is asked to close.
+    private async ValueTask<string> ServeEstablishedAsync(Session<MeshMessage, MeshMessage> session, PeerSession tracked, ulong rosterSeq, int sent, CancellationTokenSource frameLate, CancellationToken stopping)
     {
         using var ending = CancellationTokenSource.CreateLinkedTokenSource(stopping, tracked.Closing);
-        while (true)
+        using var replicating = new ReplicationSession(replication, tracked, session, rosterSeq, sent);
+        using CancellationTokenRegistration late = frameLate.Token.Register(static state => ((ReplicationSession)state!).RaiseViolation(FrameLate), replicating);
+        SessionEnd end = await replicating.RunAsync(ending.Token).ConfigureAwait(false);
+        return end.Kind switch
         {
-            ProtocolReadResult<MeshMessage> read;
-            try
-            {
-                read = await session.ReadAsync(ending.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (ending.IsCancellationRequested)
-            {
-                return await CloseAsync(session, tracked, stopping.IsCancellationRequested).ConfigureAwait(false);
-            }
+            SessionEndKind.PeerBye => "the peer said Bye",
+            SessionEndKind.PeerClosed => "the peer closed",
+            SessionEndKind.Violation => await ViolatedAsync(session, tracked, end.Detail).ConfigureAwait(false),
+            _ => await CloseAsync(session, tracked, stopping.IsCancellationRequested).ConfigureAwait(false),
+        };
+    }
 
-            if (read.IsCompleted)
-                return session.State == Amp.Closed ? "the peer said Bye" : "the peer closed";
+    // SPEC.md §12.1: counted against the device, closed with Bye(Violation).
+    private async ValueTask<string> ViolatedAsync(Session<MeshMessage, MeshMessage> session, PeerSession tracked, string detail)
+    {
+        Count(tracked.Device, tracked.Connection, detail);
+        await SendByeAsync(session, new Bye(ByeReason.Violation, Bye.Shorten(detail))).ConfigureAwait(false);
+        return "closed with Bye(Violation): " + detail;
+    }
 
-            // Replication (SPEC.md §10) handles what arrives here; until it does, an established session only lives.
-        }
+    private void Count(DeviceId device, long connection, string detail)
+    {
+        replication.Telemetry.Violation();
+        table.Violation(device, connection, detail);
     }
 
     private async ValueTask<string> CloseAsync(Session<MeshMessage, MeshMessage> session, PeerSession tracked, bool draining)

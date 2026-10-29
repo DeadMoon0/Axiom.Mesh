@@ -132,14 +132,14 @@ internal sealed class TrustBuilder
     /// <param name="state">The new state.</param>
     /// <returns>The Package as it is now.</returns>
     public PackageTrust SetState(PackageId package, PackageState state) =>
-        Replace(package, p => new PackageTrust(package, state, p?.Manifest, p?.Grants ?? new Dictionary<UserId, VerifiedGrant>(), p?.Policy ?? LocalRetention.Default));
+        Replace(package, p => new PackageTrust(package, state, p?.Manifest, p?.Grants ?? new Dictionary<UserId, VerifiedGrant>(), p?.Policy ?? LocalRetention.Default, p?.WithdrawnGrant));
 
     /// <summary>Sets a Package's local retention policy.</summary>
     /// <param name="package">The Package id.</param>
     /// <param name="policy">The policy.</param>
     /// <returns>The Package as it is now.</returns>
     public PackageTrust SetPolicy(PackageId package, LocalRetention policy) =>
-        Replace(package, p => new PackageTrust(package, p?.State ?? PackageState.None, p?.Manifest, p?.Grants ?? new Dictionary<UserId, VerifiedGrant>(), policy));
+        Replace(package, p => new PackageTrust(package, p?.State ?? PackageState.None, p?.Manifest, p?.Grants ?? new Dictionary<UserId, VerifiedGrant>(), policy, p?.WithdrawnGrant));
 
     /// <summary>Makes a Manifest current for its Package.</summary>
     /// <param name="manifest">The Manifest, which supersedes the current one.</param>
@@ -148,7 +148,7 @@ internal sealed class TrustBuilder
     {
         ArgumentNullException.ThrowIfNull(manifest);
         PackageId id = manifest.Content.Package;
-        return Replace(id, p => new PackageTrust(id, p?.State ?? PackageState.None, manifest, p?.Grants ?? new Dictionary<UserId, VerifiedGrant>(), p?.Policy ?? LocalRetention.Default));
+        return Replace(id, p => new PackageTrust(id, p?.State ?? PackageState.None, manifest, p?.Grants ?? new Dictionary<UserId, VerifiedGrant>(), p?.Policy ?? LocalRetention.Default, p?.WithdrawnGrant));
     }
 
     /// <summary>Makes a Grant current for its Package and grantee.</summary>
@@ -164,8 +164,22 @@ internal sealed class TrustBuilder
             {
                 [grant.Content.Grantee] = grant,
             };
-            return new PackageTrust(id, p?.State ?? PackageState.None, p?.Manifest, grants, p?.Policy ?? LocalRetention.Default);
+            return new PackageTrust(id, p?.State ?? PackageState.None, p?.Manifest, grants, p?.Policy ?? LocalRetention.Default, p?.WithdrawnGrant);
         });
+    }
+
+    /// <summary>
+    /// Treats the own user's current Grant of a Package as withdrawn (SPEC.md §7.2): an owner's device listed the Package
+    /// before and now omits it. A newer Grant, with another hash, counts again.
+    /// </summary>
+    /// <param name="package">The Package.</param>
+    /// <returns><see langword="true"/> when a current own Grant was withdrawn now.</returns>
+    public bool WithdrawOwnGrant(PackageId package)
+    {
+        if (self is null || !packages.TryGetValue(package, out PackageTrust? p) || !p.Grants.TryGetValue(self.User, out VerifiedGrant? own) || p.WithdrawnGrant == own.Hash)
+            return false;
+        packages[package] = new PackageTrust(package, p.State, p.Manifest, p.Grants, p.Policy, own.Hash);
+        return true;
     }
 
     /// <summary>Whether a device stands, not removed or removed, in the current Roster of the Package's owner (SPEC.md §9.4).</summary>
