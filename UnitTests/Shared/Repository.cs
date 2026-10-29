@@ -45,7 +45,7 @@ internal static class Repository
     private static bool IsExcluded(string relative)
     {
         string[] segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return segments[0] is "Spikes" or ".git" or "artifacts"
+        return segments[0] is "Spikes" or ".git" or ".claude" or "artifacts"
             || segments.Any(s => s is "bin" or "obj" or "node_modules" or "BenchmarkDotNet.Artifacts");
     }
 
