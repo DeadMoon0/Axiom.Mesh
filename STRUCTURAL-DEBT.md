@@ -127,3 +127,69 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 - **Evidence:** `Axiom.Mesh.Host/Axiom.Mesh.Host.csproj` sets no `AssemblyName`.
 - **Tolerated because:** nothing is published yet; the daemon prints and answers as `axiom-meshd`.
 - **Paid in:** M12, with the Native AOT publish (rename the published binary, keep the assembly name).
+
+## 14. The store directory is not flushed after a rename where .NET cannot open a directory
+
+- **Rule:** SPEC.md §11.1: write to a temporary name and rename into place, "flushing the file and, on platforms that
+  need it, the directory".
+- **Instead:** `DirectoryObjectFiles` flushes the file, renames, and then tries to open the directory as a file stream
+  to flush it; where the runtime refuses that (not verified on Linux yet: the suite ran on Windows, which needs no
+  directory flush), the attempt is skipped silently.
+- **Evidence:** `Axiom.Mesh.Core/Storage/DirectoryObjectFiles.cs`, `FlushDirectory`.
+- **Tolerated because:** the object is still absent or complete after a crash (the rename is atomic); what can be lost
+  is a just-renamed object, which the index (written after the file) does not name yet unless its batch committed.
+- **Paid in:** M12, with the integration tests on Linux (an `fsync` on a directory descriptor through a P/Invoke-free API,
+  or `File.OpenHandle` on the directory where the runtime allows it).
+
+## 15. The index's composite keys are concatenated into one column
+
+- **Rule:** DESIGN.md §13 keys `Devices`, `Grants`, `Heads` and `Pins` by several columns.
+- **Instead:** LDB 0.1.0 as published on nuget.org allows one `[Key]` property; `[CompositeKey]` came after the
+  package was built. These tables carry a `Key` column holding the parts one after the other (`RowKeys`), beside the
+  parts as indexed columns of their own.
+- **Evidence:** `Axiom.Mesh.Core/Storage/RowKeys.cs`; the generator's error LDB1003 on `[CompositeKey]` against 0.1.0.
+- **Tolerated because:** byte-string order of the concatenation is the order of the parts, and lookups by the whole
+  key or by one part are both indexed.
+- **Paid in:** the first LDB release with composite keys: schema version 2 with a migration of those four tables.
+
+## 16. Orphaned object files and temporary leftovers are not swept
+
+- **Rule:** SPEC.md §11.1: a node stores every object it verified under its hash and nothing else.
+- **Instead:** a batch whose transaction fails after its object files were written leaves those files without an index
+  row, and a crash mid-write leaves a `<hash>.tmp-<random>` file; nothing removes either.
+- **Evidence:** `Axiom.Mesh.Core/Store/StoreWriter.cs` (files first, then the transaction); `StoreTests.AnInterruptedWriteLeavesNoObject_ACompleteOneIsFoundUnderItsHash`.
+- **Tolerated because:** both are verified bytes or never found under a hash; they cost disk only, and a later store
+  of the same object reuses an orphan.
+- **Paid in:** M9, with `GetStore` (a start-up sweep of temporary files and of files the index does not name).
+
+## 17. Intake does not check an Entry's parents
+
+- **Rule:** SPEC.md §8.6 and §12.2: once its parents are held, an Entry whose parent is of another Package, whose clock
+  is not above every parent's, or exceeds the greatest by more than 2^32, is faulty and not forwarded.
+- **Instead:** intake admits an Entry on its signature and writer (`EntryAdmission`) alone; `Lamport.TryFindParentFault`
+  is not consulted yet.
+- **Evidence:** `Axiom.Mesh.Core/Intake/IntakeRules.cs`.
+- **Tolerated because:** nothing is forwarded before replication exists, and the check needs the history walk that
+  wants the parents in the first place.
+- **Paid in:** M7, with walking history (SPEC.md §10.3).
+
+## 18. Evicting an Entry forgets its Head without electing the next one
+
+- **Rule:** SPEC.md §9.3: a node keeps, per Package and device, the stored Entry with the highest clock.
+- **Instead:** when an Entry is evicted (possible only for a Package no longer followed, whose Entries are unpinned),
+  its `Heads` row is deleted and no other stored Entry of the device takes its place until one is stored again.
+- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs`, `UnlinkAsync`.
+- **Tolerated because:** an unfollowed Package is neither listed nor replicated; following it again fetches its Heads.
+- **Paid in:** M7, with the listing (`PackageState.heads` recomputed from the stored Entries on follow).
+
+## 19. A user who stops being known keeps the stored Roster
+
+- **Rule:** SPEC.md §8.8: a node stores a valid Roster only for a known user, and MUST NOT hold or store one for any
+  other.
+- **Instead:** the store writer refuses a Roster of an unknown user, but when a user stops being known (the last
+  followed Package naming them is unfollowed), their stored Roster stays in the index with its `Head` pin (source the
+  user).
+- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs`, `AdmitRosterAsync` and `PackageAsync`.
+- **Tolerated because:** the snapshot trusts devices of known users only, so the Roster is not acted on; following one
+  of the user's Packages again needs it.
+- **Paid in:** M9, with `ForgetUser` and the users requests.

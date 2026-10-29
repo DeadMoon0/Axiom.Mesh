@@ -14,7 +14,7 @@
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>Skeleton: the node type, references along the layering.</PackageReleaseNotes>
+    <PackageReleaseNotes>In progress: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction; the object-file and entropy seams.</PackageReleaseNotes>
     <RootNamespace>Axiom.Mesh.Core</RootNamespace>
   </PropertyGroup>
 

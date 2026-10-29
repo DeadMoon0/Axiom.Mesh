@@ -15,7 +15,7 @@ names no test, or when a proved row names a test that does not exist.
 | A removed device is closed and refused for ever at the handshake. | planned: `Core.Tests: HandshakeTests.ARemovedDeviceIsRefusedAtTheHandshake` |
 | No object becomes storable without its hash, its form and its signer checked: a signed object outside Model cannot be made storable without verification, and one flipped bit makes it invalid. | `Model.Tests: StorableObjectSurfaceTests.NoStorableObjectCanBeMadeOutsideModelWithoutVerification`, `Model.Tests: SignedObjectTests.OneFlippedBitInTheBodyMakesAnEntryManifestRosterOrGrantInvalidAndRenamesIt` |
 | An Entry is stored only from a device of the owner or of a current write grantee, and stays valid once stored. | `Model.Tests: AdmissionTests.AnEntryIsValidOnlyFromADeviceOfTheOwnerOrAWriteGrantee_AndStaysValidAfterItsDeviceIsRemoved` |
-| Nothing unverified is stored, served or forwarded: an object is checked against its hash, its form and its signer before anything acts on it. | planned: `Core.Tests: IntakeTests.ObjectsApplyInTheOrderRosterManifestGrantEntryPayloadWhateverTheirArrival_Bounded8MiBPerSession64MiBInAll` |
+| Nothing unverified is stored, served or forwarded: an object is checked against its hash, its form and its signer before anything acts on it. | `Core.Tests: IntakeTests.ObjectsApplyInTheOrderRosterManifestGrantEntryPayloadWhateverTheirArrival_Bounded8MiBPerSession64MiBInAll` |
 | A Package is listed, claimed and served only to its owner and its current grantees. | planned: `Core.Tests: VisibilityTests.TheListingHoldsExactlyThePackagesWhoseOwnerOrCurrentGranteeIsThePeersUser`, `Core.Tests: VisibilityTests.AChunkIsServedThroughAnyVisiblePackageThatReferencesIt_ElseNotFound` |
 | A revocation reaches the revoked user, who is then no longer listed or served. | planned: `Core.Tests: VisibilityTests.ARevokedUserIsNoLongerListedOrServed_ButReceivesTheRevocationGrant` |
 | Two nodes holding two sessions to each other decide which one to keep identically, without talking. | `Model.Tests: DuplicateSessionTests.Decide` |
@@ -56,3 +56,15 @@ names no test, or when a proved row names a test that does not exist.
 | Every failure a package throws says who must act, whether retrying can succeed, and at least one step out. | `Shared: ExceptionRecoveryContractTests.EveryExceptionCarriesTheFullRecoveryContract`, `Model.Tests: FailureGuidanceTests.AFailureCannotBeMadeWithoutAMessageOrWithABlankStep` |
 | A compiled consumer keeps working when a minor version adds members. | `Shared: PublicSurfaceTests.NoPublicMemberTakesAnOptionalParameter`, `Shared: PublicSurfaceTests.NoPublicPositionalRecordWithoutAClosedShape` |
 | No package holds state shared by every node of a process. | `Shared: ConventionTests.HoldsNoMutableStaticState` |
+
+## Axiom.Mesh.Core
+
+| Promise | Proved by |
+|---|---|
+| A crash or a failed write leaves an object absent or complete, never partial; a request that failed stored nothing. | `Core.Tests: StoreTests.AnInterruptedWriteLeavesNoObject_ACompleteOneIsFoundUnderItsHash` |
+| A program reading an object directly keeps its bytes while the node evicts it; the node counts it evicted only once it is unlinked. | `Core.Tests: StoreTests.AnObjectOpenedFromTheStoreDirectoryKeepsItsBytesWhileEvicted_AndTheHostCountsItEvictedOnlyAfterUnlink` |
+| A pinned object is never evicted, nor one a peer is still waiting for; an evicted object is never claimed again. | `Core.Tests: EvictionTests.UnpinnedObjectsGoLeastRecentlyUsedFirstUntilUnderBudget_AndAreNeverClaimedAfterwards`, `Core.Tests: EvictionTests.AnObjectPromisedWithHaveIsNotEvictedWhileAWantForItIsOutstanding` |
+| Whatever this device published stays here until a peer has fetched it, whatever the retention policy. | `Core.Tests: PinTests.EveryObjectAnEntryWrittenHereReferencesIsPinnedOutboundUntilSentOnce` |
+| A store sequence is never reused, survives a restart, and the store epoch changes only with a new database. | `Core.Tests: StoreSequenceTests.TheFirstEntryStoredIs1ThenPlusOne_AnEvictedEntryStoredAgainGetsANewSeq_AndItSurvivesARestart`, `Core.Tests: StoreSequenceTests.TheStoreEpochIsCreatedOnceWithTheDatabaseAndStableAcrossReopening` |
+| An older Manifest, Roster or Grant never rolls back the current one, and a removed device stays removed across restarts. | `Core.Tests: TrustSnapshotTests.TheCurrentManifestRosterOrGrantIsTheHighestSeqTiesBrokenByTheLowerHash`, `Core.Tests: TrustSnapshotTests.RemovalIsPermanent_AnOmittedDeviceCountsAsRemoved_ADeviceIdInTwoUsersRostersIsRemovedInTheLater` |
+| A reader of the store's changes that falls behind loses only its own subscription; the writer never waits for it. | `Core.Tests: ChangeBusTests.ASubscriberThatFallsBehindLapsesAlone_TheOthersReceiveEveryChangeSetInOrder` |
