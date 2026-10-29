@@ -30,7 +30,8 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 ## 2. mDNS discovery is not tested in CI
 
 - **Rule:** a promise only with the test that proves it (§9).
-- **Instead:** multicast is filtered on hosted CI runners; the mDNS shell is exercised by hand only.
+- **Instead:** multicast is filtered on hosted CI runners; the mDNS shell (`MdnsDiscovery`) is exercised by hand only:
+  two instances in one process on Windows found each other beside the operating system's responder (M4).
 - **Evidence:** fundamentals plan, decision D7; M4 records mDNS as manual.
 - **Tolerated because:** the DNS-SD codec is pure and fully tested; broadcast and static peers are tested on loopback.
 - **Paid in:** not planned for CI; the manual check is part of `ACCEPTANCE.md` (M13/M14).

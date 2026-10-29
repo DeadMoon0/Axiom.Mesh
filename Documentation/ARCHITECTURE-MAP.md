@@ -26,3 +26,17 @@ and `ReadmeCompileTests` (in `UnitTests/Axiom.Mesh.ReadmeSamples.Tests`).
 The milestone numbers above are those of the fundamentals plan: M1 Model, M2 Protocol and PAIR-SPEC, M3 Local,
 M4 Discovery, M5 Core store and trust, M6 Core transport, M7 replication, M8 local port and Host, M9 requests, M10
 pairing and CLI, M11 scenarios and integration, M12 benchmarks, security conformance and AOT, M13 docs and release.
+
+## Axiom.Mesh.Discovery
+
+What carries the rules in `Axiom.Mesh.Discovery` (M4).
+
+| Rule | Carried by |
+|---|---|
+| §1 Honest layers under one dishonest runtime | `Codecs/` (`DnsSdCodec`, `BroadcastCodec`) and `Rules/` (`AnnounceGate`, `AnnouncementCache`) are pure: bytes, ids and timestamps in, values out. `Shells/` (`MdnsDiscovery`, `BroadcastDiscovery`, `StaticPeers`, `CompositeDiscovery`) are the only code that touches sockets, interfaces, DNS or a `TimeProvider`, and they only bind, receive, send and record. |
+| §2 Dependencies point downwards | References `Axiom.Mesh.Model` only, for `DeviceId`, `UserId` and `Hash32` (plan decision D2); BCL sockets, no library. |
+| §4 Nothing believed without a hash, a signature or a roster | An `Announcement` is a claim, documented as a hint; the codecs refuse an all-zero id so nothing from the network can pose as a `Static` peer; the dialler (M6) decides by roster before any TCP connection. |
+| §5 Every limit a named constant, enforced where the bytes enter | `BroadcastCodec.Length` (71), `DnsSdCodec.MaxPacketLength` (9000), `MaxRecords`, `MaxInstances`, `MaxAddresses`, name length 255 and 16 pointer jumps inside the reader, `AnnounceGate.Interval` (1 s, SPEC.md §3.2); the shells' receive buffers are one byte over the bound so a longer datagram is seen and refused. |
+| §6 Every wait a deadline, every queue a bound | Each observer reads from its own bounded queue (256, oldest dropped); `DiscoveryFacts` is bounded; `AnnouncementCache` is bounded; nothing a shell does blocks on an observer. |
+| §7 A failure says who must act | A socket, interface or name that fails is a `DiscoveryFact` (kind, subject, the platform's reason) for the engine to log; nothing on the network throws. |
+| §8 Rules are pure functions tested from the spec | `UnitTests/Axiom.Mesh.Discovery.Tests/Rules` (SPEC.md §3.1–§3.3, DESIGN.md §6.1/§14 quoted); `Regression/` pins the wire bytes against vectors from an independent script, fuzzes both parsers (seed 42 × 20 000) and runs one loopback UDP smoke test. mDNS on a real LAN is checked by hand (STRUCTURAL-DEBT.md entry 2). |

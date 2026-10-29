@@ -56,3 +56,13 @@ names no test, or when a proved row names a test that does not exist.
 | Every failure a package throws says who must act, whether retrying can succeed, and at least one step out. | `Shared: ExceptionRecoveryContractTests.EveryExceptionCarriesTheFullRecoveryContract`, `Model.Tests: FailureGuidanceTests.AFailureCannotBeMadeWithoutAMessageOrWithABlankStep` |
 | A compiled consumer keeps working when a minor version adds members. | `Shared: PublicSurfaceTests.NoPublicMemberTakesAnOptionalParameter`, `Shared: PublicSurfaceTests.NoPublicPositionalRecordWithoutAClosedShape` |
 | No package holds state shared by every node of a process. | `Shared: ConventionTests.HoldsNoMutableStaticState` |
+
+## Axiom.Mesh.Discovery
+
+| Promise | Proved by |
+|---|---|
+| A thousand announcements of devices nobody knows cost a bounded cache and nothing else. | `Discovery.Tests: AnnouncementCacheTests.AThousandUnknownAnnouncementsCostOnlyABoundedCache` |
+| No datagram or packet on the LAN makes discovery throw: every byte string is read or refused. | `Discovery.Tests: ParserFuzzTests.MutatedDnsPacketsAreReadOrRefusedButNeverThrow_Seed42`, `Discovery.Tests: ParserFuzzTests.MutatedBroadcastDatagramsAreReadOrRefusedButNeverThrow_Seed42` |
+| A node announces at most once per second per interface, however many queries it receives. | `Discovery.Tests: AnnounceGateTests.AtMostOneAnnouncementPerSecondPerInterface`, `Discovery.Tests: AnnounceGateTests.AFloodOfQueriesIsAnsweredOncePerSecond` |
+| Nothing from the network can pose as a static peer: no parser yields an all-zero id. | `Discovery.Tests: BroadcastDatagramTests.ADatagramClaimingAZeroIdOrPortZeroIsIgnored`, `Discovery.Tests: DnsSdRecordTests.ARecordWhoseIdsOrInstanceNameAreNotOfTheSpecifiedFormIsIgnored`, `Discovery.Tests: StaticPeerTests.AStaticPeerAnnouncementHasAllZeroIds` |
+| An unknown device found by discovery is never dialled. | planned: `Core.Tests: PeerTableTests.AnAnnouncementOfADeviceOfNoKnownUserIsNeverDialled` |
