@@ -1,0 +1,71 @@
+using System;
+using System.Collections.Generic;
+
+namespace Axiom.Mesh.Local;
+
+/// <summary>Every request class of LOCAL-SPEC.md §14.1, as the descriptors <see cref="RequestTable.Default"/> holds.</summary>
+internal static class RequestCatalog
+{
+    /// <summary>One descriptor per request, ascending by id.</summary>
+    public static RequestDescriptor[] Create() =>
+        [
+            RequestDescriptor.Of<GetIdentity, Identity>("6.1"),
+            RequestDescriptor.Of<CreateIdentity, Identity>("6.1"),
+            RequestDescriptor.Of<RenameDevice, Device>("6.1"),
+            RequestDescriptor.Of<StartPairing, Pairing>("6.2"),
+            RequestDescriptor.Of<ConfirmPairing, Pairing>("6.2"),
+            RequestDescriptor.Of<CancelPairing, Pairing>("6.2"),
+            RequestDescriptor.Of<GetPairing, Pairing>("6.2"),
+            RequestDescriptor.Of<ListKnownUsers, IReadOnlyList<User>>("6.2"),
+            RequestDescriptor.Of<ForgetUser, NoContent>("6.2"),
+            RequestDescriptor.Of<ListDevices, IReadOnlyList<Device>>("6.3"),
+            RequestDescriptor.Of<RemoveDevice, Device>("6.3"),
+            RequestDescriptor.Of<ListPackages, PackagePage>("6.4"),
+            RequestDescriptor.Of<GetPackage, Package>("6.4"),
+            RequestDescriptor.Of<CreatePackage, Package>("6.4"),
+            RequestDescriptor.Of<UpdatePackage, Package>("6.4"),
+            RequestDescriptor.Of<FollowPackage, Package>("6.4"),
+            RequestDescriptor.Of<UnfollowPackage, Package>("6.4"),
+            RequestDescriptor.Of<SetPackagePolicy, Package>("6.4"),
+            RequestDescriptor.Of<ListGrants, IReadOnlyList<Grant>>("6.4"),
+            RequestDescriptor.Of<SetGrant, Grant>("6.4"),
+            RequestDescriptor.Of<RevokeGrant, Grant>("6.4"),
+            RequestDescriptor.Of<ListHistory, EntryPage>("6.4"),
+            RequestDescriptor.Of<GetEntry, Entry>("6.4"),
+            RequestDescriptor.Of<GetObject, ReadOnlyMemory<byte>>("6.4"),
+            RequestDescriptor.Of<Materialise, uint>("6.4"),
+            RequestDescriptor.Of<Fetch, uint>("6.4"),
+            RequestDescriptor.Of<ListStored, EntryPage>("6.4"),
+            RequestDescriptor.Of<ListPins, PinPage>("6.5"),
+            RequestDescriptor.Of<PinObject, Pin>("6.5"),
+            RequestDescriptor.Of<Unpin, ushort>("6.5"),
+            RequestDescriptor.Of<GetStore, Store>("6.5"),
+            RequestDescriptor.Of<SetStoreBudget, Store>("6.5"),
+            RequestDescriptor.Of<ReleasePins, uint>("6.5"),
+            RequestDescriptor.Of<ListPeers, IReadOnlyList<Peer>>("6.6"),
+            RequestDescriptor.Of<ListSessions, IReadOnlyList<Session>>("6.6"),
+            RequestDescriptor.Of<ListDiscovered, IReadOnlyList<Peer>>("6.6"),
+            RequestDescriptor.Of<ListStaticPeers, IReadOnlyList<StaticPeer>>("6.6"),
+            RequestDescriptor.Of<AddStaticPeer, StaticPeer>("6.6"),
+            RequestDescriptor.Of<RemoveStaticPeer, NoContent>("6.6"),
+            RequestDescriptor.Of<Dial, NoContent>("6.6"),
+            RequestDescriptor.Of<ListServices, IReadOnlyList<Service>>("6.7"),
+            RequestDescriptor.Of<ServiceCall, ReadOnlyMemory<byte>>("6.7"),
+            RequestDescriptor.Of<Subscribe, NoContent>("7.1"),
+            RequestDescriptor.Of<Unsubscribe, NoContent>("7.1"),
+            RequestDescriptor.Of<ListOperations, IReadOnlyList<Operation>>("8.5"),
+            RequestDescriptor.Of<GetOperation, Operation>("8.5"),
+            RequestDescriptor.Of<CancelOperation, Operation>("8.5"),
+            RequestDescriptor.Of<ListSeries, IReadOnlyList<TelemetrySeries>>("10.3"),
+            RequestDescriptor.Of<ListKeys, KeyPage>("10.3"),
+            RequestDescriptor.Of<QueryTelemetry, IReadOnlyList<TelemetryPoint>>("10.3"),
+            RequestDescriptor.Of<GetTotal, TelemetryTotal>("10.3"),
+            RequestDescriptor.Of<RegisterKind, KindRegistration>("9.2"),
+            RequestDescriptor.Of<WriteEntry, Entry>("9.4"),
+            RequestDescriptor.Of<PutObject, StoredObject>("9.5"),
+            RequestDescriptor.Of<PutFile, uint>("9.5"),
+            RequestDescriptor.Of<GetStorePath, StorePath>("9.7"),
+            RequestDescriptor.Of<AddTelemetry, NoContent>("9.9"),
+            RequestDescriptor.Of<Emit, NoContent>("9.10"),
+        ];
+}

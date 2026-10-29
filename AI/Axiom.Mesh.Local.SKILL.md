@@ -5,21 +5,25 @@
 </identity>
 
 <objective>
-    Teach an agent axiom-mesh-local/1 and its client library: how an app, a script or a service talks to the Host over the pipe.
+    Teach an agent axiom-mesh-local/1 and its client library: how an app, a script or a service talks to the Host over the pipe, and what the Host's local port gets from this package.
 </objective>
 
 <package_scope>
-    Namespace Axiom.Mesh.Local. Today: LocalProtocol.Name. Planned (M3): message classes by id range, one sealed class per request with IRequest<TSelf,TOk>, the records of LOCAL-SPEC.md 5, LocalProtocol.HostSide and ClientSide, LocalClient (SendAsync to LocalResult, SubscribeAsync to IAsyncEnumerable), Reconnect.Delay, PipeLocation.Resolve, LocalPipe. Status: phase 1a skeleton; read the package README for what exists today. Every rule cites the section of SPEC.md or LOCAL-SPEC.md it implements, and its tests take expected values from that section.
+    Namespace Axiom.Mesh.Local (folders for orientation only).
+    Client: LocalClient.OpenAsync(Stream or IDuplexPipe, LocalClientOptions{Role, Name, ClientVersion, Capabilities, Token, TimeProvider}, ct) sends Hello and awaits HelloAck (client.Host); SendAsync(request, ct) infers TOk from the request and returns LocalResult&lt;TOk&gt; (Status, Value, Error, IsOk, TryGetValue); SubscribeAsync&lt;TEvent&gt;(Filter, ct) takes the topic from TEvent and returns LocalResult&lt;Subscription&lt;TEvent&gt;&gt;, an IAsyncEnumerable that ends on Unsubscribe or a lapse (Subscription.Lapse: Dropped, LastSeq); UnsubscribeAsync; ByeAsync; Draining (token cancelled by Drain); Closed (task with the reason). Ping is answered by the definition. Reconnect.Delay(attempt) 1 s doubling to 30 s. IndexCatchUp.Plan(indexedEpoch, lastIndexedSeq, hostEpoch) for the store-epoch rule.
+    Pipe: PipeLocation.Resolve(LocalPlatform, PipeEnvironment) pure (AXIOM_MESH_PIPE, else \\.\pipe\axiom-mesh, $XDG_RUNTIME_DIR/axiom-mesh.sock or /run/user/uid, $TMPDIR/axiom-mesh.sock); LocalPipe.Locate() and LocalPipe.ConnectAsync(location, ct), the only OS code.
+    Protocol: LocalProtocol.HostSide (ProtocolDefinition&lt;IClientMessage, IHostMessage&gt;) and ClientSide (the reverse); states Connected, Ready, Closed; first message 10 s; idle backstop 120 s; frame codec classifies by id range (LocalMessageIds.ClassOf, MessageClass). Frames: Hello, HelloAck, Bye (Bye.Of truncates the detail), Ping (Answer()), Pong, Drain, RequestFrame(correlation, LocalRequest), Response (Ok&lt;TRequest,TOk&gt;, Failure, ForUnknownRequest, TryReadOk, TryReadError), EventFrame(subscriptionId, LocalEvent), Callback(callbackId, LocalCallback), Reply (Ok, Failure, ForUnknownCallback), UnknownRequest, UnknownEvent, UnknownCallback. ServiceToken (32 bytes, fixed-time compare, never printed).
+    Bodies: 58 request records (every id of LOCAL-SPEC 14.1, PinObject is the request Pin) implementing IRequest&lt;TSelf,TOk&gt; (static Id, RequestName, AllowedRoles, TryReadOk, WriteOk); 11 event records implementing IEvent&lt;TSelf&gt; (static Id, Topic); ForwardedCall implementing ICallback&lt;TSelf,TReply&gt;; the records of section 5 and the multi-field OK bodies, all sealed records with init properties implementing IWireRecord&lt;TSelf&gt; (TryRead, Write). RequestTable.Default: RequestDescriptor{Id, Name, Section, AllowedRoles, RequestType, OkType, Allows(role), TryRead(body)}. The enumerations of section 14 (Status 0 to 20, Topic, ByeReason, Role, Roles, PinReason, OperationKind/State, PairingMode/State, PeerState/Change, PackageChange, …).
 </package_scope>
 
 <architecture>
-    Honest except LocalPipe, the one socket/pipe shell. Depends on Model and ProtoStream; never on Protocol, Core, Host, LWSE or LDB. Statuses and errors are values; enumerated fields keep unknown values (LOCAL-SPEC.md 1.5).
+    Honest except LocalPipe. Depends on Model and ProtoStream only; never on Protocol, Core, Host, LWSE or LDB (SurfaceTests.NoCoreTypeIsReachableFromLocalsPublicSurface). Bounds are enforced where bytes enter: a value outside its bounds is a violation from a client and a lost connection from the Host; substance (empty names, relative paths, undefined enumerated values) reads and is the Host's to answer Invalid. Unknown ids in the request, event and callback ranges are never violations. The Host's codec also keeps the correlation rules (never 0, never twice, at most 64) and refuses a Reply from a user-role connection.
 </architecture>
 
 <best_practices>
-    Reference this package, and nothing of Core or Host, from any client or service. Test clients over an in-memory stream pair.
+    Send requests with client.SendAsync(new X { … }, ct) and branch on result.IsOk; never catch for a refusal. Subscribe before listing. Re-subscribe a lapsed entries subscription with FromSeq = Lapse.LastSeq + 1, paging with ListStored when the Host answers GapTooLarge. Keep the store epoch with any index and run IndexCatchUp.Plan after every connect. Test clients against LocalProtocol.HostSide over InMemoryTransport.CreatePair() (ProtoStream.Testing). On the Host: read RequestFrame.Request typed, check RequestDescriptor.Allows(role) before a handler, answer with Response.Ok&lt;TRequest,TOk&gt;(correlation, ok).
 </best_practices>
 
 <pitfalls>
-    A service presents its token in Hello.token: a spawned service gets it from AXIOM_MESH_SERVICE_TOKEN, an external one (the CLI) from the Host's configuration (LOCAL-SPEC.md 4.2). No record may carry a private key.
+    A service presents its token in Hello.token: a spawned service gets it from AXIOM_MESH_SERVICE_TOKEN, an external one (the CLI) from the Host's configuration (LOCAL-SPEC.md 4.2). No record may carry a private key (NoKeyCrossesThePipeTests). Response.Body and the Body of the Unknown* frames are views of the frame, valid until the next read; LocalClient parses them at once. WriteEntry is not idempotent. LocalClient answers every callback UnknownRequest (ForwardedCall serving is phase 1b). The request class for Pin (353) is PinObject, since Pin is the record of 5.11.
 </pitfalls>

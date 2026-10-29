@@ -36,7 +36,7 @@ names no test, or when a proved row names a test that does not exist.
 | Promise | Proved by |
 |---|---|
 | The pipe admits the Host's operating-system user only. | planned: `Host.Tests: PipeAdmissionTests.Decide`, `Integration.Tests: PipeTests.AnotherUserIsRefusedByTheAccessListAndByProcessIdentity` |
-| No record of the local protocol can carry a private key. | planned: `Local.Tests: NoKeyCrossesThePipeTests.NoRecordHasAFieldThatCanHoldAPrivateKey` |
+| No record of the local protocol can carry a private key. | `Local.Tests: NoKeyCrossesThePipeTests.NoRecordHasAFieldThatCanHoldAPrivateKey` |
 
 ## Replication
 
@@ -79,3 +79,14 @@ names no test, or when a proved row names a test that does not exist.
 | No mutated frame of either protocol makes a decoder throw or hang. | `Protocol.Tests: CodecFuzzTests.MutatedAmpFramesNeverThrowOrHang`, `Protocol.Tests: CodecFuzzTests.MutatedPairingFramesNeverThrowOrHang` |
 | A pairing completes only when both users confirmed, the short authentication string differs when any key is substituted, and a pairing expires after 10 minutes. | `Protocol.Tests: SasTests.TheSasIsEqualOnBothSidesAndDiffersWhenEitherKeyIsSubstituted`, `Protocol.Tests: PairingMachineTests.ConfirmIsInvalidWhileWaiting_OkAndUnchangedWhileConfirming_ASecondPairingIsBusy_ExpiryAt10MinutesFails` |
 | A device adopts a Roster only when its user's key signed it, it is newer, it lists the device, and the device's own user confirmed first; a removed device is never enrolled again. | `Protocol.Tests: PairingRulesTests.AnEnrolmentIsAcceptedOnlyAsTheUsersNewerRosterListingThisDevice`, `Protocol.Tests: PairingMachineTests.TheUserSideEnrolsTheDeviceOnlyAfterTheDevicesUserConfirmed`, `Protocol.Tests: PairingRulesTests.ADeviceOnceRemovedIsNeverEnrolledAgain_ACurrentOneIsKept` |
+
+## Axiom.Mesh.Local
+
+| Promise | Proved by |
+|---|---|
+| Every bound a frame of the local protocol carries is enforced where the bytes enter: one over is a violation from a client and a lost connection from the Host, at the bound it reads. | `Local.Tests: LimitTests.EveryLimitIsRefusedOneOverAndAcceptedAtTheLimit`, `Local.Tests: BoundsTests.AFieldOutsideItsBoundsInARequestIsAViolation`, `Local.Tests: BoundsTests.AFieldOutsideItsBoundsInAResponseOrAnEventIsAHostDefect` |
+| An id one side does not know never closes the connection: an unknown request is answered `UnknownRequest`, an unknown event discarded, an unknown callback answered. | `Local.Tests: UnknownIdTests.AnUnknownRequestIdIsAnsweredUnknownRequestAndTheConnectionStaysOpen`, `Local.Tests: UnknownIdTests.AnUnknownEventIsDiscardedByTheClient_TheNextOneArrives`, `Local.Tests: UnknownIdTests.AnUnknownCallbackIsAnsweredUnknownRequestByTheService` |
+| A value a newer Host sends that this client does not know is kept, never a failure. | `Local.Tests: EnumToleranceTests.AnUnknownEnumeratedValueInAnEventIsReadAndKept` |
+| A request the Host refuses is a status and an error in the client, never an exception. | `Local.Tests: LocalClientExchangeTests.ARequestIsAnsweredWithItsOkBodyAndARefusalIsAValue` |
+| The client never sends a 65th outstanding request, and a reader that falls behind loses only its own subscription. | `Local.Tests: ClientLimitTests.AClientRefusesA65thOutstandingRequestBeforeSendingIt`, `Local.Tests: ClientLimitTests.AReaderThatFallsBehindLapsesOnlyItsOwnSubscription_OthersAndRequestsContinue` |
+| Nothing of the engine or the daemon is reachable from the package every app and service references. | `Local.Tests: SurfaceTests.NoCoreTypeIsReachableFromLocalsPublicSurface` |
