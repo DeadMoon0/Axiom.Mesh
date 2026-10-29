@@ -8,4 +8,9 @@
     <ProjectReference Include="..\..\Axiom.Mesh.Discovery\Axiom.Mesh.Discovery.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The shells' intervals and timestamps run on a fake clock in the composite and static-peer tests. -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
 </Project>
