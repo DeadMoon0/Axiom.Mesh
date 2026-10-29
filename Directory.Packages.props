@@ -12,10 +12,7 @@
     <PackageVersion Include="Axiom.LDB.Core" Version="0.1.0" />
     <PackageVersion Include="Axiom.LDB.Query" Version="0.1.0" />
     <PackageVersion Include="Axiom.LDB.Entity" Version="0.1.0" />
-    <!--
-      Merged on LWSE's v2 branch, not yet on nuget.org: no project may reference these until both versions are
-      published (the adopt-only port milestone checks api.nuget.org first).
-    -->
+    <!-- Adopt-only ports (0.3.0): the outbound and local ports of a node. -->
     <PackageVersion Include="Axiom.LWSE.Core" Version="0.3.0" />
     <PackageVersion Include="Axiom.LWSE.Testing" Version="0.3.0" />
 
@@ -25,6 +22,8 @@
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.14" />
+    <!-- X509CertificateLoader (the device certificate's PKCS#12 round trip) on net8.0; built into net9.0 and later. -->
+    <PackageVersion Include="Microsoft.Bcl.Cryptography" Version="10.0.14" />
     <!-- DPAPI key wrapping on Windows; the Host alone references it. -->
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.14" />
 
