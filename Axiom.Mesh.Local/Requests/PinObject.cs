@@ -11,7 +11,7 @@ public sealed record PinObject : LocalRequest, IRequest<PinObject, Pin>
     public static ushort Id => 353;
 
     /// <summary>The request's name in LOCAL-SPEC.md §14.1.</summary>
-    public static string RequestName => "Pin";
+    public static string RequestName => "PinObject";
 
     /// <summary>The roles that may send it (LOCAL-SPEC.md §6.5).</summary>
     public static Roles AllowedRoles => Roles.User | Roles.Service;

@@ -1,7 +1,9 @@
 # Axiom Mesh Local Protocol, Version 1 (axiom-mesh-local/1)
 
-**Status:** Draft 2, 2026-10-28, after an adversarial review of draft 1 (43 findings, all addressed; the ones
-that needed AMP/1 to change are in SPEC.md draft 3). Normative for the first implementation. Where this document and
+**Status:** Draft 3, 2026-10-30. Draft 2 (2026-10-28) followed an adversarial review of draft 1 (43 findings, all
+addressed; the ones that needed AMP/1 to change are in SPEC.md draft 3); draft 3 resolves the questions the first
+implementation raised by stating what it does, and names the request of §6.5 `PinObject`. Normative for the first
+implementation. Where this document and
 [DESIGN.md](DESIGN.md) §10 differ, this document wins. Where it restates a rule of [SPEC.md](SPEC.md) (AMP/1),
 SPEC.md wins and this document only says how that rule is reached over the pipe.
 Amended 2026-10-29 within draft 2: external services, a third way to prove a service name (§4.2, §13, decision 25).
@@ -188,8 +190,11 @@ brought in line:
 | iOS | an in-memory stream pair inside the app process, adopted into the local port | none |
 
 On Windows, Linux and macOS the environment variable `AXIOM_MESH_PIPE`, when set and non-empty in the Host's
-and the client's environment, replaces the name in the table; both MUST honour it. A client MUST NOT guess any
-other name. The pipe carries bytes in both directions with no framing of its own; §3 defines the framing.
+and the client's environment, replaces the name in the table; both MUST honour it. On Windows it holds a full pipe
+path (`\\.\pipe\<name>`) or a bare name, which means `\\.\pipe\<name>`. The Host's configuration may name the
+pipe too (`pipe.name`); the variable wins over the configuration, and the configuration over the table. On macOS
+without `TMPDIR` the table names no location: Host and client refuse to start rather than guess. A client MUST NOT
+guess any other name. The pipe carries bytes in both directions with no framing of its own; §3 defines the framing.
 
 The Host creates the pipe so that nobody else can stand in for it, and so that it is reachable from this
 machine only:
@@ -211,7 +216,10 @@ path (Windows: `GetNamedPipeClientProcessId` and the image path of that process;
 `/proc/<pid>/exe`; macOS: `LOCAL_PEERCRED` and `LOCAL_PEERPID` with `proc_pidpath`). The Host MUST refuse the
 connection, by closing it before `Hello` is answered, when the peer's OS user is not the user the Host serves,
 or, for a Host that runs as a system service, not a user in its configured allow list; the access control list
-is the first fence, this check is the second.
+is the first fence, this check is the second. A Host that does not run as a system service ignores the allow list
+and admits its own user only. On Windows the client's user is known only once its first bytes were read (the
+impersonation token of a named pipe needs them), so the Host reads the first bytes, within the 10 seconds of §2.3,
+before it decides, and hands them on with the connection.
 
 A process of the same OS user is trusted as that user for everything the user role may do, as with ssh-agent
 and Docker Desktop: the protocol adds no finer right, and claims none. There is no password and no network
@@ -222,7 +230,10 @@ Two things are built on the process identity beyond admission. The requests that
 (§6: `ConfirmPairing` in modes `ShowUser`, `JoinUser` and `AddDevice`, `SetGrant`, `RevokeGrant`, `RemoveDevice`
 and `ForgetUser`) are the **user-key requests**; the Host's configuration MAY confine them to listed executable
 paths, and a user-key request from any other process is answered `NotPermitted`. Every user-key request MUST
-be logged with the process id and path of the connection that sent it, whether it succeeded or not. And every
+be logged with the process id and path of the connection that sent it, whether it succeeded or not. A Host MAY
+treat `ConfirmPairing` as a user-key request in every mode, since its mode is known only from the pairing it names;
+the reference Host does, so a confined `ConfirmPairing` from another executable is `NotPermitted` in mode
+`ShowDevice` too. And every
 path a client names (§13) is resolved as that client's user.
 
 ### 2.3 Connection lifetime
@@ -371,7 +382,8 @@ Connected ───────────────────► Ready ─
 
 - **Connected:** the pipe connection exists. The client MUST send `Hello` as its first frame; the Host accepts
   nothing else from it but `Bye`, and sends nothing before `Hello` arrived. Any other first frame is a
-  violation; no `Hello` within 10 seconds of the connection closes it without a frame (§2.3). The Host answers
+  violation, answered `Bye(Violation)` before the Host closes (§11.3); no `Hello` within 10 seconds of the
+  connection closes it without a frame (§2.3). The Host answers
   `HelloAck` or `Bye`.
 - **Ready:** `HelloAck` was sent. Requests, responses, events, callbacks, replies, `Ping`, `Pong` and `Bye` may
   flow. A second `Hello` is a violation.
@@ -432,7 +444,10 @@ closes:
 5. The connection limits of §12 hold; else `Bye(Refused, "busy")`.
 
 Then the Host sends `HelloAck` and the session is Ready. Apart from step 3, an in-process service is treated
-exactly like a program on the pipe.
+exactly like a program on the pipe. Step 3 binds a name configured as in-process to its own in-memory pair and
+nothing else; an in-memory pair may still say `Hello` in the user role, and may claim a spawned or external name
+only with that name's token, like any connection. Step 5 counts user connections; service connections are bounded
+by step 4, one per configured name.
 
 ### 4.3 `Bye` (3)
 
@@ -454,7 +469,8 @@ In Ready and Draining, the Host MUST send `Ping` when it has received nothing fr
 the client MUST answer with `Pong` carrying the same nonce within 30 seconds, else the Host closes the
 connection with `Bye(Unresponsive)`. A client MAY send `Ping` at any time in Ready or Draining and the Host MUST
 answer `Pong` with the same nonce. A `Pong` with an unknown nonce is ignored. A client that answers is never
-closed for being quiet.
+closed for being quiet. A client MAY close a connection on which it received nothing for 120 seconds, as a
+backstop: a Host that lives pings after 60 seconds, so only a Host that stopped answering is closed so.
 
 ### 4.5 `Drain` (6)
 
@@ -463,6 +479,9 @@ grace:      u32                 milliseconds the Host will wait, 1 to 30 000
 ```
 
 Sent by the Host, to every connection, when it is about to stop (shutdown, or the local port retiring). The
+Host clamps the grace it is configured with into 1 to 30 000 milliseconds before it sends it; a client treats a
+value outside that range as a Host defect (§11.3). A `Hello` that arrives while the Host drains is answered
+`Bye(Shutdown)`, and a connection still waiting for its `Hello` is closed without a frame. The
 client SHOULD finish what it can within `grace` and send `Bye(Done)`. Requests that arrive after `Drain` are
 answered `Draining` (§3.4); running operations are cancelled (§8.5) and their final events delivered; events
 already queued are delivered while the grace lasts. When `grace` elapsed the Host sends `Bye(Shutdown)` and
@@ -484,7 +503,7 @@ userKeyPresent: bool            the user's private key is on this device
 deviceId:       id
 deviceName:     string(64)      the name in the current Roster
 rosterSeq:      u64             the sequence number of the current Roster of the own user
-created:        time            when the identity was created or enrolled on this device
+created:        time            when the identity was created on this device, or, for an enrolled device, when it was enrolled here
 ```
 
 ### 5.2 `User`
@@ -750,10 +769,14 @@ Which fields a topic reads is stated in §7.2; a field a topic does not read MUS
 Every request below lists its message id and the roles that may send it: **U** the user role, **S** the service
 role. A request sent by a role not listed is answered `NotPermitted`. Every request may fail with `Draining`,
 `Busy` (§12) or `Invalid` (a value that is in bounds but wrong in substance, named in `Error.detail`); only
-further errors are listed. Requests that need an identity fail with `NoIdentity` before any other check when
-`Identity.present` is false; those are `RenameDevice`, `StartPairing` in every mode but `ShowDevice`,
-`ForgetUser`, every request of §6.3 and §6.4, `Pin`, `Unpin`, `ReleasePins`, `Dial`, `ServiceCall`, and
-`WriteEntry` (§9.4). The **user-key requests** of §2.2 (`ConfirmPairing` in modes `ShowUser`, `JoinUser` and
+further errors are listed. Requests that need an identity fail with `NoIdentity` when `Identity.present` is false; those are
+`RenameDevice`, `StartPairing` in every mode but `ShowDevice` (which checks its mode itself), `ForgetUser`, every
+request of §6.3 and §6.4, `PinObject`, `Unpin`, `ReleasePins`, `Dial`, `ServiceCall`, and `WriteEntry` (§9.4). The
+Host checks a request in this order and answers the first that fails: the role (`NotPermitted`), the identity
+(`NoIdentity`), a Draining session (`Draining`, §3.4), the confinement of user-key requests (`NotPermitted`), and
+whether it serves the request at all (`UnknownRequest`); only then the request's own rules. A list a request carries
+whose layout says "ascending" and that is not (or repeats an element) is wrong in substance, `Invalid`, not a
+violation. The **user-key requests** of §2.2 (`ConfirmPairing` in modes `ShowUser`, `JoinUser` and
 `AddDevice`, `SetGrant`, `RevokeGrant`, `RemoveDevice`, `ForgetUser`) are logged with the connection's process
 identity and may be confined by configuration to listed executables (`NotPermitted` from any other).
 
@@ -781,7 +804,9 @@ RenameDevice (258), U:
 
 `CreateIdentity` creates the user key, a Roster with `seq` 1 holding this device, and the device certificate
 (SPEC.md §2.4); it creates the device key too unless an earlier `ShowDevice` pairing (§6.2) already created
-one, which it then uses. It fails with `AlreadyExists` when an identity is present; a device that is to join
+one, which it then uses. The keys are written to the key store before the identity is recorded; when recording
+fails, the keys stay, and a retried `CreateIdentity` uses the device key it finds and writes a new user key over the
+old one, so the identity that is finally recorded is consistent. It fails with `AlreadyExists` when an identity is present; a device that is to join
 an existing user enrols instead (§6.2). `RenameDevice` produces a new Roster with `seq` one higher and pushes
 it to every established peer as SPEC.md §7.6 allows for the own user's Roster; it needs the user key
 (`UserKeyAbsent`), fails with `NotFound` for a device that is not the own user's and with `Invalid` for a
@@ -1018,7 +1043,7 @@ ListPins (352), U S:
   OK:   pins: list<Pin>(256)            ascending by PinKey
         more: bool
 
-Pin (353), U S:
+PinObject (353), U S:
   hash:         hash
   OK:   pin: Pin
 
@@ -1039,10 +1064,10 @@ ReleasePins (357), U:
   OK:   removed: u32            pins removed
 ```
 
-`Pin` in the user role creates a pin with reason `User` and source all zero; in the service role, reason
+`PinObject` in the user role creates a pin with reason `User` and source all zero; in the service role, reason
 `Service` and the service's source (§5.11); it is idempotent. `Unpin` removes that role's pin on each object
 and counts what it removed; it never fails for a pin that is not there, and pins of other reasons and
-sources are not touched. `Pin` on an object that is not stored is `NotFound`. `ReleasePins` is the user's way
+sources are not touched. `PinObject` on an object that is not stored is `NotFound`. `ReleasePins` is the user's way
 to clean up after a service that is gone (§9.6): it removes every pin with that reason and source, and is
 `Invalid` for reasons `Head`, `Policy` and `Outbound`, which the Host alone holds. A budget change may start
 eviction (SPEC.md §11.3) at once; `GetStore` shows the result over time, and topic `store` pushes it. A request
@@ -1129,7 +1154,8 @@ most 64 subscriptions (`Busy`). An unknown topic or a filter field the topic doe
 `Unsubscribe` of an id that is not a live subscription is `NotFound`. The Host MUST send the `Response` to
 `Subscribe` before the first event of the subscription, and MUST NOT send an event of a subscription after the
 `Response` to its `Unsubscribe`. Events reflect changes that happen after the `Response` to `Subscribe`, except
-where a topic says it replays; a client therefore subscribes before it lists (§3.4).
+where a topic says it replays; a client therefore subscribes before it lists (§3.4). A client drops an event that
+arrives for a subscription it unsubscribed or that lapsed while the event was in flight; it is not a defect.
 
 ### 7.2 Topics
 
@@ -1207,7 +1233,8 @@ The Host queues the events of each subscription separately and writes them to th
 accepts bytes; it MUST NOT block its own work on a client. A subscription's queue holds at most 256 events and
 at most 16 MiB of encoded events, whichever bound is reached first. When an event would break either bound,
 the Host discards the queue, ends the subscription, and queues in its place one `SubscriptionLapsed` naming
-how many events were discarded (the queued ones plus the one that did not fit) and, for topic `entries`, the
+how many events were discarded (the queued ones plus the one that did not fit; replay steps not yet read from the
+store are not counted, the client catches up from `lastSeq` anyway) and, for topic `entries`, the
 store sequence of the last `EntryStored` that was handed to the pipe, so that the client re-subscribes with
 `fromSeq` one higher. A lapse ends only that subscription; the connection, its other subscriptions and its
 requests are unaffected.
@@ -1216,8 +1243,8 @@ A replay (`fromSeq`) is generated lazily: the Host reads the next stored Entry f
 drains and never generates more than 256 events for a replay, so a replay that fits never lapses on its own;
 live events that arrive during a replay are queued behind it and count against the same bounds. The 16 MiB
 bound counts events that are queued but not yet written. Separately, the Host MUST NOT hold more than 64 MiB
-of encoded frames of one connection, responses included, handed to the pipe and not yet accepted by it, nor
-more than 256 MiB across every connection; when it would, or when a frame could not be written within 30
+of encoded frames of one connection, handed to the pipe and not yet accepted by it, nor more than 256 MiB across
+every connection; queued events, queued responses and the frame being written all count toward these bounds; when it would, or when a frame could not be written within 30
 seconds, it closes the connection with `Bye(Unresponsive)`, choosing the connection with the most waiting bytes
 for the global bound.
 
@@ -1280,7 +1307,10 @@ CancelOperation (418), U S:
   OK:   operation: Operation            the record at the time of the answer; Cancelled once the Host stopped
 ```
 
-`CancelOperation` on an ended operation is `OK` and changes nothing; on an unknown one it is `NotFound`. A
+`CancelOperation` on an ended operation is `OK` and changes nothing; on an unknown one it is `NotFound`. An operation
+is `Cancelled` from the moment the Host accepts the cancellation, in the answer and in its final event; work already
+under way may still wind down after that (a chunk being stored, a file being renamed into place), and what it
+finishes stays done, as for any cancelled operation. A
 cancelled `Materialise` leaves the files it wrote; a cancelled `Fetch` cancels its outstanding wants (SPEC.md
 §7.8) and keeps what was stored; a cancelled `PutFile` keeps the chunks already stored, pinned as §9.5 says, and
 no ChunkList.
@@ -1431,7 +1461,7 @@ pins hold what the policy wants, and the rest is evictable, which is what the us
 
 ### 9.6 Pins with reason `Service`
 
-A service pins with `Pin` and `Unpin` (§6.5); its pins have reason `Service` (§14.8) and the source of §5.11,
+A service pins with `PinObject` and `Unpin` (§6.5); its pins have reason `Service` (§14.8) and the source of §5.11,
 and are independent of every other reason. The Host releases every pin of a service when the service's
 connection ends only if the Host's configuration says so for that service; by default they stay, because an
 out-of-process service may restart. The user releases what a service left behind with `ReleasePins` (§6.5).
@@ -1757,7 +1787,7 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
 | 318 | Fetch | Request | 6.4 |
 | 319 | ListStored | Request | 6.4 |
 | 352 | ListPins | Request | 6.5 |
-| 353 | Pin | Request | 6.5 |
+| 353 | PinObject | Request | 6.5 |
 | 354 | Unpin | Request | 6.5 |
 | 355 | GetStore | Request | 6.5 |
 | 356 | SetStoreBudget | Request | 6.5 |
@@ -2072,7 +2102,7 @@ Materialise    := packageId:id hash:hash path:path existing:u8 → operation:u32
 Fetch          := packageId:id hash:hash recursive:bool pin:bool → operation:u32
 ListStored     := packageId:id kinds:list<u16> fromSeq:u64 limit:u16 → entries:list<Entry> more:bool
 ListPins       := hash:optional<hash> packageId:optional<id> after:optional<PinKey> → pins:list<Pin> more:bool
-Pin            := hash:hash                           → pin:Pin;   Unpin := hashes:list<hash> → removed:u16
+PinObject      := hash:hash                           → pin:Pin;   Unpin := hashes:list<hash> → removed:u16
 GetStore       := -                                   → store:Store;   SetStoreBudget := bytes:u64 → store:Store
 ReleasePins    := reason:u8 source:id                 → removed:u32
 ListPeers | ListDiscovered := -                       → peers:list<Peer>

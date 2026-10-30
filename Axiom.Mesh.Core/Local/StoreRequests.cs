@@ -13,7 +13,7 @@ using LocalPinReason = Axiom.Mesh.Local.PinReason;
 namespace Axiom.Mesh.Core;
 
 /// <summary>
-/// The pin and store requests of LOCAL-SPEC.md §6.5: <c>ListPins</c>, <c>Pin</c> (the request class <c>PinObject</c>),
+/// The pin and store requests of LOCAL-SPEC.md §6.5: <c>ListPins</c>, <c>PinObject</c>,
 /// <c>Unpin</c>, <c>ReleasePins</c>, <c>SetStoreBudget</c> (<c>GetStore</c> is in <see cref="NodeRequests"/>). The user
 /// role pins with reason <c>User</c> and source zero, the service role with reason <c>Service</c> and source
 /// <c>H(service name)</c> (§5.11); a client never touches the Host's own reasons.
@@ -50,7 +50,7 @@ internal static class StoreRequests
         return LocalAnswer.Ok<ListPins, PinPage>(correlation, new PinPage { Pins = page, More = more });
     }
 
-    /// <summary><c>Pin</c> (353, class <c>PinObject</c>): the role's pin on a stored object; idempotent; <c>NotFound</c> for an object not stored.</summary>
+    /// <summary><c>PinObject</c> (353): the role's pin on a stored object; idempotent; <c>NotFound</c> for an object not stored.</summary>
     /// <param name="context">The connection and the node.</param>
     /// <param name="correlation">The request's correlation.</param>
     /// <param name="request">The request.</param>
