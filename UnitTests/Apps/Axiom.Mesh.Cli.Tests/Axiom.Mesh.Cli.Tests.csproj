@@ -6,6 +6,16 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
+    <!-- In-memory nodes to run the command line against end to end (TestNode.CliAsync). -->
+    <ProjectReference Include="..\..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Axiom.Mesh.Testing" />
   </ItemGroup>
 
 </Project>

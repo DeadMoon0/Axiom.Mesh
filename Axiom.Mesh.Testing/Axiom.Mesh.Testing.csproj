@@ -27,6 +27,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
+    <!-- The command line, run in-process against a node (TestNode.CliAsync). -->
+    <ProjectReference Include="..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
     <!-- The in-memory database every node of a mesh runs on. -->
     <PackageReference Include="Axiom.LDB.Core" />
     <!-- One fake clock per mesh, wired into every node's server, sessions and database. -->

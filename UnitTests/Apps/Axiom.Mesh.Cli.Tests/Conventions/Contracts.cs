@@ -11,7 +11,7 @@ public static class Contracts
     public sealed class PackageConventions : ConventionTests<CliExitCode>
     {
         /// <inheritdoc />
-        protected override bool UsesJson => false;
+        protected override bool UsesJson => true;
     }
 
     /// <summary>Axiom.Mesh.Cli's public surface can grow without breaking a compiled consumer.</summary>

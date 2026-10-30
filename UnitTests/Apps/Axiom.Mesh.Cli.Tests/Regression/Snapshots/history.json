@@ -1,0 +1,42 @@
+[
+  {
+    "hash": "010003020504070609080b0a0d0c0f0e111013121514171619181b1a1d1c1f1e",
+    "storeSeq": 1,
+    "stored": 1800000000000,
+    "packageId": "c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb",
+    "deviceId": "1a1b18191e1f1c1d12131011161714150a0b08090e0f0c0d0203000106070405",
+    "clock": 0,
+    "parents": [],
+    "kind": "message",
+    "redacted": false,
+    "summary": "hello mesh"
+  },
+  {
+    "hash": "02030001060704050a0b08090e0f0c0d12131011161714151a1b18191e1f1c1d",
+    "storeSeq": 2,
+    "stored": 1800000001000,
+    "packageId": "c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb",
+    "deviceId": "d3d2d1d0d7d6d5d4dbdad9d8dfdedddcc3c2c1c0c7c6c5c4cbcac9c8cfcecdcc",
+    "clock": 1,
+    "parents": [
+      "010003020504070609080b0a0d0c0f0e111013121514171619181b1a1d1c1f1e"
+    ],
+    "kind": "message",
+    "redacted": true,
+    "summary": "(withdrawn)"
+  },
+  {
+    "hash": "03020100070605040b0a09080f0e0d0c13121110171615141b1a19181f1e1d1c",
+    "storeSeq": 3,
+    "stored": 1800000002000,
+    "packageId": "c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb",
+    "deviceId": "1a1b18191e1f1c1d12131011161714150a0b08090e0f0c0d0203000106070405",
+    "clock": 2,
+    "parents": [
+      "02030001060704050a0b08090e0f0c0d12131011161714151a1b18191e1f1c1d"
+    ],
+    "kind": "redaction",
+    "redacted": false,
+    "summary": "withdraws 020300010607"
+  }
+]

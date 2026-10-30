@@ -99,7 +99,7 @@ internal sealed class HostRuntime : IAsyncDisposable
                 Entropy = start.Entropy,
                 Loggers = loggers,
             };
-            MeshNode node = await MeshNode.StartAsync(HostConfiguration.NodeOptionsOf(options, listener.HostUser, start.Version), environment, cancellationToken).ConfigureAwait(false);
+            MeshNode node = await MeshNode.StartAsync(HostConfiguration.NodeOptionsOf(options, listener.HostUser, start.Version) with { DeviceName = Environment.MachineName }, environment, cancellationToken).ConfigureAwait(false);
             var runtime = new HostRuntime(paths, options, listener, database, gated, node, loggers);
             runtime.Note(listener);
             runtime.loops.Add(Task.Run(() => runtime.AcceptAsync(runtime.stopping.Token), CancellationToken.None));

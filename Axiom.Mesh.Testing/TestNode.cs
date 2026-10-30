@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Axiom.Mesh.Cli;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Local;
 
@@ -25,8 +26,9 @@ public sealed class TestNode
     private readonly List<LocalClient> clients = [];
     private MeshNode? node;
 
-    internal TestNode(TestIdentity identity, IPEndPoint address, TestNodeEnvironment environment, FakeDiscovery discovery, InMemoryDialer dialer, PackageBook packages)
+    internal TestNode(TestIdentity identity, IPEndPoint address, TestNodeEnvironment environment, FakeDiscovery discovery, InMemoryDialer dialer, PackageBook packages, LocalPortOptions local)
     {
+        LocalOptions = local;
         Identity = identity;
         Address = address;
         Environment = environment;
@@ -64,6 +66,9 @@ public sealed class TestNode
     public UserId User => Identity.UserId;
 
     internal InMemoryDialer Dialer { get; }
+
+    /// <summary>The local port's configuration, as the mesh's options state it: the <c>cli</c> service's token for <see cref="CliAsync(string, CancellationToken)"/>.</summary>
+    internal LocalPortOptions LocalOptions { get; }
 
     /// <summary>
     /// Creates a Package owned by this node's user (SPEC.md §8.7): signs its first Manifest with the user key, follows
@@ -254,6 +259,54 @@ public sealed class TestNode
         (Stream client, Stream port) = InMemoryDuplex.Create();
         _ = Node.Local.AdoptAsync(port, process.Identity, CancellationToken.None);
         return client;
+    }
+
+    /// <summary>
+    /// Runs one <c>axiom-mesh</c> command line in-process against this node's local port, as the command line runs against
+    /// a Host (fundamentals plan §2.8): a program of the served user, and for the write commands the external service
+    /// <c>cli</c> with the token the mesh's <see cref="TestMeshOptions.Local"/> configures for it. Requests wait on the
+    /// mesh's clock; relative paths resolve against the system's temporary directory.
+    /// </summary>
+    /// <param name="commandLine">The arguments after <c>axiom-mesh</c>, quoted as a shell would: <c>write Chat --text "hi there"</c>.</param>
+    /// <param name="cancellationToken">Ctrl-C: ends <c>watch</c>.</param>
+    /// <returns>The exit code and both outputs.</returns>
+    public Task<CliResult> CliAsync(string commandLine, CancellationToken cancellationToken) => CliAsync(commandLine, TextWriter.Null, cancellationToken);
+
+    /// <summary>
+    /// Runs one <c>axiom-mesh</c> command line as <see cref="CliAsync(string, CancellationToken)"/> does, and hands every
+    /// line of standard output to <paramref name="echo"/> as it is written: for a command that runs until cancelled, such
+    /// as <c>watch</c>.
+    /// </summary>
+    /// <param name="commandLine">The arguments after <c>axiom-mesh</c>.</param>
+    /// <param name="echo">Receives standard output as it is written; it must take writes from any thread.</param>
+    /// <param name="cancellationToken">Ctrl-C: ends <c>watch</c>.</param>
+    /// <returns>The exit code and both outputs.</returns>
+    public async Task<CliResult> CliAsync(string commandLine, TextWriter echo, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(commandLine);
+        ArgumentNullException.ThrowIfNull(echo);
+        string? token = LocalOptions.Services.FirstOrDefault(s => s.Name == "cli" && !s.Token.IsNone) is { } cli ? Hex(cli.Token) : null;
+        var environment = new CliEnvironment
+        {
+            Version = "test",
+            HostAddress = $"the in-memory node {Name}",
+            ConnectHost = _ => Task.FromResult(ConnectRaw(TestProcess.Served)),
+            ConfigFile = $"the configuration of {Name}",
+            ReadConfig = () => token is null ? null : $"{{ \"services\": {{ \"cli\": {{ \"external\": true, \"token\": \"{token}\" }} }} }}",
+            Time = Environment.Clock,
+            CurrentDirectory = Path.GetTempPath(),
+        };
+        using var output = new EchoWriter(echo);
+        using var error = new StringWriter();
+        CliExitCode exit = await CliProgram.RunAsync(CliWords.Split(commandLine), output, error, environment, cancellationToken).ConfigureAwait(false);
+        return new CliResult(exit, output.Written.ReplaceLineEndings("\n"), error.ToString().ReplaceLineEndings("\n"));
+    }
+
+    private static string Hex(ServiceToken token)
+    {
+        Span<byte> bytes = stackalloc byte[32];
+        token.CopyTo(bytes);
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     /// <summary>Says <c>Bye</c> on every client this node handed out, before the node stops.</summary>

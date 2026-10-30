@@ -1,0 +1,3 @@
+PACKAGE       NAME    KIND     OWNER         STATE     RIGHTS  ENTRIES
+c4c5c6c7c0c1  Chat    channel  a1a0a3a2a5a4  followed  write   3
+9f9e9d9c9b9a  Photos  archive  b0b1b2b3b4b5  listed    read    0

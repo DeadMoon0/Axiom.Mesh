@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
+    <!-- The command line keeps its own copy of the Host's home rule; a regression test compares the two. -->
+    <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
   </ItemGroup>
 
 </Project>

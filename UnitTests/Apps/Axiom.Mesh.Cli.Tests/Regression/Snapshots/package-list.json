@@ -1,0 +1,36 @@
+[
+  {
+    "packageId": "c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb",
+    "name": "Chat",
+    "kind": "channel",
+    "ownerId": "a1a0a3a2a5a4a7a6a9a8abaaadacafaeb1b0b3b2b5b4b7b6b9b8bbbabdbcbfbe",
+    "state": "followed",
+    "rights": "write",
+    "created": 1800000000000,
+    "retention": "default",
+    "policy": "default",
+    "manifestSeq": 1,
+    "manifestHash": "4d4c4f4e49484b4a45444746414043425d5c5f5e59585b5a5554575651505352",
+    "listedBy": 1,
+    "entries": 3,
+    "latestClock": 2,
+    "heads": 0
+  },
+  {
+    "packageId": "9f9e9d9c9b9a999897969594939291908f8e8d8c8b8a89888786858483828180",
+    "name": "Photos",
+    "kind": "archive",
+    "ownerId": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+    "state": "listed",
+    "rights": "read",
+    "created": 1800000000000,
+    "retention": "default",
+    "policy": "default",
+    "manifestSeq": 1,
+    "manifestHash": "4d4c4f4e49484b4a45444746414043425d5c5f5e59585b5a5554575651505352",
+    "listedBy": 1,
+    "entries": 0,
+    "latestClock": 0,
+    "heads": 0
+  }
+]

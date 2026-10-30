@@ -1,40 +1,36 @@
 using System;
-using System.IO;
+using System.Threading.Tasks;
+using Axiom.Mesh.Cli.Tests.Support;
 
 namespace Axiom.Mesh.Cli.Tests.Rules;
 
 /// <summary>What the command line answers before it reaches the Host: its version, or how to call it.</summary>
 public sealed class VersionOptionTests
 {
-    private const string Version = "0.1.0+abc123";
-
-    [Fact]
-    public void VersionPrintsTheToolsVersionAloneAndSucceeds()
+    [Theory]
+    [InlineData("--version")] // the option
+    [InlineData("version")] // the command
+    public async Task VersionPrintsTheToolsVersionAloneAndSucceeds(string word)
     {
-        var output = new StringWriter();
-        var error = new StringWriter();
-
-        CliExitCode exit = CliProgram.Run(["--version"], output, error, Version);
+        (CliExitCode exit, string output, string error) = await Offline.RunAsync(word);
 
         Assert.Equal(CliExitCode.Ok, exit);
-        Assert.Equal(Version + Environment.NewLine, output.ToString());
-        Assert.Empty(error.ToString());
+        Assert.Equal(Offline.Environment.Version + "\n", output);
+        Assert.Empty(error);
     }
 
     [Theory]
     [InlineData] // no command at all
     [InlineData("--versoin")] // a misspelt option
     [InlineData("--version", "--json")] // the option with an argument it does not take
-    public void AnythingElsePrintsTheUsageToStandardErrorAndExits1(params string[] args)
+    public async Task AnythingElsePrintsTheUsageToStandardErrorAndExits1(params string[] args)
     {
-        var output = new StringWriter();
-        var error = new StringWriter();
-
-        CliExitCode exit = CliProgram.Run(args, output, error, Version);
+        (CliExitCode exit, string output, string error) = await Offline.RunAsync(args);
 
         Assert.Equal(CliExitCode.Usage, exit);
         Assert.Equal(1, (int)exit);
-        Assert.Empty(output.ToString());
-        Assert.StartsWith("usage: axiom-mesh --version", error.ToString(), StringComparison.Ordinal);
+        Assert.Empty(output);
+        Assert.StartsWith("axiom-mesh: ", error, StringComparison.Ordinal);
+        Assert.Contains("usage: axiom-mesh", error, StringComparison.Ordinal);
     }
 }

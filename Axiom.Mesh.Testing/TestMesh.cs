@@ -89,7 +89,7 @@ public sealed class TestMesh : IAsyncDisposable
                 Files = options.StoreDirectories.TryGetValue(identity.Name, out string? directory)
                     ? new DirectoryObjectFiles(directory, new DeterministicEntropy(options.Seed + (ulong)i))
                     : new InMemoryObjectFiles(),
-            }, discovery, new InMemoryDialer(network, address.Address), packages);
+            }, discovery, new InMemoryDialer(network, address.Address), packages, options.Local);
         }
 
         var nodeOptions = MeshNodeOptions.Default with { Local = options.Local with { HostUser = TestProcess.ServedUser } };

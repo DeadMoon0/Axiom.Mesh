@@ -1,0 +1,28 @@
+[
+  {
+    "deviceId": "d3d2d1d0d7d6d5d4dbdad9d8dfdedddcc3c2c1c0c7c6c5c4cbcac9c8cfcecdcc",
+    "userId": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+    "known": true,
+    "addresses": [
+      "192.168.1.20:41810"
+    ],
+    "sources": 1,
+    "firstSeen": 1800000000000,
+    "lastSeen": 1800000060000,
+    "state": "established",
+    "backoffUntil": 0,
+    "violations": 0
+  },
+  {
+    "deviceId": "eeefecedeaebe8e9e6e7e4e5e2e3e0e1fefffcfdfafbf8f9f6f7f4f5f2f3f0f1",
+    "userId": "0000000000000000000000000000000000000000000000000000000000000000",
+    "known": false,
+    "addresses": [],
+    "sources": 2,
+    "firstSeen": 1800000000000,
+    "lastSeen": 1800000000000,
+    "state": "unknown",
+    "backoffUntil": 0,
+    "violations": 1
+  }
+]

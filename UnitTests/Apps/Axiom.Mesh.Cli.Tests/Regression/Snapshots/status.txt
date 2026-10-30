@@ -1,0 +1,5 @@
+Host      \\.\pipe\axiom-mesh, version 0.1.0
+Identity  user alice (a1a0a3a2a5a4), device laptop (1a1b18191e1f)
+Roster    seq 2, user key on this device
+Store     12 objects, 3.3 MiB, budget none
+Peers     2 known, 1 established

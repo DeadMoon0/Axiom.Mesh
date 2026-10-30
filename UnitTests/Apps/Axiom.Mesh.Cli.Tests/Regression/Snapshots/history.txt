@@ -1,0 +1,4 @@
+ENTRY         CLOCK  DEVICE        KIND       STORED                SUMMARY
+010003020504  0      1a1b18191e1f  message    2027-01-15 08:00:00Z  hello mesh
+020300010607  1      d3d2d1d0d7d6  message    2027-01-15 08:00:01Z  (withdrawn)
+030201000706  2      1a1b18191e1f  redaction  2027-01-15 08:00:02Z  withdraws 020300010607

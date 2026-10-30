@@ -1,0 +1,23 @@
+{
+  "host": "\\\\.\\pipe\\axiom-mesh",
+  "hostVersion": "0.1.0",
+  "identity": {
+    "present": true,
+    "userId": "a1a0a3a2a5a4a7a6a9a8abaaadacafaeb1b0b3b2b5b4b7b6b9b8bbbabdbcbfbe",
+    "userName": "alice",
+    "userKeyPresent": true,
+    "deviceId": "1a1b18191e1f1c1d12131011161714150a0b08090e0f0c0d0203000106070405",
+    "deviceName": "laptop",
+    "rosterSeq": 2,
+    "created": 1800000000000
+  },
+  "store": {
+    "objects": 12,
+    "bytes": 3500000,
+    "budget": 0
+  },
+  "peers": {
+    "known": 2,
+    "established": 1
+  }
+}
