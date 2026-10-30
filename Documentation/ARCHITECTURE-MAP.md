@@ -70,8 +70,8 @@ The carriers of the protocol package (M2), by rule; under their own heading so t
 
 ## Axiom.Mesh.Core
 
-What the store, the index, trust and intake (M5), the transport (M6), replication (M7) and the local port (M8) carry,
-by rule.
+What the store, the index, trust and intake (M5), the transport (M6), replication (M7), the local port (M8) and the
+requests (M9) carry, by rule.
 
 | Rule | Carried by |
 |---|---|
@@ -98,6 +98,10 @@ by rule.
 | §6 (local port) Every wait a deadline, every queue a bound | `Local/LocalConnection.cs` (one read loop, one write loop with a 30-second deadline per frame, one ordered lane; `Ping` after 60 s, `Bye(Unresponsive)` 30 s later, by `Local/LivenessRule.cs`), `Transport/LinkActivity.cs` (the 30-second frame completion on local connections too), `Local/LocalEventHub.cs` (one change subscription of 1 024 sets; a replay read one Entry at a time as its queue drains), `LocalPort.DrainAsync` (`Drain` with its grace, then `Bye(Shutdown)`). |
 | §7 (local port) A failure says who must act | `Local/LocalAnswer.cs` (every request answered once, with a status of LOCAL-SPEC.md §11 and an `Error` naming the field or the step); `Local/LocalLog.cs` (every user-key request with pid, executable, user and outcome). |
 | §8 (local port) Rules are pure; the loop is a thin actor | `Local/LocalHelloRule.cs`, `Local/DispatchRule.cs`, `Local/FilterRule.cs`, `Local/LivenessRule.cs`, `Local/RequestRoutes.cs` (the dispatcher's static table: a row per request of `RequestTable`, handlers by id), tested in `Core.Tests/Rules` (`LocalHelloTests`, `DispatchRuleTests`, `LocalLivenessTests`, `SubscriptionTests`, `OperationTests`, `DrainTests`). |
+| §3 (requests) The Host alone holds the keys | `MeshNode.WithUserKeyAsync` (the user key read from `IKeyStore` for one request under the identity lock, used inside the node, wiped after); `Replication/EntryWriter.cs` (an Entry signed with the device key inside the node: a service hands over bytes and gets a signed Entry back); `Local/PutRule.cs` (a service may put no signed object). |
+| §5 (requests) Every limit enforced where the bytes enter | `Local/CallbackTable.cs` (64 callbacks per connection, deadlines on the node's clock), `Local/OperationStarts.cs` (16 running operations), `Peers/StaticPeerBook.cs` (256 static peers), `Local/PageCut.cs` (every list cut to its count and the frame), `Store/StoreBudgetRule.cs` (`StoreFull` before a local write). |
+| §6 (requests) Every wait a deadline | `Local/ObjectFetcher.cs` (a Fetch fails after 60 s without a source on the node's clock; cancel withdraws its wants), `Local/CallbackTable.cs` (a callback leaves the outstanding set at its deadline), `Local/MaterialiseWork.cs` and `Local/PutFileWork.cs` (operations, never a request that waits). |
+| §8 (requests) Rules are pure; handlers only sequence | `Local/ForgetRule.cs`, `GrantRule.cs`, `KindRule.cs`, `WriteRule.cs`, `PutRule.cs`, `DialRule.cs`, `MaterialiseRule.cs`, `PackageListing.cs`, `PinOrder.cs`, `PackageRecords.Of`, each returning a `RequestRefusal` or a value; tested in `Core.Tests/Rules` (`UserRequestTests`, `PackageRequestTests`, `GrantRequestTests`, `HistoryRequestTests`, `StoreRequestTests`, `PeerRequestTests`, `ServiceRoleTests`, `ServiceObjectTests`, `OperationKindTests`, `CallbackTests`, `EventTopicTests`, `MaterialiseRuleTests`). |
 
 ## Axiom.Mesh.Host
 

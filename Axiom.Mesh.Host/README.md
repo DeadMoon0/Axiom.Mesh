@@ -6,7 +6,7 @@ Namespace: `Axiom.Mesh.Host`. Depends on `Axiom.Mesh.Core`, Microsoft.Extensions
 
 ## Status
 
-Phase 1a, in progress. Built (M8): `axiom-meshd run` and `axiom-meshd version`; `config.json` with a default for every key; the key store (DPAPI on Windows, 0600 on Linux); the pipe with process identity on every connection; the store and database on disk; discovery; logging. The requests the node serves over the pipe are those of `Axiom.Mesh.Core`'s local port: identity, store, services, peers, sessions, subscriptions and operations; the rest of the phase-1 set follows in M9, the command line in M10.
+Phase 1a, in progress. Built (M8): `axiom-meshd run` and `axiom-meshd version`; `config.json` with a default for every key; the key store (DPAPI on Windows, 0600 on Linux); the pipe with process identity on every connection; the store and database on disk; discovery; logging. The requests the node serves over the pipe are those of `Axiom.Mesh.Core`'s local port: the phase-1 set (M9), with the `cli` external service of the default configuration able to register a kind, write Entries and put files with the token the daemon writes into `config.json`; pairing and the command line follow in M10.
 
 ## Running it
 
@@ -94,7 +94,7 @@ Every key is optional; a key the daemon does not know, or a value out of range, 
 | `mesh.listen` | null | The address it binds; null for every address. |
 | `mesh.mdns` | true | Announce and listen over mDNS/DNS-SD (SPEC.md §3.1), once the device has an identity. |
 | `mesh.broadcast` | true | Announce and listen on UDP 41811 (SPEC.md §3.2), once the device has an identity. |
-| `mesh.staticPeers` | [] | `host:port` addresses dialled without discovery (SPEC.md §3.3). |
+| `mesh.staticPeers` | [] | `host:port` addresses dialled without discovery (SPEC.md §3.3). `AddStaticPeer` adds more, which the node keeps in its index; these configured ones are removed here, not by `RemoveStaticPeer`. |
 | `store.budgetBytes` | 0 | The store's budget; 0 for none. Eviction keeps the store under it; a local write that would pin past it is `StoreFull`. |
 | `pipe.name` | null | The pipe's name (Windows) or socket path (Linux); `AXIOM_MESH_PIPE` wins over it. |
 | `pipe.allowUsers` | [] | Users a daemon that runs as a system service admits (Windows `DOMAIN\name`, Linux the uid). |

@@ -75,11 +75,13 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 
 ## 7. Service calls and emitted events are not built
 
-- **Rule:** LOCAL-SPEC.md §9.8 and §9.10 (`ServiceCall`, `ForwardedCall`, `Emit`).
-- **Instead:** those requests answer `UnknownRequest`.
-- **Evidence:** fundamentals plan, D7.
+- **Rule:** LOCAL-SPEC.md §6.7, §9.8 and §9.10 (`ServiceCall`, `ForwardedCall`, `Emit`).
+- **Instead:** those requests answer `UnknownRequest`. The machinery under them exists since M9: a callback table per
+  connection (64 outstanding, deadlines, late replies ignored, unknown ids a violation) with `LocalConnection.CallAsync`,
+  and `LocalEventHub.ServiceEmitted` for topic `service`; nothing calls either yet.
+- **Evidence:** fundamentals plan, D7; `Axiom.Mesh.Core/Local/CallbackTable.cs`, `RequestRoutes.cs`.
 - **Tolerated because:** no service with a namespace exists in phase 1a; `UnknownRequest` keeps the Host conformant.
-- **Paid in:** phase 2 (Chat service), the first service with a namespace.
+- **Paid in:** phase 2 (Chat service), the first service with a namespace: two handlers over the existing machinery.
 
 ## 8. Removing a device and forgetting a user have no user interface beyond the request
 
@@ -117,14 +119,14 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 ## 12. The Host answers only the phase-1 request subset
 
 - **Rule:** LOCAL-SPEC.md §15: every request of §6–§10 answered with its OK body and every listed error.
-- **Instead:** M8 serves the session and infrastructure requests (`GetIdentity`, `CreateIdentity`, `RenameDevice`,
-  `GetStore`, `ListServices`, `ListPeers`, `ListSessions`, `ListDiscovered`, `Subscribe`, `Unsubscribe`, `ListOperations`,
-  `GetOperation`, `CancelOperation`); M9 adds the rest of the phase-1 set of the fundamentals plan §2.5; everything else
-  answers `UnknownRequest` (`Axiom.Mesh.Core/Local/RequestRoutes.cs`).
+- **Instead:** M8 and M9 serve the phase-1 set of the fundamentals plan §2.5 except pairing; `StartPairing`,
+  `ConfirmPairing`, `CancelPairing` and `GetPairing` (M10), `UpdatePackage`, `ServiceCall`, `AddTelemetry` and `Emit`
+  answer `UnknownRequest`; the telemetry queries answer `NotFound` with Host capability bit 2 clear
+  (`Axiom.Mesh.Core/Local/RequestRoutes.cs`).
 - **Evidence:** fundamentals plan §2.5 and D7.
 - **Tolerated because:** `UnknownRequest` is the specification's answer for a request a Host does not serve, so a
-  half-built Host stays conformant; `CONFORMANCE.md` marks the missing rows planned.
-- **Paid in:** the phases that need each request (entries 6, 7, 8 and 5 above).
+  half-built Host stays conformant.
+- **Paid in:** M10 (pairing) and the phases that need the rest (entries 5, 6 and 7 above).
 
 ## 13. The executables are named after their assemblies, not `axiom-meshd`
 
@@ -296,8 +298,10 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 - **Tolerated because:** such an Entry was signed by a device that may write (`EntryAdmission`), so a fault costs
   ordering, not trust; the clock gap rule's purpose, that a writer cannot sort last for ever, still holds for every
   Entry written after a held one.
-- **Paid in:** M9, with the history requests: the writer checks the stored children of an Entry it stores (a reverse
-  parent index) and marks a faulty one, which is then neither listed as a Head nor served.
+- **Not paid in M9:** `WriteEntry` never stores before its parents (it names stored parents only), so the request work
+  did not reach this path; the check belongs to the history walk.
+- **Paid in:** M11, with the scenario suite's history walks: the writer checks the stored children of an Entry it stores
+  (a reverse parent index) and marks a faulty one, which is then neither listed as a Head nor served.
 
 ## 29. History is walked when an object is stored, not when the policy changes
 
@@ -306,9 +310,10 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
   a Package followed again) wants nothing for the Entries already stored; a change subscription that lapses loses the
   walks of the change sets it dropped until a peer lists the Package again.
 - **Evidence:** `Axiom.Mesh.Core/Replication/Replicator.cs` (`WalkAsync`).
-- **Tolerated because:** a desktop keeps everything from the start, and `Fetch` and `Materialise` (M9) fetch on demand
-  through the same scheduler.
-- **Paid in:** M9, with `SetPolicy`, `Fetch` and `Materialise` (a walk over the stored Entries of a Package).
+- **Tolerated because:** a desktop keeps everything from the start, and since M9 `Fetch` and `Materialise` fetch on
+  demand through the same scheduler, which covers what a grown policy would want.
+- **Paid in:** phase 1b, with the Sync service's device policies (a walk over the stored Entries of a Package when its
+  policy grows).
 
 ## 30. Optional replication behaviours are not offered
 
@@ -319,18 +324,6 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 - **Tolerated because:** both are SHOULD or MAY; a deferred answer is sent once the queue drains, and following is the
   user's decision in phase 1.
 - **Paid in:** phase 1b, with the Sync service and device policies (DESIGN.md §17).
-
-## 31. Transfers are not recorded for the local protocol
-
-- **Rule:** LOCAL-SPEC.md §5.16 and the `transfers` topic: every object wanted, received, sent, not found, cancelled or
-  dropped is a `Transfer` event.
-- **Instead:** the node records facts (`ObjectStored`, `WantAnswered`, `FaultyContent`) and counters
-  (`MeshNode.Replication`), but no `Transfer` records.
-- **Evidence:** `Axiom.Mesh.Core/Replication/ReplicationSession.cs`, `WantScheduler.cs`.
-- **Tolerated because:** the `transfers` topic is subscribable since M8 and simply carries no events yet; no client
-  needs transfers before the CLI's progress output and the app.
-- **Paid in:** M9, with `Fetch` (a transfer sink the scheduler and the sessions write to, read by the local port's event
-  hub).
 
 ## 32. Spawned services are configured, not spawned
 
@@ -347,15 +340,17 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 ## 33. Package events are built from the batch, not from a diff of every field
 
 - **Rule:** LOCAL-SPEC.md §7.3, §5.4: `PackageChanged` carries the Package after the change, the Grant for change Grant,
-  the Head for change Head; `Package.listedBy` counts the established peers that list it.
+  the Head for change Head.
 - **Instead:** a Grant change names the Grants that differ from the previous trust; a Head change names the Heads of
   the devices whose Entries the batch stored (a Head that changed because an Entry was evicted is not announced, entry
-  18); `listedBy` is 0; the count of stored Entries is read from the index for each event.
+  18); the count of stored Entries is read from the index for each record. Since M9 one builder
+  (`PackageRecords.BuildAsync`) makes the record for `GetPackage`, `ListPackages`, the Package requests and the events,
+  and `listedBy` counts the established sessions whose current listing names the Package.
 - **Evidence:** `Axiom.Mesh.Core/Local/LocalEventHub.cs` (`EventsOf`), `Local/PackageRecords.cs`.
-- **Tolerated because:** a client that needs the exact state calls `GetPackage` (M9) after an event, which §3.4 advises
-  anyway; no listing count is shown before the app.
-- **Paid in:** M9, with `GetPackage` and `ListPackages` (one record builder for requests and events, `listedBy` from the
-  sessions' listings, the Entry count kept per Package).
+- **Tolerated because:** a client that needs the exact state calls `GetPackage` after an event, which §3.4 advises
+  anyway; a peer listing or delisting a Package changes `listedBy` without an event of its own, which §14.12 does not ask
+  for.
+- **Paid in:** M12, with the performance pass (an Entry count kept per Package instead of a count query per record).
 
 ## 34. ConfirmPairing is a user-key request in every mode
 
@@ -398,3 +393,73 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
   checked by construction and by the decision's tests.
 - **Paid in:** M11, with the integration tests (`PipeTests.AnotherUserIsRefusedByTheAccessListAndByProcessIdentity`,
   skipped where no second account or sudo exists).
+
+## 38. A budget set by request is not kept across a restart
+
+- **Rule:** LOCAL-SPEC.md §6.5 `SetStoreBudget`: the budget from now on.
+- **Instead:** the writer holds the new budget in memory; at the next start the configured `store.budgetBytes` applies
+  again.
+- **Evidence:** `Axiom.Mesh.Core/Store/Commands/BudgetCommand.cs`, `Store/WriterState.cs` (`BudgetBytes`).
+- **Tolerated because:** the configuration is the user's file and the request's effect is visible at once; nothing is
+  lost, eviction only waits for the next pass under the configured budget.
+- **Paid in:** M10, with the CLI's `store` command (the budget written to `config.json` or the index, one place).
+
+## 39. ListPins without a filter reads every pin
+
+- **Rule:** ARCHITECTURE.md rule 6: every wait has a deadline and every queue a bound; a page costs a few index reads.
+- **Instead:** pins are ordered by their 65-byte key, which LDB 0.1.0 sorts in memory; `ListPins` with a hash or a
+  Package reads only the matching rows, without a filter it reads every pin and orders them for each page.
+- **Evidence:** `Axiom.Mesh.Core/Local/PinOrder.cs`, `Local/StoreRequests.cs` (`ListPinsAsync`).
+- **Tolerated because:** a desktop store holds thousands of pins, which sort in milliseconds; clients list pins of one
+  object or one Package.
+- **Paid in:** M12, with the performance pass (a keyset page over an ordered key, as `EntryIndex` does for Entries).
+
+## 40. Paths are opened as the Host's user, not the client's
+
+- **Rule:** LOCAL-SPEC.md §13: `Materialise`, `PutFile` and `GetStorePath` open paths as the user of the connection that
+  named them (Windows: impersonation around every open, create, delete and rename).
+- **Instead:** the Host opens them as itself. Host capability bit 1 tells a client of another OS user that the Host runs
+  under another account, and bit 0 is clear for it.
+- **Evidence:** `Axiom.Mesh.Core/Local/MaterialiseWork.cs`, `Local/PutFileWork.cs`.
+- **Tolerated because:** in phase 1a the Host runs as the one user it serves (the pipe admits that user only, entry 3),
+  so the Host's user and the client's are the same.
+- **Paid in:** with the system-service mode of entry 10 (impersonation on Windows, a per-user Host on Unix).
+
+## 41. An unfollowed Package that no peer lists stays Listed
+
+- **Rule:** LOCAL-SPEC.md §6.4: `UnfollowPackage` returns the record to Listed while a peer lists it, else it is dropped.
+- **Instead:** the record returns to Listed whatever the listings say.
+- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs` (`PackageAsync`), `Local/PackageRequests.cs`.
+- **Tolerated because:** a Listed record pins nothing and costs a row; following it again is the user's choice.
+- **Paid in:** M11, with the scenario suite (a drop when the last listing session omits it and nothing of it is pinned).
+
+## 42. Fetch and Materialise do not check that the Package references the object
+
+- **Rule:** LOCAL-SPEC.md §6.4: `packageId` is a followed Package whose Entries reference the object.
+- **Instead:** the Host checks that the Package is followed and asks the peers that list it; a peer resolves visibility
+  (SPEC.md §9.7) and answers `NotFound` for an object the Package does not reference, so the operation ends `NotFound`
+  after 60 seconds without a source.
+- **Evidence:** `Axiom.Mesh.Core/Local/OperationStarts.cs`, `Local/ObjectFetcher.cs`.
+- **Tolerated because:** nothing is served that the peer would not serve anyway; the cost is a slower `NotFound`.
+- **Paid in:** M12 (an upward walk over the reference rows before the operation starts).
+
+## 43. A Fetch notices a new source on its next look, once a second
+
+- **Rule:** ARCHITECTURE.md rule 6 and SPEC.md §10.5: no polling.
+- **Instead:** a waiting Fetch looks once a second on the node's clock whether a session now lists the Package, besides
+  waking for every change set; a session that lists the Package changes nothing in the store, so it has no event.
+- **Evidence:** `Axiom.Mesh.Core/Local/ObjectFetcher.cs` (`Look`).
+- **Tolerated because:** one timer per waiting operation, at most 16 per connection; the 60-second rule needs a clock
+  anyway.
+- **Paid in:** M12 (a listing event from the sessions to the scheduler).
+
+## 44. Forgetting a user does not announce its devices as forgotten
+
+- **Rule:** LOCAL-SPEC.md §14.11: `PeerChanged(Forgotten)` when a device's user was forgotten.
+- **Instead:** `ForgetUser` publishes `UserChanged(Forgotten)` and closes the user's sessions; the peer table keeps the
+  devices' records, so topic `peers` shows their sessions closing, not `Forgotten`.
+- **Evidence:** `Axiom.Mesh.Core/Local/UserRequests.cs`, `Peers/PeerTable.cs`.
+- **Tolerated because:** the devices are refused from then on (they are in no known Roster) and listed by `ListPeers` as
+  not known; the user interface of entry 8 comes later.
+- **Paid in:** M10, with pairing, which writes the peer table's knowledge of users (a forget removes the user's devices
+  from the table and emits `Forgotten`).

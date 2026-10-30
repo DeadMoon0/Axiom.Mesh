@@ -47,7 +47,7 @@ names no test, or when a proved row names a test that does not exist.
 |---|---|
 | Every node that holds the same Entries orders them identically. | `Model.Tests: EntryOrderTests.EntriesOrderByClockThenDeviceIdThenHash_IdenticallyOnEveryNode` |
 | The parents and clock chosen for a new Entry always make it well-formed and faultless, or writing stops with `ClockExhausted`. | `Model.Tests: ParentChoiceTests.Decide` |
-| A `WriteEntry` with no parents produces an Entry that orders identically on every node. | planned: `Core.Tests: WriteEntryTests.WithNoParentsTheEntryVerifiesOrdersAndIsFaultless_ForTheFourParentCases_AndTwoParentsWhenTheHighestClockIs2Pow32Plus1AboveTheOwnHead` |
+| A `WriteEntry` with no parents produces an Entry that orders identically on every node. | `Core.Tests: ServiceRoleTests.WithNoParentsTheEntryVerifiesOrdersAndIsFaultless_ForTheFourParentCases_AndTwoParentsWhenTheHighestClockIs2Pow32Plus1AboveTheOwnHead` |
 | A change crosses any number of hops without polling, and is never sent back to where it came from. | `Core.Tests: ReplicationScenarioTests.AChangeCrossesTwoHopsWithoutPolling`, `Core.Tests: ReplicationScenarioTests.AThirdNodeRelaysAndNothingIsSentBackToTheSource` |
 | The same scenario passes in memory and on sockets. | planned: `Integration.Tests: RealMeshScenarios.EveryInMemoryScenarioPassesOnSocketsDiskAndTheRealPipe` |
 
@@ -114,3 +114,10 @@ names no test, or when a proved row names a test that does not exist.
 | Two nodes with nothing to say keep their session on heartbeats alone. | `Core.Tests: LivenessTests.AnEstablishedSessionSurvivesFiveMinutesOfSilenceWithHeartbeats` |
 | A stopping node ends every session with `Bye(Shutdown)`. | `Core.Tests: EstablishmentTests.AStoppingNodeSaysByeShutdownToItsPeers` |
 | Two in-memory nodes connect through the same TLS, protocol, admission and drain as on sockets; a restarted node comes back with what it kept; a partition cuts and a heal rejoins. | `Testing.Tests: TestMeshTests.TwoNodesWhoseUsersKnowEachOtherConnect_OneSessionEach`, `Testing.Tests: TestMeshTests.AStoppedNodeIsGone_AndARestartedOneComesBackWithItsIdentityAndReconnects`, `Testing.Tests: TestMeshTests.APartitionCutsTheSession_AndHealingReconnects` |
+| A request that needs the user key and does not find it on this device is `UserKeyAbsent` and changes nothing. | `Core.Tests: UserRequestTests.RemovingThisDeviceIsInvalid_AnotherUsersIsNotFound_WithoutTheUserKeyItIsUserKeyAbsent`, `Core.Tests: PackageRequestTests.AnEmptyNameIsInvalid_WithoutTheUserKeyItIsUserKeyAbsent` |
+| No local request stores an object that would put the pinned bytes over the budget. | `Core.Tests: StoreRequestTests.ABudgetBelowThePinnedBytesMakesALocalWriteStoreFull_Budget0IsTheDefault` |
+| A service writes only the kinds its configuration lists, and never a kind another connected service holds. | `Core.Tests: ServiceRoleTests.AKindOutsideTheConfigurationIsNotPermitted_OneAnotherServiceHoldsIsKindTaken` |
+| A payload of a built-in kind that does not parse is never written here and never stored from a peer. | `Core.Tests: ServiceRoleTests.AVersionMessageOrRedactionPayloadThatDoesNotParseIsInvalidHere_AndDroppedAsFaultyFromAPeer` |
+| A Fetch never waits for ever: without a possible source it fails within 60 seconds, naming what it lacks. | `Core.Tests: OperationKindTests.AFetchWithoutASourceWaits_AndFailsNotFoundAfter60Seconds` |
+| Materialise never leaves a partial file, and never deletes a directory it did not write. | `Core.Tests: OperationKindTests.MaterialiseWritesByteEqualFiles_ExistingFailIsAlreadyExists_ReplaceRewrites`, `Core.Tests: OperationKindTests.ReplaceRefusesAForeignDirectory_ARelativePathIsInvalid_ACancelledMaterialiseWritesNothing` |
+| The command line, with the token the daemon wrote for it, writes Entries as the `cli` service end to end. | `Host.Tests: CliServiceTests.TheCliExternalServiceWithTheTokenFromConfigJsonRegistersWritesAnEntryAndPutsAFile` |
