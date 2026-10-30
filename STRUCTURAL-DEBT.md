@@ -111,8 +111,9 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 ## 11. Pairing codes are text, not QR codes or six words
 
 - **Rule:** DESIGN.md §5.2 and §17 phase 4 ("a phone pairs by QR code").
-- **Instead:** a pairing code is a text string, printed as an ASCII QR code when stdout is a terminal.
-- **Evidence:** fundamentals plan, D7.
+- **Instead:** a pairing code is a text string; `axiom-mesh pair show` prints it, and on a terminal also in a box that
+  is easy to read off. No QR code is drawn yet (an ASCII QR encoder is a later step), and no six-word form exists.
+- **Evidence:** fundamentals plan, D7; `Apps/Axiom.Mesh.Cli/Output/PairingView.cs` (`Box`).
 - **Tolerated because:** desktops can copy text; a camera is a phone's.
 - **Paid in:** phase 4 (Android, iOS).
 
@@ -226,14 +227,12 @@ connection on the node's clock; a frame still incomplete 30 seconds after its fi
 
 ## 22. A pairing connection reaches the AMP/1 handler
 
-- **Rule:** DESIGN.md §6.3 and PAIR-SPEC.md §5.1: a pairing connection speaks `axiom-mesh-pair/1` from its first frame.
-- **Instead:** the mesh port has one entry protocol, AMP/1, so a connection under the pairing ALPN opens an AMP/1 session;
-  `PeerSessionHandler` aborts it at once, before any frame, because the pairing shell is not built.
-- **Evidence:** `Axiom.Mesh.Core/Node/PeerSessionHandler.cs` (`IsPairing` → `connection.Abort()`).
-- **Tolerated because:** no pairing exists before M10, and nothing is sent on such a connection.
-- **Paid in:** M10. LWSE's `ConnectionContext.SwitchAsync` sends a final message of the old protocol, which AMP/1 must not
-  send here; M10 serves the pairing session from the handler with `PairProtocol.Definition` on the connection's stream, or
-  asks LWSE for a switch without a final message.
+Paid in a679b50 (M10): the mesh port still has one entry protocol, but AMP/1's Connected state is switchable, and
+`PeerSessionHandler` hands a connection under the pairing ALPN to `PairingShell.ServeAsync`, which switches the AMP/1
+session that has sent and read nothing to `PairProtocol.Definition` with ProtoStream's `SwitchAsync` without a final
+message; `PairHello` is the connection's first frame, and nothing follows the pairing's end
+(`Core.Tests: PairingTests.APairingConnectionCarriesNoAmp1Frame_AndASecondOneIsAnsweredBusy`). A pairing connection that
+reaches a node with no pairing at all is still aborted without a byte.
 
 ## 23. The peer table is not persisted
 
@@ -358,8 +357,10 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 - **Instead:** the dispatcher marks `ConfirmPairing` user-key whatever the mode (`ShowDevice` included), because the
   mode belongs to the running pairing, which does not exist before M10.
 - **Evidence:** `Axiom.Mesh.Core/Local/RequestRoutes.cs` (`SpendingUserKey`).
-- **Tolerated because:** it can only log or confine one request too many, never one too few.
-- **Paid in:** M10, with the pairing shell (the handler decides the mode and the confinement).
+- **Tolerated because:** it can only log or confine one request too many, never one too few. M10 built the pairing
+  shell but kept the static table: confining by mode needs the dispatcher to read the running pairing's mode before the
+  handler, a change of `DispatchRule` that is not worth its risk for one request of a device that holds no user key.
+- **Paid in:** M12, with the security conformance pass (the dispatcher asks the pairing shell for the mode).
 
 ## 35. An event's size is counted by encoding it once more
 
@@ -461,5 +462,54 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 - **Evidence:** `Axiom.Mesh.Core/Local/UserRequests.cs`, `Peers/PeerTable.cs`.
 - **Tolerated because:** the devices are refused from then on (they are in no known Roster) and listed by `ListPeers` as
   not known; the user interface of entry 8 comes later.
-- **Paid in:** M10, with pairing, which writes the peer table's knowledge of users (a forget removes the user's devices
-  from the table and emits `Forgotten`).
+- **Paid in:** M11 (M10's pairing adds users but does not touch the peer table's records; a forget removing the user's
+  devices from the table and emitting `Forgotten` belongs with the scenario suite's forget scenario).
+
+## 45. A paired user's display name is not kept
+
+- **Rule:** PAIR-SPEC.md §9.1: "The display name is stored for the user's interface"; LOCAL-SPEC.md §5.2 `User.name`.
+- **Instead:** the pairing shows the other side's name in `Pairing.remoteName`, but after `Paired` the name is dropped:
+  `UserRow` has no name column, so `ListKnownUsers` shows an empty name for every user but the own one. An enrolled device
+  keeps its user's name (it is the identity's `userName`).
+- **Evidence:** `Axiom.Mesh.Core/Storage/UserRow.cs`; `Local/UserRequests.cs` (`UserOf`).
+- **Tolerated because:** users are named by id or prefix on the command line; nothing decides by a name.
+- **Paid in:** M11, with a schema step that adds the column (the index's schema version rises).
+
+## 46. The entering side dials only the IP addresses of a code
+
+- **Rule:** PAIR-SPEC.md §2.2: a code's address is a DNS name, an IPv4 address or an IPv6 literal.
+- **Instead:** `PairingShell.EnterAsync` skips an address that is not an IP literal; the showing side writes only IP
+  literals (its interfaces' unicast addresses), so codes this implementation shows always work.
+- **Evidence:** `Axiom.Mesh.Core/Pairing/PairingShell.cs` (`EnterAsync`).
+- **Tolerated because:** a code with a host name comes only from another implementation or by hand.
+- **Paid in:** M11, with the real-socket fixture (resolve through the dialler, which then takes a `DnsEndPoint`).
+
+## 47. The command line is compiled ahead of time without the IL scanner
+
+- **Rule:** ARCHITECTURE.md §10: every library and executable runs trimmed and ahead of time, warnings as errors.
+- **Instead:** ILCompiler 10.0.10 fails generating `Dictionary<long, __Canon>.CopyTo` (reached through ProtoStream's
+  message set codec) from a generic dictionary layout its IL scanner precomputed; `Axiom.Mesh.Cli.csproj` passes
+  `--noscan` to the compiler when `PublishAot` is set. The result is correct, a little larger and slower to start.
+- **Evidence:** `Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj` (`IlcArg`); `Scripts/aot-smoke.ps1` passes with it.
+- **Tolerated because:** it is a compiler defect, not one of this code; the Host compiles with the scanner.
+- **Paid in:** M12, with `aot.yml`: drop the argument once a patched ILCompiler compiles the command line.
+
+## 48. The command line does not read `pipe.name` from `config.json`
+
+- **Rule:** the Host's pipe name precedence: `AXIOM_MESH_PIPE`, then `pipe.name` in `config.json`, then the default.
+- **Instead:** the command line finds the pipe by `AXIOM_MESH_PIPE` or the platform default (`LocalPipe.Locate`); a Host
+  configured with another `pipe.name` is reached only with the variable set.
+- **Evidence:** `Apps/Axiom.Mesh.Cli/Program.cs` (`Locate`).
+- **Tolerated because:** `pipe.name` is rare outside system services; the failure line names the pipe it tried.
+- **Paid in:** M13, with the install scripts, which set up the pipe the command line expects.
+
+## 49. A pairing code lists every interface's address, reachable or not
+
+- **Rule:** PAIR-SPEC.md §2.2: the addresses "on every interface it serves the pairing on", in the order to try.
+- **Instead:** the showing side lists the unicast addresses of every interface that is up (IPv4 first, at most 8, as
+  many as fit 512 characters), virtual adapters included; the entering side tries them in order, each bounded by the
+  dialler's connect timeout and the 10-second handshake.
+- **Evidence:** `Axiom.Mesh.Core/Node/NetworkAddresses.cs`; `Pairing/PairingShell.cs` (`CodeAddresses`).
+- **Tolerated because:** the right address is usually among the first; a wrong one costs seconds, not a failed pairing.
+- **Paid in:** M11, with the real-socket fixture: prefer addresses of interfaces with a gateway, and let the Host's
+  configuration name them.

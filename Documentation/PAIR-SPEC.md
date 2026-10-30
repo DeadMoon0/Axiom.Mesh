@@ -1,6 +1,8 @@
 # Axiom Mesh Pairing Protocol, Version 1 (axiom-mesh-pair/1)
 
-**Status:** Draft 1, 2026-10-29. Normative for the first implementation. It specifies the exchange that
+**Status:** Draft 2, 2026-10-30. Normative for the first implementation. Draft 2 records what the first
+implementation decided where draft 1 was silent: pairing with one's own user (§2.3, §7.1), the order in which the
+two sides store, close and dial (§5.1, §6.2, §9). It specifies the exchange that
 [SPEC.md](SPEC.md) §13 and §14.4 leave to "a separate document" and that [LOCAL-SPEC.md](LOCAL-SPEC.md) §5.15 and §6.2
 drive through the local protocol. Where this document restates a rule of SPEC.md, SPEC.md wins; where it restates a rule
 of LOCAL-SPEC.md about what a client sees, LOCAL-SPEC.md wins. [DESIGN.md](DESIGN.md) §5.2 explains why pairing works
@@ -100,7 +102,8 @@ An entering side MUST accept a code only in exactly the form §2.1 and §2.2 wri
 least one and at most 8 well-formed addresses, a key of exactly 87 base64url characters that decodes to a 65-byte
 `pubkey` on P-256 (SPEC.md §2.3), and a text that the same values would write identically. Anything else is refused
 before any connection is made. A code of mode `user` is entered in mode `JoinUser` only, one of mode `device` in mode
-`AddDevice` only.
+`AddDevice` only. A `user` code whose key is a device of the entering side's own user is refused as well: a device of
+the own user is enrolled (`AddDevice`), never paired (§7.1).
 
 ## 3. Modes
 
@@ -161,7 +164,9 @@ before the other's `PairHello` it accepts only `PairHello` and `PairCancel`. Aft
 `PairConfirm` is a violation. A `PairHello` must arrive within 10 seconds, and a pairing connection on which nothing
 arrives for 10 minutes ends with `PairCancel(Expired)`, which is also how it outlives the pairing's expiry (§6.3). On a
 violation a side sends `PairCancel(Violation)` and closes. A side that sent or received `PairCancel` sends nothing more
-and closes; a side whose pairing reached `Paired` closes after its last frame (§6.2). There is no keep-alive: the
+and closes. Once the pairing reached `Paired`, the showing side closes after its last frame, its results stored (§9);
+the entering side reads on until the showing side closed, then closes and dials (§9), so the showing side has stored
+its results when the entering side's first AMP/1 connection arrives. There is no keep-alive: the
 users' comparison takes the time it takes, bounded by the expiry.
 
 ### 5.2 `PairHello` (1)
@@ -241,8 +246,8 @@ The states are those of LOCAL-SPEC.md §6.2 and §14.10, in order:
 
 The users confirm in either order, except in the device modes: the `AddDevice` side sends its `PairConfirm`, which
 carries the enrolling Roster, only after the device's `PairConfirm` arrived and its own user confirmed. A device
-therefore never receives a Roster that lists it unless its own user agreed first. A side that reaches `Paired` closes
-the pairing connection once its last frame is written; the `ShowDevice` side and, in the user modes, the side whose
+therefore never receives a Roster that lists it unless its own user agreed first. A side that reaches `Paired` stores its results before it
+sends its last frame, and the connection closes as §5.1 says; the `ShowDevice` side and, in the user modes, the side whose
 `PairConfirm` came second, reach it on receipt.
 
 ### 6.3 Expiry and one pairing at a time
@@ -263,7 +268,9 @@ On receipt of the other side's `PairHello` a side MUST check, in this order:
 3. `deviceId` equals `H` of the other side's TLS key (§4.2);
 4. if `mode` is `ShowDevice`: `userKey` is 65 zero bytes and `roster` is empty;
 5. otherwise: `roster` parses as a Roster (SPEC.md §8.8), its signature verifies under its own `userKey`, that key equals
-   `userKey`, and the Roster lists `deviceId` as a device that is not removed.
+   `userKey`, and the Roster lists `deviceId` as a device that is not removed;
+6. in modes `ShowUser` and `JoinUser`: `userKey` is not this side's own user key; a device of the own user is enrolled,
+   never paired.
 
 A failed check fails the pairing with `PairCancel(Refused)`, whose detail names the check. The `AddDevice` side then
 also checks that the device can be enrolled: a device whose id any Roster of its user ever removed or omitted cannot be
@@ -302,6 +309,10 @@ tells `2` from `Z` and `5` from `S`. The users compare the strings out of band (
 only if they are equal.
 
 ## 9. Results
+
+Each side stores its results before it sends the frame that lets the other side reach `Paired`, and the entering side,
+once the showing side closed the pairing connection (§5.1), dials the showing device under `axiom-mesh/1` at the
+address of the code that answered.
 
 Nothing is stored before `Paired`; a `Failed` or `Cancelled` pairing leaves both sides as they were, except that a
 `ShowDevice` side keeps the device key it created.

@@ -6,7 +6,7 @@ Namespace: `Axiom.Mesh.Host`. Depends on `Axiom.Mesh.Core`, Microsoft.Extensions
 
 ## Status
 
-Phase 1a, in progress. Built (M8): `axiom-meshd run` and `axiom-meshd version`; `config.json` with a default for every key; the key store (DPAPI on Windows, 0600 on Linux); the pipe with process identity on every connection; the store and database on disk; discovery; logging. The requests the node serves over the pipe are those of `Axiom.Mesh.Core`'s local port: the phase-1 set (M9), with the `cli` external service of the default configuration able to register a kind, write Entries and put files with the token the daemon writes into `config.json`; pairing and the command line follow in M10.
+Phase 1a, in progress. Built (M8): `axiom-meshd run` and `axiom-meshd version`; `config.json` with a default for every key; the key store (DPAPI on Windows, 0600 on Linux); the pipe with process identity on every connection; the store and database on disk; discovery; logging. The requests the node serves over the pipe are those of `Axiom.Mesh.Core`'s local port: the phase-1 set (M9), with the `cli` external service of the default configuration able to register a kind, write Entries and put files with the token the daemon writes into `config.json`; pairing (M10) runs over the mesh port while a pairing waits, and the command line `axiom-mesh` (M10) drives all of it. The machine's name is what a device being enrolled proposes for itself.
 
 ## Running it
 

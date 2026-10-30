@@ -108,6 +108,9 @@ names no test, or when a proved row names a test that does not exist.
 | Every connection is a full TLS 1.3 handshake on a fresh `SslStream`: no session tickets, no resumption, no renegotiation; a client certificate and the ALPN `axiom-mesh/1` are required. | `Core.Tests: HandshakeTests.NoSessionTicketsAndNoEarlyData`, `Core.Tests: HandshakeTests.AHandshakeWithoutAClientCertificateOrWithoutAlpnFails_AndCompletesWithin10Seconds` |
 | A handshake that does not complete within 10 seconds on the node's clock is closed, and not before. | `Core.Tests: HandshakeTests.AHandshakeWithoutAClientCertificateOrWithoutAlpnFails_AndCompletesWithin10Seconds` |
 | While a pairing waits, an unknown key is still refused under AMP/1's ALPN; only the pairing ALPN lets it through, and only then. | `Core.Tests: HandshakeTests.UnderTheMeshAlpnAnUnknownKeyIsRefusedWhileAPairingWaits_UnderThePairingAlpnItIsLetThrough` |
+| A pairing stores nothing unless both users confirmed: a cancel, an expiry or an altered code leaves both nodes as they were. | `Core.Tests: PairingTests.ACancelOnEitherSideEndsBothCancelled_AndNothingIsStored`, `Core.Tests: PairingTests.ACodeAlteredToEvesKeyIsRefusedAtTheHandshake_TheShowingSideKeepsWaiting_NothingIsStored`, `Core.Tests: PairingTests.ConfirmIsInvalidWhileWaiting_OkAndUnchangedWhileConfirming_ASecondPairingIsBusy_ExpiryAt10MinutesFails` |
+| A pairing connection never carries an AMP/1 frame, and a node serves one pairing connection at a time. | `Core.Tests: PairingTests.APairingConnectionCarriesNoAmp1Frame_AndASecondOneIsAnsweredBusy` |
+| An enrolled device holds its user's identity but never the user key, and the user's other devices hold the Roster that lists it. | `Core.Tests: PairingTests.AddDeviceEnrolsASecondDevice_ItHoldsTheUsersIdentityAndRosterSeqPlus1OnBoth_AndEstablishesWithTheFirst` |
 | A peer that closes before its `Hello` is a refusal: the node holds its next dial back 10 seconds, doubling to 5 minutes, and redials on its own. | `Core.Tests: EstablishmentTests.ACloseAfterTheHandshakeBeforeHelloCountsAsARefusalAndBacksOff`, `Core.Tests: BackoffTests.AFailedDialWaits10SecondsThenDoublesToAtMost5Minutes` |
 | A peer's `Hello` that names another device or another user is answered `Bye(Unauthorized)` and counted against the device. | `Core.Tests: HelloTests.ADeviceIdThatIsNotTheHashOfTheTlsKeyOrNotInTheUsersCurrentRosterIsByeUnauthorized` |
 | A node admits at most 4 connections per peer address. | `Core.Tests: AdmissionTests.AdmissionPerAddressIs4` |
@@ -121,3 +124,12 @@ names no test, or when a proved row names a test that does not exist.
 | A Fetch never waits for ever: without a possible source it fails within 60 seconds, naming what it lacks. | `Core.Tests: OperationKindTests.AFetchWithoutASourceWaits_AndFailsNotFoundAfter60Seconds` |
 | Materialise never leaves a partial file, and never deletes a directory it did not write. | `Core.Tests: OperationKindTests.MaterialiseWritesByteEqualFiles_ExistingFailIsAlreadyExists_ReplaceRewrites`, `Core.Tests: OperationKindTests.ReplaceRefusesAForeignDirectory_ARelativePathIsInvalid_ACancelledMaterialiseWritesNothing` |
 | The command line, with the token the daemon wrote for it, writes Entries as the `cli` service end to end. | `Host.Tests: CliServiceTests.TheCliExternalServiceWithTheTokenFromConfigJsonRegistersWritesAnEntryAndPutsAFile` |
+
+## Axiom.Mesh.Cli
+
+| Promise | Proved by |
+|---|---|
+| Every failure of the command line is one line and an exit code (1 usage, 2 Host not reachable, 3 refused, 4 timeout), never a stack trace. | `Cli.Tests: FailureTests.AHostThatIsNotRunningIsExplainedNotStackTraced`, `Cli.Tests: FailureTests.EveryStatusCodeOfLocalSpec11HasAnExitCodeAndAOneLineExplanation`, `Cli.Tests: CommandLineTests.AMissingArgumentOrAWrongValueIsAUsageErrorThatExits1` |
+| A withdrawn message is never shown with its text, in a table, in JSON or in `watch`. | `Cli.Tests: EntryDisplayTests.ARedactedMessageIsShownAsWithdrawnNeverItsText` |
+| Every command has help text, and a prefix that names two ids is refused naming both, never guessed. | `Cli.Tests: HelpTextTests.EveryCommandHasHelpText`, `Cli.Tests: IdMatchTests.AnAmbiguousPrefixNamesTheCandidates_AnUnknownOneSaysNoneMatches` |
+| A folder published from the command line materialises byte-equal on another device. | `Cli.Tests: CliScenarioTests.APublishedFolderMaterialisesByteEqualOnASecondNodeThatFollowsIt` |

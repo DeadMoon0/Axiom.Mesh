@@ -2,7 +2,8 @@
 
 An in-memory [Axiom.Mesh](https://github.com/DeadMoon0/Axiom.Mesh) of any number of nodes for tests: one fake clock per mesh, fake discovery with partitions, in-memory stores, scripted peers that speak raw AMP/1, and waits backed by the nodes' facts, never by sleeps.
 
-Namespace: `Axiom.Mesh.Testing`. Depends on `Axiom.Mesh.Host` (and so on Core and everything below it).
+Namespace: `Axiom.Mesh.Testing`. Depends on `Axiom.Mesh.Host` (and so on Core and everything below it) and on
+`Axiom.Mesh.Cli`, which it runs in-process.
 
 ## Status
 
@@ -10,8 +11,9 @@ Phase 1a, in progress. Built (milestones M6, M7): the published test identities,
 stop and start, partition, severed links and heal, `SettleAsync`, `FakeDiscovery`, `InMemoryDialer`, `InMemoryKeyStore`,
 `InMemoryNetwork`, `ScriptedPeer`, and content seams on `TestNode` (create, grant, follow, write, publish, wait for an
 object) with `ObjectFixtures`; local clients (M8): `TestNode.ConnectUserAsync`, `ConnectServiceAsync`, `ConnectInProcessAsync`,
-`ConnectAsync` and `ConnectRaw` from a `TestProcess`, and `TestMesh.CreateIdentityAsync` over the local port. Pairing (`PairAsync`, `EnrolAsync`) and the in-process CLI follow with the milestones that
-build them.
+`ConnectAsync` and `ConnectRaw` from a `TestProcess`, and `TestMesh.CreateIdentityAsync` over the local port. Pairing (M10):
+`TestMesh.PairAsync`, `EnrolAsync` and `WaitForPairingAsync`, `ScriptedPeer`'s pairing frames; the command line in-process:
+`TestNode.CliAsync`.
 
 ## Quick Start
 
@@ -63,15 +65,29 @@ await pair.SettleAsync(CancellationToken.None);               // nothing left in
 Console.WriteLine(bob.Node.Replication);                      // wants, counters, the session's traffic
 ```
 
+Two users who do not know each other pair over their local ports, as two people at their screens would, and then
+establish; the command line runs in-process against a node, as it runs against a Host.
+
+```csharp
+await using TestMesh strangers = await TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop", "bob-desktop"), CancellationToken.None);
+
+string sas = await strangers.PairAsync("alice-laptop", "bob-desktop", CancellationToken.None);   // show, join, compare, confirm
+Console.WriteLine(sas);                                                                         // such as K7QD-M2XA
+await strangers.ConnectAsync("alice-laptop", "bob-desktop", CancellationToken.None);
+
+CliResult users = await strangers["alice-laptop"].CliAsync("users --json", CancellationToken.None);
+Console.WriteLine(users.ExitCode);                                                              // Ok
+```
+
 ## What is in it
 
 | Type | What it is |
 |---|---|
 | `TestKeys` | The seven published PKCS#8 keys (users alice, bob, eve; devices alice-laptop, alice-phone, bob-desktop, eve-device), as in `Documentation/vectors/vectors.json`. Compiles against Model alone, so the lower suites link the file. |
 | `TestIdentity` | A published device with its user: `Of(name)`, `All`, `RosterOf(user)` (the user's first Roster, always the same object), `RosterOf(user, seq, removed…)` (a new one, signed anew). |
-| `TestMesh` | The mesh: `StartAsync(TestMeshOptions)`, `this[name]`, `Clock`, `Network`, `ConnectAsync`, `WaitUntilAsync`, `WaitForFactAsync`, `SettleAsync`, `StopNodeAsync`, `StartNodeAsync`, `Partition`, `Sever`, `Heal`, `CreateIdentityAsync(node, user, device)` (over the local port, for a node without identity). |
+| `TestMesh` | The mesh: `StartAsync(TestMeshOptions)`, `this[name]`, `Clock`, `Network`, `ConnectAsync`, `WaitUntilAsync`, `WaitForFactAsync`, `SettleAsync`, `StopNodeAsync`, `StartNodeAsync`, `Partition`, `Sever`, `Heal`, `CreateIdentityAsync(node, user, device)` (over the local port, for a node without identity), `PairAsync(showing, entering)` (ShowUser and JoinUser, both confirm; returns the SAS), `EnrolAsync(user, device)` (AddDevice and ShowDevice; the user key placed first, the device's identity awaited), `WaitForPairingAsync(node, client, condition, what)`. |
 | `TestMeshOptions`, `TrustSeed` | Which nodes, which of them know which users (`MutuallyKnown`, `And`), which keep silent (dial but are never dialled), which pairs are severed from the start, the seed, which start without an identity (`WithoutIdentity`), what every local port is told (`Local`), where nodes log (`Loggers`), which keep their store in a real directory (`StoreDirectories`, layout 1 of LOCAL-SPEC.md §9.7). |
-| `TestNode` | One node: its identity, address (`10.0.0.n:41810`), what it keeps across restarts, its discovery, the running `MeshNode`; and content seams: `CreatePackageAsync`, `GrantAsync`, `FollowAsync`, `WriteEntryAsync`, `PublishAsync`, `WaitForEntryAsync`, `WaitForObjectAsync`, `HoldUserKeyAsync` (the user key into the node's key store, for the user-key requests over the local port); and local clients: `ConnectUserAsync(name)`, `ConnectServiceAsync(name, token)`, `ConnectInProcessAsync(name)`, `ConnectAsync(options, process)` (each a `LocalClient` the mesh closes when it stops the node) and `ConnectRaw(process)` (the client's end of a connection, for frame-level tests). |
+| `TestNode` | One node: its identity, address (`10.0.0.n:41810`), what it keeps across restarts, its discovery, the running `MeshNode`; and content seams: `CreatePackageAsync`, `GrantAsync`, `FollowAsync`, `WriteEntryAsync`, `PublishAsync`, `WaitForEntryAsync`, `WaitForObjectAsync`, `HoldUserKeyAsync` (the user key into the node's key store, for the user-key requests over the local port); and local clients: `ConnectUserAsync(name)`, `ConnectServiceAsync(name, token)`, `ConnectInProcessAsync(name)`, `ConnectAsync(options, process)` (each a `LocalClient` the mesh closes when it stops the node) and `ConnectRaw(process)` (the client's end of a connection, for frame-level tests); `CliAsync(commandLine)` runs `axiom-mesh` in-process against the node, as the served user and, for the write commands, as service `cli` with the token `TestMeshOptions.Local` configures (`CliResult`: exit code, stdout, stderr; an overload echoes stdout as it is written, for `watch`). |
 | `TestProcess` | The process a local connection pretends to come from: `Served` (pid 4242, user `tester`, the user every test node serves), `AsOtherUser()`, `Running(executable, pid)`. |
 | `ObjectFixtures`, `TreeFixture` | Deterministic content (`Content`), a folder cut into Chunks with its ChunkLists and Tree (`Folder`), a Package filled with Messages (`WriteMessagesAsync`), `Message` and `Version` payloads. |
 | `TestNodeEnvironment` | In-memory LDB storage, object files (or a directory) and key store that survive a restart, on the mesh's clock with seeded randomness. |
@@ -79,7 +95,8 @@ Console.WriteLine(bob.Node.Replication);                      // wants, counters
 | `FakeDiscovery` | A node's discovery on the board (`Announce`, `Withdraw`, `IsSilent`); claims already on the board are heard first. |
 | `InMemoryDialer` | Connects to the target node's server in memory, so both ends run admission, TLS and AMP/1 as over TCP. |
 | `InMemoryKeyStore` | An `IKeyStore` in memory. |
-| `ScriptedPeer` | A peer that connects (`ConnectAsync`) or is dialled (`AcceptAsync`) with any identity and speaks raw AMP/1: `SendAsync`, `SendRawAsync`, `SendFrameStartAsync` (a frame begun and never finished), `ExpectAsync<T>`, `ExpectByeAsync`, `ExpectClosedAsync`, `ExpectClosedWithoutHelloAsync`. |
+| `ScriptedPeer` | A peer that connects (`ConnectAsync`) or is dialled (`AcceptAsync`) with any identity and speaks raw AMP/1: `SendAsync`, `SendRawAsync`, `SendFrameStartAsync` (a frame begun and never finished), `ExpectAsync<T>`, `ExpectByeAsync`, `ExpectClosedAsync`, `ExpectClosedWithoutHelloAsync`; on a connection under the pairing ALPN `SendPairAsync`, `ExpectPairAsync<T>` and `ExpectPairingClosedAsync` (a frame of any other protocol fails the expectation). |
+| `CliResult`, `CliWords` | What an in-process command line left; a command line split into arguments as a shell would. |
 | `TestMeshException` | A wait that ran out, or an expectation the node did not meet, with the nodes' last facts. |
 
 ## Rules of use
