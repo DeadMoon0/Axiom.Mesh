@@ -78,36 +78,4 @@ public sealed class RunCommandTests
             await Task.Yield();
         }
     }
-
-    private sealed class SynchronizedWriter : StringWriter
-    {
-        private readonly object gate = new();
-
-        public string Text
-        {
-            get
-            {
-                lock (gate)
-                    return ToString();
-            }
-        }
-
-        public override void Write(char value)
-        {
-            lock (gate)
-                base.Write(value);
-        }
-
-        public override void Write(string? value)
-        {
-            lock (gate)
-                base.Write(value);
-        }
-
-        public override void WriteLine(string? value)
-        {
-            lock (gate)
-                base.WriteLine(value);
-        }
-    }
 }

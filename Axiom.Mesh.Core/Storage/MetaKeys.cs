@@ -32,4 +32,7 @@ internal static class MetaKeys
 
     /// <summary>When the identity was created or enrolled here, milliseconds since the Unix epoch (LOCAL-SPEC.md §5.1).</summary>
     public const string SelfCreated = "self.created";
+
+    /// <summary>The static peers added by <c>AddStaticPeer</c> (LOCAL-SPEC.md §6.6), UTF-8, one per line.</summary>
+    public const string StaticPeers = "peers.static";
 }

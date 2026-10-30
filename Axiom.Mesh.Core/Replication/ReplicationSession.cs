@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TransferDirection = Axiom.Mesh.Local.TransferDirection;
+using TransferState = Axiom.Mesh.Local.TransferState;
 using Axiom.LDB.Entity;
 using Axiom.Mesh.Protocol;
 using Axiom.ProtoStream;
@@ -72,6 +74,18 @@ internal sealed class ReplicationSession : IDisposable
 
     /// <summary>The connection's number.</summary>
     public long Connection => tracked.Connection;
+
+    /// <summary>The peer device.</summary>
+    public DeviceId Peer => tracked.Device;
+
+    /// <summary>Whether the peer's current listing names a Package (LOCAL-SPEC.md §5.4 <c>listedBy</c>).</summary>
+    /// <param name="package">The Package.</param>
+    /// <returns><see langword="true"/> when it lists it.</returns>
+    public bool Lists(PackageId package)
+    {
+        lock (theirsGate)
+            return theirs.ContainsKey(package);
+    }
 
     private int SentBefore { get; }
 
@@ -320,6 +334,7 @@ internal sealed class ReplicationSession : IDisposable
             {
                 outbox.NotFound(hash);
                 node.Facts.Record(NodeFactKind.WantAnswered, Connection, null, Device, hash.Value, "NotFound");
+                node.Transfers.Record(Device, default, hash, TransferDirection.Out, 0, TransferState.NotFound);
             }
         }
     }
@@ -353,6 +368,7 @@ internal sealed class ReplicationSession : IDisposable
                 return outcome.Detail;
             case IntakeVerdict.Faulty:
                 node.Table.Faulty(Device, Connection, hash, outcome.Detail ?? "faulty content");
+                node.Transfers.Record(Device, reason.Package, hash, TransferDirection.In, bytes.Length, TransferState.Dropped);
                 break;
             case IntakeVerdict.Admitted when outcome.Stored is { } stored:
                 // The want ends once the store decided, so no plan made meanwhile wants the object again.
@@ -468,6 +484,7 @@ internal sealed class ReplicationSession : IDisposable
             {
                 await session.WriteAsync(new NotFound(hash), cancellationToken).ConfigureAwait(false);
                 node.Facts.Record(NodeFactKind.WantAnswered, Connection, null, Device, hash.Value, "NotFound: gone from the store");
+                node.Transfers.Record(Device, default, hash, TransferDirection.Out, 0, TransferState.NotFound);
                 return;
             }
 
@@ -488,6 +505,7 @@ internal sealed class ReplicationSession : IDisposable
             node.Telemetry.ObjectOut();
             sentOutbound.Add(hash);
             node.Facts.Record(NodeFactKind.WantAnswered, Connection, null, Device, hash.Value, $"Object, {length} bytes");
+            node.Transfers.Record(Device, default, hash, TransferDirection.Out, length, TransferState.Sent);
         }
         finally
         {

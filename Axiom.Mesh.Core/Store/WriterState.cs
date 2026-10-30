@@ -36,6 +36,9 @@ internal sealed class WriterState
     /// <summary>Bytes of objects with at least one pin.</summary>
     public long PinnedBytes { get; set; }
 
+    /// <summary>The budget in force: the configured one until <c>SetStoreBudget</c> changes it (LOCAL-SPEC.md §6.5).</summary>
+    public long BudgetBytes { get; set; } = long.MaxValue;
+
     /// <summary>The working copy of trust.</summary>
     public TrustBuilder Trust { get; set; }
 

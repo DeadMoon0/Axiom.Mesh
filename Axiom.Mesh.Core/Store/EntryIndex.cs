@@ -76,6 +76,49 @@ internal static class EntryIndex
         return page;
     }
 
+    /// <summary>The Entries of a Package before <paramref name="before"/> in the total order, highest first (LOCAL-SPEC.md §6.4, <c>reverse</c>).</summary>
+    /// <param name="context">The unit of work to read in.</param>
+    /// <param name="package">The Package.</param>
+    /// <param name="before">The last Entry of the previous page, or <see langword="null"/> for the first page from the end.</param>
+    /// <param name="count">At most this many; at least 1.</param>
+    /// <param name="cancellationToken">Cancels reading.</param>
+    /// <returns>The Entries, in descending total order.</returns>
+    public static async Task<List<EntryRow>> InReverseAsync(LdbContext context, PackageId package, EntryKey? before, int count, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
+        byte[] id = RowKeys.Of(package.Value);
+        var page = new List<EntryRow>(count);
+        ulong toClock = before?.Clock ?? ulong.MaxValue;
+        while (page.Count < count)
+        {
+            int remaining = count - page.Count;
+            List<EntryRow> candidates = await context.Set<EntryRow>().ReadOnlyQuery()
+                .Where(EntryRow.Columns.Package == id & EntryRow.Columns.Clock <= toClock)
+                .OrderByDescending(EntryRow.Columns.Clock)
+                .Take(remaining + 1)
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+            if (candidates.Count == 0)
+                break;
+
+            // The lowest clock read may be cut: read it whole and order it.
+            ulong lastClock = candidates[^1].Clock;
+            List<EntryRow> lastClockRows = await context.Set<EntryRow>().ReadOnlyQuery()
+                .Where(EntryRow.Columns.Package == id & EntryRow.Columns.Clock == lastClock)
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+            page.AddRange(candidates.Where(r => r.Clock > lastClock).Concat(lastClockRows)
+                .Where(r => before is null || KeyOf(r) < before.Value)
+                .OrderByDescending(KeyOf)
+                .Take(remaining));
+
+            bool exhausted = candidates.Count <= remaining;
+            if (exhausted || lastClock == 0)
+                break;
+            toClock = lastClock - 1;
+        }
+
+        return page;
+    }
+
     /// <summary>An Entry row's position in the total order.</summary>
     /// <param name="row">The row.</param>
     /// <returns>Its key.</returns>

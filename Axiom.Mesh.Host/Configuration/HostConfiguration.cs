@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core;
+using Axiom.Mesh.Discovery;
 using Axiom.Mesh.Local;
 
 namespace Axiom.Mesh.Host;
@@ -148,6 +149,7 @@ internal static class HostConfiguration
         MeshPort = options.Mesh.Port,
         ListenAddress = options.Mesh.Listen is { } listen ? IPAddress.Parse(listen) : null,
         StoreBudgetBytes = options.Store.BudgetBytes,
+        StaticPeers = [.. options.Mesh.StaticPeers],
         Local = new LocalPortOptions
         {
             Services = [.. options.Services.Select(s => ServiceOf(s.Key, s.Value)).OrderBy(s => s.Name, StringComparer.Ordinal)],
@@ -163,23 +165,9 @@ internal static class HostConfiguration
     /// <returns><see langword="true"/> when it is one.</returns>
     public static bool TryParseEndPoint(string text, out EndPoint endPoint)
     {
-        endPoint = null!;
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-        if (IPEndPoint.TryParse(text, out IPEndPoint? ip) && ip.Port != 0 && text.Contains(':', StringComparison.Ordinal))
-        {
-            endPoint = ip;
-            return true;
-        }
-
-        int colon = text.LastIndexOf(':');
-        if (colon <= 0 || !int.TryParse(text.AsSpan(colon + 1), out int port) || port is < 1 or > 65535)
-            return false;
-        string host = text[..colon];
-        if (Uri.CheckHostName(host) == UriHostNameType.Unknown)
-            return false;
-        endPoint = new DnsEndPoint(host, port);
-        return true;
+        bool parsed = StaticPeers.TryParseAddress(text, out EndPoint? address);
+        endPoint = address!;
+        return parsed;
     }
 
     private static LocalService ServiceOf(string name, ServiceSection service) => new()

@@ -53,6 +53,6 @@ public sealed class LocalPortRegressionTests
         await client.SendAsync(new ForgetUser { UserId = default }, None);
 
         string line = Assert.Single(log.Lines.Where(l => l.Category == "Axiom.Mesh.Local").Select(l => l.Message));
-        Assert.Matches("^user-key request ForgetUser \\(277\\) from pid 4242 \"/usr/bin/axiom-test\" as \"tester\" on local connection #\\d+: UnknownRequest$", line);
+        Assert.Matches("^user-key request ForgetUser \\(277\\) from pid 4242 \"/usr/bin/axiom-test\" as \"tester\" on local connection #\\d+: NotFound$", line);
     }
 }

@@ -66,6 +66,30 @@ internal static class Samples
             Payload = new OpaquePayload((EntryKind)99, Enumerable.Repeat(fill, length).ToArray()),
         }.Sign(device);
 
+    /// <summary>
+    /// The bytes of an Entry of a known kind whose payload is <paramref name="payload"/> as it stands, parse or not, signed
+    /// by <paramref name="device"/>: what a buggy or hostile writer could send (SPEC.md §8.5 calls it malformed).
+    /// </summary>
+    public static byte[] RawEntry(ISigner device, PackageId package, ulong clock, EntryParents parents, EntryKind kind, byte[] payload)
+    {
+        var output = new System.Buffers.ArrayBufferWriter<byte>();
+        var writer = new Axiom.ProtoStream.Codecs.WireWriter(output);
+        writer.UInt8((byte)ObjectTag.Entry);
+        writer.UInt8(Objects.Version);
+        package.Write(ref writer);
+        device.PublicKey.AsDeviceId().Write(ref writer);
+        writer.UInt64BigEndian(clock);
+        Wire.WriteListCount(ref writer, parents.Count, Limits.MaxEntryParents);
+        foreach (ObjectHash parent in parents)
+            parent.Write(ref writer);
+        writer.UInt16BigEndian((ushort)kind);
+        Wire.WriteBlob(ref writer, payload, Limits.MaxPayloadLength);
+        Signature64 signature = device.Sign(Digests.Of(SigningDomain.Entry, output.WrittenSpan));
+        var signing = new Axiom.ProtoStream.Codecs.WireWriter(output);
+        signature.Write(ref signing);
+        return output.WrittenSpan.ToArray();
+    }
+
     /// <summary>A Chunk of <paramref name="length"/> bytes of <paramref name="fill"/>.</summary>
     public static Chunk Chunk(byte fill, int length = 1000) => ObjectBuilders.Chunk(Enumerable.Repeat(fill, length).ToArray());
 

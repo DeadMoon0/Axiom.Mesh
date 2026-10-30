@@ -80,6 +80,9 @@ public sealed class LocalPort
     /// <summary>The connections past and waiting for <c>Hello</c>.</summary>
     internal ConnectionBook Book { get; } = new();
 
+    /// <summary>Which service holds which Package kind (LOCAL-SPEC.md §9.2).</summary>
+    internal KindRegistry Kinds { get; } = new();
+
     /// <summary>The dispatcher's table; a test or a later milestone replaces it.</summary>
     internal RequestRoutes Routes { get; set; } = RequestRoutes.Default;
 
@@ -210,7 +213,9 @@ public sealed class LocalPort
         {
             HostVersion = Options.HostVersion,
             Role = connection.Role,
-            Capabilities = otherAccount ? HostCapabilities.OtherAccount : HostCapabilities.None,
+            Capabilities = otherAccount ? HostCapabilities.OtherAccount
+                : running.Files.StorePath is not null ? HostCapabilities.StoreReadable
+                : HostCapabilities.None,
             Identity = LocalRecords.IdentityOf(writer.Trust, running.UserKeyHeld),
             StoreEpoch = writer.Epoch,
             StoreSeq = writer.Totals.StoreSeq,

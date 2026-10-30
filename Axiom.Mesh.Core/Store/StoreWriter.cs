@@ -53,9 +53,10 @@ internal sealed class StoreWriter : IAsyncDisposable
         this.bus = bus;
         Promises = promises;
         this.state = state;
+        state.BudgetBytes = options.BudgetBytes;
         trust = state.Snapshot;
         heads = state.Heads;
-        totals = TotalsOf(state, options.BudgetBytes);
+        totals = TotalsOf(state);
         loop = Task.Run(RunAsync);
     }
 
@@ -176,8 +177,8 @@ internal sealed class StoreWriter : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);
 
-    private static StoreTotals TotalsOf(WriterState state, long budget) =>
-        new(state.Objects, state.Bytes, state.PinnedBytes, budget, state.StoreSeq);
+    private static StoreTotals TotalsOf(WriterState state) =>
+        new(state.Objects, state.Bytes, state.PinnedBytes, state.BudgetBytes, state.StoreSeq);
 
     private async Task RunAsync()
     {
@@ -234,7 +235,7 @@ internal sealed class StoreWriter : IAsyncDisposable
         }
 
         Volatile.Write(ref heads, state.Heads);
-        StoreTotals now = TotalsOf(state, Options.BudgetBytes);
+        StoreTotals now = TotalsOf(state);
         Volatile.Write(ref totals, now);
         if (!applied.Changes.IsEmpty)
             bus.Publish(applied.Changes.Build(now, state.Snapshot));
@@ -247,7 +248,9 @@ internal sealed class StoreWriter : IAsyncDisposable
     {
         try
         {
+            long budget = state.BudgetBytes;
             state = await WriterState.LoadAsync(database.Database, files, CancellationToken.None).ConfigureAwait(false);
+            state.BudgetBytes = budget;
             Volatile.Write(ref trust, state.Snapshot);
             Volatile.Write(ref heads, state.Heads);
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Axiom.Mesh.Core;
 
@@ -33,6 +34,12 @@ internal sealed class AdmitCommand : StoreCommand<AdmitResult>
 
     /// <summary>The Package it was wanted or written for, when known; attribution only.</summary>
     public PackageId? Context { get; }
+
+    /// <summary>
+    /// For an Entry written here: the objects it references as the writer stated them (an extension kind, LOCAL-SPEC.md
+    /// §9.4); <see langword="null"/> to take them from the payload.
+    /// </summary>
+    public IReadOnlyList<ObjectHash>? References { get; init; }
 
     /// <inheritdoc />
     public override long Bytes => Object.Bytes.Length;

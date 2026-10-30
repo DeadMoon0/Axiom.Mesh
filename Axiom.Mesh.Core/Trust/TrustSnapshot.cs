@@ -55,6 +55,9 @@ internal sealed class TrustSnapshot : ITrustSnapshotView
     /// <summary>The users the node holds, known or not.</summary>
     public IEnumerable<UserTrust> Users => users.Values;
 
+    /// <summary>Every user the node knows (SPEC.md §1.2): paired, the own one, and owners and grantees of followed Packages.</summary>
+    public IReadOnlySet<UserId> Known => known;
+
     /// <summary>The Packages the node holds, followed or listed.</summary>
     public IEnumerable<PackageTrust> Packages => packages.Values;
 

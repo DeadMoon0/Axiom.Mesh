@@ -4,6 +4,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core.Tests.Support;
+using Filter = Axiom.Mesh.Local.Filter;
+using GetPackage = Axiom.Mesh.Local.GetPackage;
+using Grant = Axiom.Mesh.Local.Grant;
+using ListGrants = Axiom.Mesh.Local.ListGrants;
+using LocalClient = Axiom.Mesh.Local.LocalClient;
+using LocalPackageChanged = Axiom.Mesh.Local.PackageChanged;
+using RevokeGrant = Axiom.Mesh.Local.RevokeGrant;
 using Axiom.Mesh.Protocol;
 
 namespace Axiom.Mesh.Core.Tests.Rules;
@@ -115,11 +122,21 @@ public sealed class ServingTests
         await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
         await bob.WaitForEntryAsync(entry, None);
 
-        VerifiedGrant revocation = await alice.GrantAsync(channel, "bob", GrantRights.None, None);
+        await alice.HoldUserKeyAsync(None);
+        LocalClient owner = await alice.ConnectUserAsync("app", None);
+        LocalClient grantee = await bob.ConnectUserAsync("app", None);
+        Axiom.Mesh.Local.Subscription<LocalPackageChanged> changes = (await grantee.SubscribeAsync<LocalPackageChanged>(Filter.Any, None)).Value;
 
+        Grant revocation = (await owner.SendAsync(new RevokeGrant { PackageId = channel, GranteeId = bob.User }, None)).Value;
+
+        Assert.Equal((GrantRights.None, 2ul), (revocation.Rights, revocation.Seq));
         await bob.WaitForObjectAsync(revocation.Hash, None);
         Assert.True(bob.Node.Trust.TryGetGrant(channel, bob.User, out VerifiedGrant? held) && held.Content.Rights == GrantRights.None);
         Assert.True(await bob.Node.ContainsAsync(entry, None));
+        LocalPackageChanged granted = await Events.FirstAsync(changes, e => e.Change == Axiom.Mesh.Local.PackageChange.Grant && e.Grant!.Hash == revocation.Hash);
+        Assert.Equal(revocation.Hash, granted.Grant!.Hash);
+        Assert.Equal(GrantRights.None, (await grantee.SendAsync(new GetPackage { PackageId = channel }, None)).Value.Rights);
+        Assert.Equal(GrantRights.None, Assert.Single((await grantee.SendAsync(new ListGrants { PackageId = channel }, None)).Value).Rights);
         await mesh.StopNodeAsync("bob-desktop", None);
         await using ScriptedPeer scripted = await ScriptedPeer.ConnectAsync(alice, bob.Identity, ScriptedPeerOptions.Default, None);
         await scripted.SendAsync(scripted.Hello(1), None);

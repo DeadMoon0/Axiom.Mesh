@@ -5,6 +5,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Channels;
 using Axiom.Mesh.Discovery;
+using Axiom.Mesh.Local;
 
 namespace Axiom.Mesh.Core;
 
@@ -104,6 +105,9 @@ internal sealed class PeerTable : IDisposable
             {
                 address.Dialling = false;
                 address.Device = request.Reached ?? address.Device;
+                address.LastResult = request.Established ? DialResult.Established
+                    : outcome == DialOutcome.Failed ? DialResult.Unreachable
+                    : DialResult.Refused;
             }
 
             bool failed = outcome == DialOutcome.Failed || (outcome == DialOutcome.Ended && !request.Established);
@@ -166,7 +170,11 @@ internal sealed class PeerTable : IDisposable
             DateTimeOffset now = time.GetUtcNow();
             Entry entry = EntryOf(session.Device);
             if (session.IsDialledHere && attempts.TryGetValue(session.Remote, out DialRequest? attempt))
+            {
                 attempt.Established = true;
+                if (attempt.Device is null && statics.TryGetValue(session.Remote, out StaticEntry? reached))
+                    reached.LastResult = DialResult.Established;
+            }
             entry.Failures = 0;
             entry.FailedUntil = null;
             entry.Refused = false;
@@ -299,6 +307,89 @@ internal sealed class PeerTable : IDisposable
         }
     }
 
+    /// <summary>When an address was last dialled and how that ended (LOCAL-SPEC.md §5.9 <c>StaticPeer</c>).</summary>
+    /// <param name="address">The address.</param>
+    /// <returns>The time of the last dial (<see langword="null"/> for never) and its result.</returns>
+    public (DateTimeOffset? LastDialled, DialResult LastResult) StaticStatus(IPEndPoint address)
+    {
+        lock (gate)
+            return statics.TryGetValue(address, out StaticEntry? entry) ? (entry.LastDialled, entry.LastResult) : (null, DialResult.NeverDialled);
+    }
+
+    /// <summary>
+    /// Dials an address once at the user's request (LOCAL-SPEC.md §6.6 <c>Dial</c>), whatever device answers, under the
+    /// backoff of SPEC.md §4.4; a failure is not retried unless the address is a configured static peer.
+    /// </summary>
+    /// <param name="address">The address.</param>
+    public void DialAddress(IPEndPoint address)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+        DialRequest? request;
+        lock (gate)
+        {
+            if (stopped)
+                return;
+            if (!statics.ContainsKey(address))
+                statics[address] = new StaticEntry(address) { OneOff = true };
+            DateTimeOffset now = time.GetUtcNow();
+            request = OfferStatic(address, now);
+            Publish(now);
+        }
+
+        if (request is not null)
+            requests.Writer.TryWrite(request);
+    }
+
+    /// <summary>
+    /// Dials a known device at the user's request (LOCAL-SPEC.md §6.6 <c>Dial</c>), at the given address or the most recent
+    /// one discovery reported, under the backoff of SPEC.md §4.4.
+    /// </summary>
+    /// <param name="device">The device; the caller checked it is known and not established.</param>
+    /// <param name="user">Its user.</param>
+    /// <param name="address">The address; <see langword="null"/> for the one discovery knows.</param>
+    /// <returns><see langword="false"/> when no address is known for the device.</returns>
+    public bool DialDevice(DeviceId device, UserId user, IPEndPoint? address)
+    {
+        DialRequest? request = null;
+        lock (gate)
+        {
+            if (stopped)
+                return true;
+            DateTimeOffset now = time.GetUtcNow();
+            Entry entry = EntryOf(device);
+            entry.User = user;
+            if (address is not null)
+                entry.AddAddress(address);
+            if (entry.Addresses.Count == 0)
+                return false;
+            IPEndPoint target = address ?? entry.Addresses[0];
+            bool backedOff = entry.BackoffUntil is { } until && until > now;
+            if (!backedOff && !entry.Dialling && entry.Established is null && !attempts.ContainsKey(target))
+            {
+                entry.Dialling = true;
+                request = new DialRequest(target, device);
+                attempts[target] = request;
+            }
+
+            Publish(now);
+        }
+
+        if (request is not null)
+            requests.Writer.TryWrite(request);
+        return true;
+    }
+
+    /// <summary>A static peer was removed: its address is no longer retried.</summary>
+    /// <param name="address">The address.</param>
+    public void ForgetStatic(IPEndPoint address)
+    {
+        lock (gate)
+        {
+            if (statics.Remove(address, out StaticEntry? entry))
+                entry.Retry?.Dispose();
+        }
+    }
+
     /// <summary>The established session to a device, if one is.</summary>
     /// <param name="device">The device.</param>
     /// <returns>The session, or <see langword="null"/>.</returns>
@@ -363,6 +454,7 @@ internal sealed class PeerTable : IDisposable
             return null;
 
         entry.Dialling = true;
+        entry.LastDialled = now;
         var request = new DialRequest(address, null);
         attempts[address] = request;
         return request;
@@ -384,7 +476,7 @@ internal sealed class PeerTable : IDisposable
         TimeSpan wait = Backoff.Next(entry.Failures);
         entry.BackoffUntil = now + wait;
         entry.Retry?.Dispose();
-        entry.Retry = time.CreateTimer(static state => ((Retry)state!).Fire(), new Retry(this, Announcement.ForStaticPeer(entry.Address)), wait, Timeout.InfiniteTimeSpan);
+        entry.Retry = entry.OneOff ? null : time.CreateTimer(static state => ((Retry)state!).Fire(), new Retry(this, Announcement.ForStaticPeer(entry.Address)), wait, Timeout.InfiniteTimeSpan);
         return new Pending(NodeFactKind.BackedOff, 0, entry.Address, default, $"static peer, {entry.Failures} in a row ({detail}); no dial for {wait.TotalSeconds:0} s");
     }
 
@@ -502,6 +594,12 @@ internal sealed class PeerTable : IDisposable
     private sealed class StaticEntry(IPEndPoint address)
     {
         public IPEndPoint Address { get; } = address;
+
+        public bool OneOff { get; set; }
+
+        public DateTimeOffset? LastDialled { get; set; }
+
+        public DialResult LastResult { get; set; }
 
         public bool Dialling { get; set; }
 

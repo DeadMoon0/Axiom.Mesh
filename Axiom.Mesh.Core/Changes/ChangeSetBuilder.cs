@@ -29,10 +29,13 @@ internal sealed class ChangeSetBuilder
     /// <summary>Whether trust changed.</summary>
     public bool TrustChanged { get; set; }
 
+    /// <summary>Whether the store's budget changed (LOCAL-SPEC.md §6.5 <c>SetStoreBudget</c>).</summary>
+    public bool BudgetChanged { get; set; }
+
     /// <summary>Whether anything at all changed.</summary>
     public bool IsEmpty =>
         Stored.Count == 0 && Entries.Count == 0 && Packages.Count == 0 && Redacted.Count == 0 && Pins.Count == 0
-        && Users.Count == 0 && Evicted.Count == 0 && !TrustChanged;
+        && Users.Count == 0 && Evicted.Count == 0 && !TrustChanged && !BudgetChanged;
 
     /// <summary>Records a Package change, once per Package and kind.</summary>
     /// <param name="change">The change.</param>

@@ -52,6 +52,7 @@ internal sealed class LocalConnection
         Origin = origin;
         Outbox = new Outbox(port.Account);
         Operations = new OperationTable(port.Time, Emit, ending.Token);
+        Callbacks = new CallbackTable(port.Time);
     }
 
     /// <summary>LWSE's connection id, for logs and facts.</summary>
@@ -74,6 +75,9 @@ internal sealed class LocalConnection
 
     /// <summary>Its operations.</summary>
     public OperationTable Operations { get; }
+
+    /// <summary>The callbacks outstanding toward it, in the service role (§3.6, §9.8).</summary>
+    public CallbackTable Callbacks { get; }
 
     /// <summary>Whether the Host sent <c>Drain</c> on it (§4.5).</summary>
     public bool IsDraining => Volatile.Read(ref draining) != 0;
@@ -150,6 +154,23 @@ internal sealed class LocalConnection
         endReason = why;
         context.Abort();
         ending.Cancel();
+    }
+
+    /// <summary>
+    /// Sends a callback to the service on this connection (§3.6): its <c>Reply</c>, or <see langword="null"/> at the
+    /// deadline or when the connection ends; <see langword="null"/> at once when 64 are outstanding (<c>Busy</c>, §9.8).
+    /// </summary>
+    /// <param name="call">The callback.</param>
+    /// <param name="deadline">How long the service has to reply.</param>
+    /// <param name="busy">Set when 64 callbacks were outstanding and none was sent.</param>
+    /// <returns>The reply's task.</returns>
+    public Task<Reply?> CallAsync(LocalCallback call, TimeSpan deadline, out bool busy)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        busy = !Callbacks.TryIssue(deadline, out uint id, out Task<Reply?> reply);
+        if (!busy && !Outbox.Enqueue(new OutFrame(new Callback(id, call), FrameSizes.OfCallback(call), null)))
+            CloseUnresponsive("more than 64 MiB waited for the client to read them (LOCAL-SPEC.md §7.4)");
+        return reply;
     }
 
     /// <summary>Hands an event to every matching subscription of a topic on this connection.</summary>
@@ -244,10 +265,12 @@ internal sealed class LocalConnection
                     case Pong pong:
                         Ponged(pong.Nonce);
                         break;
-                    case Reply reply:
-                        // No callback is ever issued yet (§9.8 is M9), so every Reply names an id the Host never issued (§3.6).
+                    case Reply reply when !Callbacks.Route(reply):
                         CloseWith(Bye.Of(ByeReason.Violation, $"a Reply for callback {reply.CallbackId}, which this Host never issued"), "a Reply for a callback never issued (LOCAL-SPEC.md §3.6)");
                         return;
+                    case Reply:
+                        // Answered an outstanding callback, or one that expired within the last 5 minutes (ignored).
+                        break;
                     case Bye bye:
                         endReason = $"the client said {bye}";
                         return;
@@ -504,8 +527,10 @@ internal sealed class LocalConnection
 
         activity.Dispose();
         Operations.Dispose();
+        Callbacks.Dispose();
         Outbox.Close();
         ordered.Writer.TryComplete();
+        port.Kinds.Release(this);
         port.Book.Left(this);
         await Task.WhenAll(writing, applying).ConfigureAwait(false);
         port.Facts.Record(NodeFactKind.LocalEnded, Id, null, default, $"{endReason}; {Origin}");

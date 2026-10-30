@@ -22,8 +22,10 @@ public sealed class DispatchRuleTests
     [InlineData((ushort)417, Role.User, true, true, true, Status.Ok)] // and GetOperation
     [InlineData((ushort)418, Role.User, true, true, true, Status.Ok)] // and CancelOperation
     [InlineData((ushort)312, Role.User, true, false, false, Status.NotPermitted)] // SetGrant from an executable outside the confinement
-    [InlineData((ushort)312, Role.User, true, false, true, Status.UnknownRequest)] // SetGrant permitted, but not served before M9
-    [InlineData((ushort)304, Role.User, true, false, true, Status.UnknownRequest)] // ListPackages, not served before M9
+    [InlineData((ushort)312, Role.User, true, false, true, Status.Ok)] // SetGrant permitted and served
+    [InlineData((ushort)307, Role.User, true, false, true, Status.UnknownRequest)] // UpdatePackage, deferred to a later phase (D7)
+    [InlineData((ushort)385, Role.User, true, false, true, Status.UnknownRequest)] // ServiceCall, deferred (D7)
+    [InlineData((ushort)518, Role.Service, true, false, true, Status.UnknownRequest)] // Emit, deferred (D7)
     [InlineData((ushort)513, Role.User, true, false, true, Status.NotPermitted)] // WriteEntry is the service role's only
     public void TheChecksRunInOrder_RoleIdentityDrainingConfinementThenWhetherServed(ushort id, Role role, bool identity, bool draining, bool permitted, Status expected)
     {

@@ -36,8 +36,8 @@ public sealed class TestNodeEnvironment
     /// <summary>The database's in-memory storage; it outlives every connection to it.</summary>
     public InMemoryStorageEnvironment Storage { get; } = new();
 
-    /// <summary>The node's objects.</summary>
-    public InMemoryObjectFiles Files { get; } = new();
+    /// <summary>The node's objects: in memory, unless the mesh put the node's store in a directory (<see cref="TestMeshOptions.StoreDirectories"/>).</summary>
+    public IObjectFiles Files { get; init; } = new InMemoryObjectFiles();
 
     /// <summary>The node's keys.</summary>
     public InMemoryKeyStore Keys { get; }

@@ -6,7 +6,7 @@ Namespace: `Axiom.Mesh.Core` (the store's seams in `Axiom.Mesh.Core.Storage`). D
 
 ## Status
 
-Phase 1a, in progress. Built: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction (M5); the transport (M6): `MeshNode.StartAsync`, one LWSE server with the mesh port and the adopt-only outbound and local ports, mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, the duplicate rule, refusals, violations and backoff, the peer table and the dialler; replication (M7): listings, wants and answers, the history walk, push and relay, the Roster push, flow control, faulty-content and violation bookkeeping, counters, and the node's write seams (`FollowAsync`, `PutAsync`, `WriteEntryAsync`). The local port (M8): the `Hello` checks, a data-driven dispatcher with the session and infrastructure requests (the rest answer `UnknownRequest` until M9), subscriptions with replay and lapse, operations, liveness and `Drain`, and identity creation on a running node.
+Phase 1a, in progress. Built: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction (M5); the transport (M6): `MeshNode.StartAsync`, one LWSE server with the mesh port and the adopt-only outbound and local ports, mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, the duplicate rule, refusals, violations and backoff, the peer table and the dialler; replication (M7): listings, wants and answers, the history walk, push and relay, the Roster push, flow control, faulty-content and violation bookkeeping, counters, and the node's write seams (`FollowAsync`, `PutAsync`, `WriteEntryAsync`). The local port (M8): the `Hello` checks, a data-driven dispatcher, subscriptions with replay and lapse, operations, liveness and `Drain`, and identity creation on a running node. The requests (M9): the phase-1 set of LOCAL-SPEC.md §6 and §9 (known users and devices, Packages, Grants, history and objects, pins and the store, peers and static peers, `Fetch` and `Materialise`, and the service role with `RegisterKind`, `WriteEntry`, `PutObject`, `PutFile` and `GetStorePath`), callbacks to services, and the `transfers` and `service` topics. Pairing follows in M10.
 
 ## Quick Start
 
@@ -172,9 +172,17 @@ the user the Host serves, and the drain's grace.
   most 64 user connections and 16 waiting for `Hello`.
 - **Requests** (§3.4, §6): every request gets exactly one response. Before a handler runs, the dispatcher checks the
   role, the identity (`NoIdentity`), `Draining`, and the confinement of user-key requests, each of which is logged with
-  the connection's pid and executable. M8 serves `GetIdentity`, `CreateIdentity`, `RenameDevice`, `GetStore`,
-  `ListServices`, `ListPeers`, `ListSessions`, `ListDiscovered`, `Subscribe`, `Unsubscribe` and the operation requests;
-  every other request answers `UnknownRequest`.
+  the connection's pid and executable. The node serves the phase-1 set of the fundamentals plan; pairing (M10),
+  `UpdatePackage`, `ServiceCall`, `AddTelemetry` and `Emit` answer `UnknownRequest`, the telemetry queries `NotFound`.
+- **User-key requests** (§2.2): `CreatePackage`, `SetGrant`, `RevokeGrant`, `RemoveDevice` and `RenameDevice` sign with
+  the user key inside the node, read from the `IKeyStore` for the one request and wiped after it; a device without it
+  answers `UserKeyAbsent`.
+- **Operations** (§8.6): `Fetch` wants from the peers that list the Package and fails `NotFound` after 60 s without a
+  source; `Materialise` fetches what it lacks, then writes each file under a hidden name renamed into place; `PutFile`
+  cuts a file into Chunks and a ChunkList pinned for the service. Each can be cancelled.
+- **Service role** (§9): `RegisterKind` within the service's configured kinds, one holder per kind; `WriteEntry` parses
+  the payloads of kinds 1 to 3, checks references and named parents, and chooses clock and parents as §9.4 says;
+  `PutObject` stores unsigned objects; `GetStorePath` names the store for direct reads (Host capability bit 0).
 - **Subscriptions** (§7): the response precedes the first event; a replay from a store sequence reads one Entry at a time
   (more than 256 is `GapTooLarge`); a subscription lapses alone at 256 events or 16 MiB; a connection holding 64 MiB its
   client does not read, or a frame not accepted within 30 s, is closed `Bye(Unresponsive)` (256 MiB across connections).

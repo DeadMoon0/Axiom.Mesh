@@ -15,16 +15,18 @@ public sealed class TestIdentity
     /// <summary>The time every test Roster says its devices were added: the mesh clock's start.</summary>
     public static DateTimeOffset Epoch { get; } = new(2026, 10, 29, 12, 0, 0, TimeSpan.Zero);
 
-    private TestIdentity(string name, string userName, EcdsaSigner user, EcdsaSigner device, string devicePkcs8)
+    private TestIdentity(string name, string userName, EcdsaSigner user, EcdsaSigner device, string devicePkcs8, string userPkcs8)
     {
         Name = name;
         UserName = userName;
         User = user;
         Device = device;
         this.devicePkcs8 = devicePkcs8;
+        this.userPkcs8 = userPkcs8;
     }
 
     private readonly string devicePkcs8;
+    private readonly string userPkcs8;
 
     /// <summary>Every published device, in the order of <see cref="TestKeys.All"/>.</summary>
     public static IReadOnlyList<TestIdentity> All { get; } = Build();
@@ -53,6 +55,10 @@ public sealed class TestIdentity
     /// <summary>The device key as PKCS#8, a new copy each time, as a key store holds it.</summary>
     /// <returns>The bytes.</returns>
     public byte[] DevicePkcs8() => Convert.FromHexString(devicePkcs8);
+
+    /// <summary>The user key as PKCS#8, a new copy each time: what the key store of the device that holds it keeps.</summary>
+    /// <returns>The bytes.</returns>
+    public byte[] UserPkcs8() => Convert.FromHexString(userPkcs8);
 
     /// <summary>The published device of that name.</summary>
     /// <param name="name">A device name: <c>alice-laptop</c>, <c>alice-phone</c>, <c>bob-desktop</c> or <c>eve-device</c>.</param>
@@ -113,8 +119,8 @@ public sealed class TestIdentity
             if (role != "device")
                 continue;
             string userName = name.Split('-')[0];
-            EcdsaSigner user = keys.First(k => k.Role == "user" && k.Name == userName).Signer;
-            identities.Add(new TestIdentity(name, userName, user, signer, pkcs8));
+            (string _, string _, string userPkcs8, EcdsaSigner user) = keys.First(k => k.Role == "user" && k.Name == userName);
+            identities.Add(new TestIdentity(name, userName, user, signer, pkcs8, userPkcs8));
         }
 
         return identities;

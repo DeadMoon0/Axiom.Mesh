@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Axiom.LDB.Entity;
 using Axiom.Mesh.Core.Storage;
+using Axiom.Mesh.Local;
 
 namespace Axiom.Mesh.Core;
 
@@ -27,6 +28,7 @@ internal sealed class Replicator : IDisposable
     private readonly TelemetrySink telemetry;
     private readonly TimeProvider time;
     private readonly ITimer expiry;
+    private readonly TransferLog transfers;
     private ChangeSubscription? subscription;
     private int working;
 
@@ -38,8 +40,10 @@ internal sealed class Replicator : IDisposable
     /// <param name="facts">Where stored objects are recorded.</param>
     /// <param name="telemetry">The counters.</param>
     /// <param name="time">The node's clock.</param>
-    public Replicator(StoreWriter writer, ChangeBus bus, Intake intake, WantScheduler wants, NodeFacts facts, TelemetrySink telemetry, TimeProvider time)
+    /// <param name="transfers">Where each object a peer sent and the store took is reported.</param>
+    public Replicator(StoreWriter writer, ChangeBus bus, Intake intake, WantScheduler wants, NodeFacts facts, TelemetrySink telemetry, TimeProvider time, TransferLog transfers)
     {
+        this.transfers = transfers;
         this.writer = writer;
         this.bus = bus;
         this.intake = intake;
@@ -120,6 +124,8 @@ internal sealed class Replicator : IDisposable
         foreach (StoredObject stored in set.Stored)
         {
             facts.Record(NodeFactKind.ObjectStored, 0, null, stored.Origin.Peer, stored.Hash.Value, $"{(ObjectTag)stored.Tag}, {stored.Size} bytes, from {stored.Origin}");
+            if (stored.Origin.Kind == OriginKind.Peer && stored.Origin.Peer is { } peer)
+                transfers.Record(peer, stored.Context ?? default, stored.Hash, TransferDirection.In, stored.Size, TransferState.Stored);
             wants.Settle(stored.Hash);
         }
 

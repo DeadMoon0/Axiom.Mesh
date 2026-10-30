@@ -39,6 +39,12 @@ public sealed record TestMeshOptions
     /// <summary>Where every node logs. Default nowhere.</summary>
     public ILoggerFactory Loggers { get; init; } = NullLoggerFactory.Instance;
 
+    /// <summary>
+    /// The nodes whose store is a real directory (layout 1 of LOCAL-SPEC.md §9.7), by node name; the test owns the directory.
+    /// Every other node keeps its objects in memory. Default none.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> StoreDirectories { get; init; } = new Dictionary<string, string>();
+
     /// <summary>The seed of every node's randomness: the same seed gives the same store epochs and names. Default 1.</summary>
     public ulong Seed { get; init; } = 1;
 

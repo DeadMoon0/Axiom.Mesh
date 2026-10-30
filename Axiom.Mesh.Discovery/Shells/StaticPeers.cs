@@ -43,6 +43,34 @@ public sealed class StaticPeers : IDiscovery
         this.options = options;
     }
 
+    /// <summary>
+    /// Reads a static peer's address as the configuration and the local protocol write it (SPEC.md §3.3): <c>host:port</c>
+    /// with an IP address (IPv6 in brackets) or a host name, and a port from 1 to 65535.
+    /// </summary>
+    /// <param name="text">The text.</param>
+    /// <param name="address">An <see cref="IPEndPoint"/> or a <see cref="DnsEndPoint"/>.</param>
+    /// <returns><see langword="true"/> when the text is such an address.</returns>
+    public static bool TryParseAddress(string? text, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out EndPoint? address)
+    {
+        address = null;
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        if (IPEndPoint.TryParse(text, out IPEndPoint? ip) && ip.Port != 0 && text.Contains(':', StringComparison.Ordinal))
+        {
+            address = ip;
+            return true;
+        }
+
+        int colon = text.LastIndexOf(':');
+        if (colon <= 0 || !int.TryParse(text.AsSpan(colon + 1), out int port) || port is < 1 or > 65535)
+            return false;
+        string host = text[..colon];
+        if (Uri.CheckHostName(host) == UriHostNameType.Unknown)
+            return false;
+        address = new DnsEndPoint(host, port);
+        return true;
+    }
+
     /// <inheritdoc />
     public async IAsyncEnumerable<Announcement> ObserveAsync([EnumeratorCancellation] CancellationToken cancellationToken)
     {

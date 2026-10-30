@@ -39,7 +39,7 @@ public sealed class RealPipeTests
             {
                 Assert.False(client.Host.Identity.Present);
                 Assert.Equal(0ul, client.Host.StoreSeq);
-                Assert.Equal(HostCapabilities.None, client.Host.Capabilities);
+                Assert.Equal(HostCapabilities.StoreReadable, client.Host.Capabilities); // LOCAL-SPEC.md §14.4: the store directory is the same user's
                 Assert.False((await client.SendAsync(new GetIdentity(), None)).Value.Present);
 
                 created = (await client.SendAsync(new CreateIdentity { UserName = "Alice", DeviceName = "test-pc" }, None)).Value;

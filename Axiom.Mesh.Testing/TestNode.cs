@@ -121,6 +121,18 @@ public sealed class TestNode
         return grant;
     }
 
+    /// <summary>
+    /// Puts the user key into this node's key store, as on the device a user created the identity on: the user-key
+    /// requests (LOCAL-SPEC.md §2.2: <c>CreatePackage</c>, <c>SetGrant</c>, <c>RemoveDevice</c> and the rest) then succeed here.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when the key is stored.</returns>
+    public async Task HoldUserKeyAsync(CancellationToken cancellationToken)
+    {
+        byte[] key = Identity.UserPkcs8();
+        await Environment.Keys.WriteAsync(KeyRole.User, key, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Follows a Package (LOCAL-SPEC.md §6.3); it replicates from every peer that lists it.</summary>
     /// <param name="package">The Package.</param>
     /// <param name="cancellationToken">Cancels waiting for the store.</param>

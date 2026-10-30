@@ -19,8 +19,9 @@ namespace Axiom.Mesh.Core;
 /// subscribed to.
 /// </summary>
 /// <remarks>
-/// Topics transfers (STRUCTURAL-DEBT.md entry 31), pairing (M10) and service (entry 7) are subscribable and carry no
-/// events yet; operations are the connection's own (<see cref="OperationTable"/>).
+/// Topic transfers carries what replication reports (<see cref="TransferChanged"/>), topic service what
+/// <see cref="ServiceEmitted"/> is handed; pairing (M10) is subscribable and carries no events yet; operations are the
+/// connection's own (<see cref="OperationTable"/>).
 /// </remarks>
 internal sealed class LocalEventHub
 {
@@ -54,6 +55,48 @@ internal sealed class LocalEventHub
     /// <summary>A new view of the peer table; called under the table's lock, so it only queues.</summary>
     /// <param name="view">The view.</param>
     public void PeersChanged(IReadOnlyList<PeerRecord> view) => views.Writer.TryWrite(view);
+
+    /// <summary>
+    /// One object's step in or out (§5.16), as a <c>TransferChanged</c> on every subscription of topic transfers whose
+    /// filter names its Package and peer, or neither (§7.2). Called from replication; it only queues.
+    /// </summary>
+    /// <param name="transfer">The step.</param>
+    public void TransferChanged(Transfer transfer)
+    {
+        LocalConnection[] live = Subscribed(Topic.Transfers);
+        if (live.Length == 0)
+            return;
+        var changed = new TransferChanged { Transfer = transfer };
+        var queued = new QueuedEvent(changed, FrameSizes.OfEvent(changed), 0);
+        foreach (LocalConnection connection in live)
+        {
+            connection.Offer(
+                Topic.Transfers,
+                f => (f.PackageId.Value.IsZero || f.PackageId == transfer.PackageId) && (f.DeviceId.Value.IsZero || f.DeviceId == transfer.Peer),
+                queued);
+        }
+    }
+
+    /// <summary>
+    /// A service's event (§9.10) on every subscription of topic service whose filter names the service and the Package, or
+    /// neither (§7.2). <c>Emit</c>, the request that calls it, is deferred (plan D7); the entry point is the Host's.
+    /// </summary>
+    /// <param name="emitted">The event.</param>
+    public void ServiceEmitted(ServiceEvent emitted)
+    {
+        ArgumentNullException.ThrowIfNull(emitted);
+        LocalConnection[] live = Subscribed(Topic.Service);
+        if (live.Length == 0)
+            return;
+        var queued = new QueuedEvent(emitted, FrameSizes.OfEvent(emitted), 0);
+        foreach (LocalConnection connection in live)
+        {
+            connection.Offer(
+                Topic.Service,
+                f => (f.Service.Length == 0 || string.Equals(f.Service, emitted.Service, StringComparison.Ordinal)) && (f.PackageId.Value.IsZero || f.PackageId == emitted.PackageId),
+                queued);
+        }
+    }
 
     /// <summary>Turns change sets into events until stopped.</summary>
     /// <param name="cancellationToken">Stops the loop.</param>
@@ -200,10 +243,9 @@ internal sealed class LocalEventHub
         if (live.Length == 0)
             return;
 
-        StoreWriter writer = port.Node.Writer;
         foreach (PackageChange change in changes.Packages)
         {
-            Package record = await PackageRecords.BuildAsync(writer, change.Package, cancellationToken).ConfigureAwait(false);
+            Package record = await PackageRecords.BuildAsync(port.Node, change.Package, cancellationToken).ConfigureAwait(false);
             bool Match(Filter f) => FilterRule.Matches(f, change.Package, (ushort)record.Kind);
             foreach (PackageChanged changed in EventsOf(change, record, changes, before))
             {

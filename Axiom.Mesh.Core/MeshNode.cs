@@ -53,8 +53,9 @@ public sealed class MeshNode : IAsyncDisposable
     private int userKeyHeld;
     private int stopped;
 
-    private MeshNode(MeshNodeOptions options, MeshNodeEnvironment environment, MeshDatabase database, StoreWriter writer, ObjectStore store, CredentialSlot credentials, PeerTable table, NodeFacts facts, PairingGate pairing, LWSEServer server, NodeReplication replication, LocalPort local, bool userKeyHeld)
+    private MeshNode(MeshNodeOptions options, MeshNodeEnvironment environment, MeshDatabase database, StoreWriter writer, ObjectStore store, CredentialSlot credentials, PeerTable table, NodeFacts facts, PairingGate pairing, LWSEServer server, NodeReplication replication, LocalPort local, StaticPeerBook statics, bool userKeyHeld)
     {
+        StaticPeers = statics;
         this.options = options;
         this.environment = environment;
         this.database = database;
@@ -110,6 +111,9 @@ public sealed class MeshNode : IAsyncDisposable
     /// <summary>The node's peer table.</summary>
     internal PeerTable Table => table;
 
+    /// <summary>The static peers: configured and added (LOCAL-SPEC.md §6.6).</summary>
+    internal StaticPeerBook StaticPeers { get; }
+
     /// <summary>Whether a pairing is under way, for the TLS layer.</summary>
     internal PairingGate Pairing { get; }
 
@@ -130,6 +134,12 @@ public sealed class MeshNode : IAsyncDisposable
 
     /// <summary>The node's clock.</summary>
     internal TimeProvider Time => environment.Time;
+
+    /// <summary>The node's randomness: Package nonces (SPEC.md §2.5).</summary>
+    internal IEntropy Entropy => environment.Entropy;
+
+    /// <summary>The device credential and the Entry writer that signs with it.</summary>
+    internal CredentialSlot Credentials => credentials;
 
     /// <summary>
     /// Waits until the node has an identity: at once when it started with one, else when one is created or adopted
@@ -237,6 +247,43 @@ public sealed class MeshNode : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Runs work that signs with the user key (LOCAL-SPEC.md §2.2, §6): under the node's identity lock, so that two such
+    /// requests never choose the same sequence number, with the key read from the key store for this call only and wiped
+    /// after it. The work reads trust itself, inside the lock.
+    /// </summary>
+    /// <typeparam name="T">What the work produces.</typeparam>
+    /// <param name="work">The work: the user key's signer in, a status and a value out.</param>
+    /// <param name="cancellationToken">Cancels waiting for the lock, the key store and the store.</param>
+    /// <returns><c>NoIdentity</c> or <c>UserKeyAbsent</c> before the work ran; else what the work returned.</returns>
+    internal async Task<(Status Status, T? Value)> WithUserKeyAsync<T>(Func<EcdsaSigner, CancellationToken, Task<(Status, T?)>> work, CancellationToken cancellationToken)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        await identityLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (writer.Trust.Self is null)
+                return (Status.NoIdentity, null);
+            byte[]? userKey = await environment.Keys.ReadAsync(KeyRole.User, cancellationToken).ConfigureAwait(false);
+            if (userKey is null)
+                return (Status.UserKeyAbsent, null);
+            try
+            {
+                using EcdsaSigner signer = EcdsaSigner.FromPkcs8(userKey);
+                return await work(signer, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(userKey);
+            }
+        }
+        finally
+        {
+            identityLock.Release();
+        }
+    }
+
     // Records the identity and stores the Roster; the identity is known from then on.
     private async Task<bool> AdoptAsync(VerifiedRoster roster, DeviceCredential own, string userName, CancellationToken cancellationToken)
     {
@@ -320,7 +367,9 @@ public sealed class MeshNode : IAsyncDisposable
             replication = new NodeReplication(running, bus, store, table, facts, time);
             NodeReplication replicating = replication;
             var local = new LocalPort(options.Local, facts, time, environment.Loggers.CreateLogger("Axiom.Mesh.Local"), bus);
+            StaticPeerBook statics = await StaticPeerBook.OpenAsync(options.StaticPeers, running, table, time, cancellationToken).ConfigureAwait(false);
             table.OnChanged(local.Hub.PeersChanged);
+            replicating.Transfers.OnRecorded(local.Hub.TransferChanged);
             var module = new NodeModule(
                 new PeerSessionHandler(() => running.Trust, table, facts, time, replicating),
                 local.Handler,
@@ -333,6 +382,7 @@ public sealed class MeshNode : IAsyncDisposable
                     new LoopService("replicator", started.Task, replicating.Replicator.RunAsync, facts),
                     new LoopService("local events", started.Task, local.Hub.RunChangesAsync, facts),
                     new LoopService("local peers", started.Task, local.Hub.RunPeersAsync, facts),
+                    new LoopService("static peers", started.Task, statics.RunAsync, facts),
                 ],
                 dialler,
                 local);
@@ -355,7 +405,7 @@ public sealed class MeshNode : IAsyncDisposable
             }
 
             started.TrySetResult();
-            var node = new MeshNode(options, environment, database, running, store, credentials, table, facts, pairing, server, replicating, local, userKeyHeld);
+            var node = new MeshNode(options, environment, database, running, store, credentials, table, facts, pairing, server, replicating, local, statics, userKeyHeld);
             local.Attach(node);
             return node;
         }

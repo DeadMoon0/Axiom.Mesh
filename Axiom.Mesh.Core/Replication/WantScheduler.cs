@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using TransferDirection = Axiom.Mesh.Local.TransferDirection;
+using TransferState = Axiom.Mesh.Local.TransferState;
 using Axiom.Mesh.Protocol;
 
 namespace Axiom.Mesh.Core;
@@ -29,13 +31,16 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
     private readonly Dictionary<DeviceId, Peer> peers = [];
     private readonly List<Peer> attached = [];
     private readonly ITimer timer;
+    private readonly TransferLog transfers;
     private bool disposed;
 
     /// <summary>A scheduler on the node's clock.</summary>
     /// <param name="time">The clock the 30-second re-ask runs on.</param>
-    public WantScheduler(TimeProvider time)
+    /// <param name="transfers">Where each ask and each cancellation is reported (LOCAL-SPEC.md topic <c>transfers</c>).</param>
+    public WantScheduler(TimeProvider time, TransferLog transfers)
     {
         this.time = time ?? throw new ArgumentNullException(nameof(time));
+        this.transfers = transfers ?? throw new ArgumentNullException(nameof(transfers));
         timer = time.CreateTimer(static state => ((WantScheduler)state!).Pump(), this, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
@@ -224,10 +229,12 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
     public void Settle(ObjectHash hash)
     {
         List<(Peer Peer, ObjectHash Hash)> cancels = [];
+        PackageId package;
         lock (gate)
         {
             if (!wants.Remove(hash, out Wanted? want))
                 return;
+            package = want.Reason.Package;
             foreach (Ask ask in want.Asks)
             {
                 ask.Peer.Budget = ask.Peer.Budget.Settle(1);
@@ -236,7 +243,10 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
         }
 
         foreach ((Peer peer, ObjectHash cancelled) in cancels)
+        {
             peer.Send(new Cancel([cancelled]));
+            transfers.Record(peer.Device, package, cancelled, TransferDirection.In, 0, TransferState.Cancelled);
+        }
         Pump();
     }
 
@@ -245,6 +255,7 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
     /// <param name="hash">The object.</param>
     public void NotFound(DeviceId device, ObjectHash hash)
     {
+        PackageId package;
         lock (gate)
         {
             if (peers.TryGetValue(device, out Peer? peer))
@@ -253,6 +264,57 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
                 return;
             want.Sources.Remove(device);
             SettleAsks(want, device);
+            package = want.Reason.Package;
+        }
+
+        transfers.Record(device, package, hash, TransferDirection.In, 0, TransferState.NotFound);
+        Pump();
+    }
+
+    /// <summary>
+    /// Whether some established peer may supply a wanted hash now: it is asked of one, or a source of it is attached
+    /// (LOCAL-SPEC.md §6.4 <c>Fetch</c>: without one for 60 seconds the fetch fails).
+    /// </summary>
+    /// <param name="hash">The hash.</param>
+    /// <returns><see langword="true"/> when it is wanted and has a possible source.</returns>
+    public bool HasSource(ObjectHash hash)
+    {
+        lock (gate)
+            return wants.TryGetValue(hash, out Wanted? want) && (want.Asks.Count > 0 || want.Sources.Exists(peers.ContainsKey));
+    }
+
+    /// <summary>
+    /// Stops wanting hashes a local fetch wanted (LOCAL-SPEC.md §8.5: a cancelled <c>Fetch</c> cancels its outstanding
+    /// wants, SPEC.md §7.8). A hash replication wants for its own reasons stays wanted.
+    /// </summary>
+    /// <param name="hashes">The hashes.</param>
+    public void CancelFetch(IEnumerable<ObjectHash> hashes)
+    {
+        ArgumentNullException.ThrowIfNull(hashes);
+        var cancels = new Dictionary<Peer, List<ObjectHash>>();
+        lock (gate)
+        {
+            foreach (ObjectHash hash in hashes)
+            {
+                if (!wants.TryGetValue(hash, out Wanted? want) || want.Reason.Kind != WantKind.Fetch || want.Arrived)
+                    continue;
+                wants.Remove(hash);
+                foreach (Ask ask in want.Asks)
+                {
+                    ask.Peer.Budget = ask.Peer.Budget.Settle(1);
+                    if (!cancels.TryGetValue(ask.Peer, out List<ObjectHash>? list))
+                        cancels[ask.Peer] = list = [];
+                    list.Add(hash);
+                }
+            }
+        }
+
+        foreach ((Peer peer, List<ObjectHash> list) in cancels)
+        {
+            foreach (ObjectHash[] chunk in list.Chunk(Limits.MaxCancelHashes))
+                peer.Send(new Cancel(chunk));
+            foreach (ObjectHash hash in list)
+                transfers.Record(peer.Device, default, hash, TransferDirection.In, 0, TransferState.Cancelled);
         }
 
         Pump();
@@ -282,6 +344,8 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
         {
             foreach (ObjectHash[] chunk in hashes.Chunk(Limits.MaxCancelHashes))
                 peer.Send(new Cancel(chunk));
+            foreach (ObjectHash hash in hashes)
+                transfers.Record(peer.Device, package, hash, TransferDirection.In, 0, TransferState.Cancelled);
         }
 
         Pump();
@@ -300,6 +364,7 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
     private void Pump()
     {
         var batches = new Dictionary<Peer, List<ObjectHash>>();
+        var asked = new List<(DeviceId Peer, PackageId Package, ObjectHash Hash)>();
         lock (gate)
         {
             if (disposed)
@@ -336,6 +401,7 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
                 if (!batches.TryGetValue(best, out List<ObjectHash>? batch))
                     batches[best] = batch = [];
                 batch.Add(hash);
+                asked.Add((best.Device, want.Reason.Package, hash));
             }
 
             if (nextDue is { } due2)
@@ -355,6 +421,9 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
             foreach (ObjectHash[] chunk in hashes.Chunk(Limits.MaxWantHashes))
                 peer.Send(new Want(chunk));
         }
+
+        foreach ((DeviceId peer, PackageId package, ObjectHash hash) in asked)
+            transfers.Record(peer, package, hash, TransferDirection.In, 0, TransferState.Wanted);
     }
 
     private static DateTimeOffset Earliest(DateTimeOffset? current, DateTimeOffset candidate) =>

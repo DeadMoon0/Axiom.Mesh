@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.LDB;
@@ -89,11 +87,6 @@ internal sealed class HostRuntime : IAsyncDisposable
             var self = new TaskCompletionSource<SelfRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
             gated = new IdentityGatedDiscovery(ct => self.Task.WaitAsync(ct), options.Mesh.Mdns, options.Mesh.Broadcast, start.Time, facts);
             List<IDiscovery> parts = [gated];
-            if (options.Mesh.StaticPeers.Count != 0)
-            {
-                EndPoint[] peers = [.. options.Mesh.StaticPeers.Select(p => HostConfiguration.TryParseEndPoint(p, out EndPoint e) ? e : throw new InvalidOperationException(p))];
-                parts.Add(new StaticPeers(new StaticPeersOptions { Peers = peers, Time = start.Time, Facts = facts }));
-            }
 
             var environment = new MeshNodeEnvironment
             {

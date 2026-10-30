@@ -51,7 +51,7 @@ public sealed class LocalConnectionTests
         await using TestMesh mesh = await LocalMeshes.StartAsync();
         await using RawLocalClient client = await RawLocalClient.ReadyAsync(mesh, LocalMeshes.Node);
 
-        uint unserved = await client.RequestAsync(new ListPackages());
+        uint unserved = await client.RequestAsync(new UpdatePackage { PackageId = default });
         Assert.Equal(Status.UnknownRequest, (await client.ResponseAsync(unserved)).Status);
 
         await client.WriteRawAsync(RawLocalClient.RequestBytes(300, 77));

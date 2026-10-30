@@ -32,7 +32,7 @@ internal sealed class RequestRoutes
 
     private RequestRoutes(IEnumerable<RequestRoute> rows) => routes = rows.ToFrozenDictionary(r => r.Descriptor.Id);
 
-    /// <summary>The table of this Host: the session and infrastructure requests of M8; everything else answers <c>UnknownRequest</c>.</summary>
+    /// <summary>The table of this Host: the phase-1 request set (fundamentals plan §2.5); everything else answers <c>UnknownRequest</c> (D7).</summary>
     public static RequestRoutes Default { get; } = Build(Handlers());
 
     /// <summary>Every row, ascending by id.</summary>
@@ -55,6 +55,43 @@ internal sealed class RequestRoutes
         [ListOperations.Id] = Of<ListOperations>(OperationRequests.ListOperationsAsync),
         [GetOperation.Id] = Of<GetOperation>(OperationRequests.GetOperationAsync),
         [CancelOperation.Id] = Of<CancelOperation>(OperationRequests.CancelOperationAsync),
+        [ListKnownUsers.Id] = Of<ListKnownUsers>(UserRequests.ListKnownUsersAsync),
+        [ForgetUser.Id] = Of<ForgetUser>(UserRequests.ForgetUserAsync),
+        [ListDevices.Id] = Of<ListDevices>(UserRequests.ListDevicesAsync),
+        [RemoveDevice.Id] = Of<RemoveDevice>(UserRequests.RemoveDeviceAsync),
+        [ListPackages.Id] = Of<ListPackages>(PackageRequests.ListPackagesAsync),
+        [GetPackage.Id] = Of<GetPackage>(PackageRequests.GetPackageAsync),
+        [CreatePackage.Id] = Of<CreatePackage>(PackageRequests.CreatePackageAsync),
+        [FollowPackage.Id] = Of<FollowPackage>(PackageRequests.FollowPackageAsync),
+        [UnfollowPackage.Id] = Of<UnfollowPackage>(PackageRequests.UnfollowPackageAsync),
+        [SetPackagePolicy.Id] = Of<SetPackagePolicy>(PackageRequests.SetPackagePolicyAsync),
+        [ListGrants.Id] = Of<ListGrants>(GrantRequests.ListGrantsAsync),
+        [SetGrant.Id] = Of<SetGrant>(GrantRequests.SetGrantAsync),
+        [RevokeGrant.Id] = Of<RevokeGrant>(GrantRequests.RevokeGrantAsync),
+        [ListHistory.Id] = Of<ListHistory>(HistoryRequests.ListHistoryAsync),
+        [GetEntry.Id] = Of<GetEntry>(HistoryRequests.GetEntryAsync),
+        [GetObject.Id] = Of<GetObject>(HistoryRequests.GetObjectAsync),
+        [ListStored.Id] = Of<ListStored>(HistoryRequests.ListStoredAsync),
+        [ListPins.Id] = Of<ListPins>(StoreRequests.ListPinsAsync),
+        [PinObject.Id] = Of<PinObject>(StoreRequests.PinObjectAsync),
+        [Unpin.Id] = Of<Unpin>(StoreRequests.UnpinAsync),
+        [ReleasePins.Id] = Of<ReleasePins>(StoreRequests.ReleasePinsAsync),
+        [SetStoreBudget.Id] = Of<SetStoreBudget>(StoreRequests.SetStoreBudgetAsync),
+        [ListStaticPeers.Id] = Of<ListStaticPeers>(PeerRequests.ListStaticPeersAsync),
+        [AddStaticPeer.Id] = Of<AddStaticPeer>(PeerRequests.AddStaticPeerAsync),
+        [RemoveStaticPeer.Id] = Of<RemoveStaticPeer>(PeerRequests.RemoveStaticPeerAsync),
+        [Dial.Id] = Of<Dial>(PeerRequests.DialAsync),
+        [Fetch.Id] = Of<Fetch>(OperationStarts.FetchAsync),
+        [Materialise.Id] = Of<Materialise>(OperationStarts.MaterialiseAsync),
+        [RegisterKind.Id] = Of<RegisterKind>(ServiceRequests.RegisterKindAsync),
+        [WriteEntry.Id] = Of<WriteEntry>(ServiceRequests.WriteEntryAsync),
+        [PutObject.Id] = Of<PutObject>(ServiceRequests.PutObjectAsync),
+        [PutFile.Id] = Of<PutFile>(OperationStarts.PutFileAsync),
+        [GetStorePath.Id] = Of<GetStorePath>(ServiceRequests.GetStorePathAsync),
+        [ListSeries.Id] = Of<ListSeries>(TelemetryRequests.AbsentAsync),
+        [ListKeys.Id] = Of<ListKeys>(TelemetryRequests.AbsentAsync),
+        [GetTotal.Id] = Of<GetTotal>(TelemetryRequests.AbsentAsync),
+        [QueryTelemetry.Id] = Of<QueryTelemetry>(TelemetryRequests.AbsentAsync),
     };
 
     /// <summary>The table for a set of handlers: every request of the protocol, served or not.</summary>

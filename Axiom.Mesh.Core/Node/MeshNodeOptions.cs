@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 
 namespace Axiom.Mesh.Core;
@@ -32,4 +33,10 @@ public sealed record MeshNodeOptions
 
     /// <summary>What the local port is told: services, confinement of user-key requests, the drain's grace. Default <see cref="LocalPortOptions.Default"/>.</summary>
     public LocalPortOptions Local { get; init; } = LocalPortOptions.Default;
+
+    /// <summary>
+    /// The static peers the configuration lists (SPEC.md §3.3), <c>host:port</c>: dialled from the start, listed by
+    /// <c>ListStaticPeers</c> and kept beside those <c>AddStaticPeer</c> adds (LOCAL-SPEC.md §6.6).
+    /// </summary>
+    public IReadOnlyList<string> StaticPeers { get; init; } = [];
 }

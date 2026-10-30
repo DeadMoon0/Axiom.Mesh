@@ -78,6 +78,16 @@ internal sealed class StoreBatch
             case PairCommand pair:
                 Defer(pair, await PairAsync(pair.UserKey).ConfigureAwait(false));
                 break;
+            case ForgetCommand forget:
+                Defer(forget, await ForgetAsync(forget.User).ConfigureAwait(false));
+                break;
+            case StaticPeersCommand peers:
+                await tables.Meta.PutAsync(new MetaRow { Name = MetaKeys.StaticPeers, Bytes = Encoding.UTF8.GetBytes(string.Join('\n', peers.Addresses)) }, CancellationToken.None).ConfigureAwait(false);
+                Defer(peers, true);
+                break;
+            case BudgetCommand budget:
+                Defer(budget, Budget(budget.Budget));
+                break;
             case PeerCommand peer:
                 await PeerAsync(peer).ConfigureAwait(false);
                 Defer(peer, true);
@@ -301,7 +311,7 @@ internal sealed class StoreBatch
         await UpdateHeadAsync(command, content).ConfigureAwait(false);
         await pins.PinAsync(entry.Hash, PinReason.Head, id.Value).ConfigureAwait(false);
 
-        IReadOnlyList<ObjectHash> references = content.Payload.References;
+        IReadOnlyList<ObjectHash> references = command.References ?? content.Payload.References;
         foreach (ObjectHash reference in references)
             await PutReferenceAsync(entry.Hash, reference).ConfigureAwait(false);
 
@@ -339,7 +349,7 @@ internal sealed class StoreBatch
 
     // A local write must not raise the pinned bytes above the budget: eviction cannot free pinned bytes (LOCAL-SPEC.md §6.5).
     private bool Overflows(AdmitCommand command) =>
-        command.Origin.Kind == OriginKind.Local && state.PinnedBytes + command.Object.Bytes.Length > options.BudgetBytes;
+        command.Origin.Kind == OriginKind.Local && state.PinnedBytes + command.Object.Bytes.Length > state.BudgetBytes;
 
     private async Task<bool> WriteAsync(AdmitCommand command)
     {
@@ -601,6 +611,30 @@ internal sealed class StoreBatch
         return true;
     }
 
+    private async Task<bool> ForgetAsync(UserId user)
+    {
+        if (!state.Trust.Forget(user, out VerifiedRoster? roster))
+            return false;
+        byte[] key = RowKeys.Of(user.Value);
+        await tables.Users.DeleteAsync(key, CancellationToken.None).ConfigureAwait(false);
+        await tables.Devices.DeleteWhereAsync(DeviceRow.Columns.User == key, CancellationToken.None).ConfigureAwait(false);
+        if (roster is not null)
+            await pins.UnpinAsync(roster.Hash, PinReason.Head, user.Value).ConfigureAwait(false);
+        Changes.Users.Add(user);
+        Changes.TrustChanged = true;
+        return true;
+    }
+
+    // LOCAL-SPEC.md §6.5: the budget applies from this batch on; eviction follows when the store is above it.
+    private long Budget(long bytes)
+    {
+        if (state.BudgetBytes == bytes)
+            return bytes;
+        state.BudgetBytes = bytes;
+        Changes.BudgetChanged = true;
+        return bytes;
+    }
+
     private async Task PutPairedAsync(PublicKey userKey)
     {
         UserId user = userKey.AsUserId();
@@ -652,7 +686,7 @@ internal sealed class StoreBatch
         int evicted = 0;
         int later = 0;
         long bytes = 0;
-        if (state.Bytes > options.BudgetBytes)
+        if (state.Bytes > state.BudgetBytes)
         {
             List<ObjectRow> candidates = await tables.Objects.Query()
                 .Where(ObjectRow.Columns.PinCount == 0)
@@ -660,7 +694,7 @@ internal sealed class StoreBatch
                 .ToListAsync(CancellationToken.None).ConfigureAwait(false);
             foreach (ObjectRow row in candidates)
             {
-                if (state.Bytes <= options.BudgetBytes)
+                if (state.Bytes <= state.BudgetBytes)
                     break;
                 var hash = new ObjectHash(RowKeys.Hash(row.Hash));
                 if (promises.IsProtected(hash))
@@ -673,7 +707,7 @@ internal sealed class StoreBatch
             }
         }
 
-        return new EvictionReport(evicted, bytes, later, state.Bytes <= options.BudgetBytes);
+        return new EvictionReport(evicted, bytes, later, state.Bytes <= state.BudgetBytes);
     }
 
     // LOCAL-SPEC.md §9.7: a delete a reader blocks is "evict later"; the object counts as stored until the unlink succeeded.

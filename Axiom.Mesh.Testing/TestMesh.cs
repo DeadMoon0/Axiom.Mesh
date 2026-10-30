@@ -5,6 +5,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core;
+using Axiom.Mesh.Core.Storage;
 using Axiom.Mesh.Discovery;
 using Axiom.Mesh.Local;
 using PeerState = Axiom.Mesh.Core.PeerState;
@@ -81,7 +82,13 @@ public sealed class TestMesh : IAsyncDisposable
             {
                 IsSilent = options.Silent.Contains(identity.Name),
             };
-            nodes[identity.Name] = new TestNode(identity, address, new TestNodeEnvironment(identity, clock, options.Seed + (ulong)i) { Loggers = options.Loggers }, discovery, new InMemoryDialer(network, address.Address), packages);
+            nodes[identity.Name] = new TestNode(identity, address, new TestNodeEnvironment(identity, clock, options.Seed + (ulong)i)
+            {
+                Loggers = options.Loggers,
+                Files = options.StoreDirectories.TryGetValue(identity.Name, out string? directory)
+                    ? new DirectoryObjectFiles(directory, new DeterministicEntropy(options.Seed + (ulong)i))
+                    : new InMemoryObjectFiles(),
+            }, discovery, new InMemoryDialer(network, address.Address), packages);
         }
 
         var nodeOptions = MeshNodeOptions.Default with { Local = options.Local with { HostUser = TestProcess.ServedUser } };

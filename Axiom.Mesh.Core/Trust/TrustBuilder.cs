@@ -109,6 +109,19 @@ internal sealed class TrustBuilder
         return application;
     }
 
+    /// <summary>Forgets a user (LOCAL-SPEC.md §6.2): pairing status, Roster and devices go; the device keys stay cached.</summary>
+    /// <param name="user">The user.</param>
+    /// <param name="roster">The Roster that was held, or <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when the user was held.</returns>
+    public bool Forget(UserId user, out VerifiedRoster? roster)
+    {
+        roster = null;
+        if (!users.Remove(user, out UserTrust? held))
+            return false;
+        roster = held.Roster;
+        return true;
+    }
+
     /// <summary>Restores a user as the database holds it, at start.</summary>
     /// <param name="user">The user.</param>
     public void Restore(UserTrust user)

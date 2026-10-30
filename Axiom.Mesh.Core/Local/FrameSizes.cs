@@ -39,6 +39,17 @@ internal static class FrameSizes
         return Header + ResponseEnvelope + counter.Count;
     }
 
+    /// <summary>The frame of a callback to a service (§3.6).</summary>
+    /// <param name="call">The callback's body.</param>
+    /// <returns>Its size in bytes.</returns>
+    public static long OfCallback(LocalCallback call)
+    {
+        using var counter = new CountingBufferWriter();
+        var writer = new WireWriter(counter);
+        call.Write(ref writer);
+        return Header + EventEnvelope + counter.Count;
+    }
+
     /// <summary>The frame of a failed response.</summary>
     /// <param name="error">Its error.</param>
     /// <returns>Its size in bytes.</returns>
@@ -48,6 +59,19 @@ internal static class FrameSizes
         var writer = new WireWriter(counter);
         error.Write(ref writer);
         return Header + ResponseEnvelope + counter.Count;
+    }
+
+    /// <summary>The encoded size of one record inside a list (LOCAL-SPEC.md §5), for cutting a page to the frame.</summary>
+    /// <typeparam name="T">The record's type.</typeparam>
+    /// <param name="record">The record.</param>
+    /// <returns>Its size in bytes.</returns>
+    public static long OfRecord<T>(T record)
+        where T : class, IWireRecord<T>
+    {
+        using var counter = new CountingBufferWriter();
+        var writer = new WireWriter(counter);
+        record.Write(ref writer);
+        return counter.Count;
     }
 
     /// <summary>A session frame (Ping, Pong, Drain, Bye): small and counted as at most its largest form.</summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Axiom.Mesh.Core;
@@ -29,10 +30,11 @@ internal sealed class NodeReplication : IDisposable
         Table = table;
         Facts = facts;
         Time = time;
-        Wants = new WantScheduler(time);
+        Transfers = new TransferLog(time);
+        Wants = new WantScheduler(time, Transfers);
         Intake = new Intake(writer, Wants);
         Telemetry = new TelemetrySink();
-        Replicator = new Replicator(writer, bus, Intake, Wants, facts, Telemetry, time);
+        Replicator = new Replicator(writer, bus, Intake, Wants, facts, Telemetry, time, Transfers);
     }
 
     /// <summary>The store writer.</summary>
@@ -52,6 +54,9 @@ internal sealed class NodeReplication : IDisposable
 
     /// <summary>The node's clock.</summary>
     public TimeProvider Time { get; }
+
+    /// <summary>Where each object's way in or out is reported (LOCAL-SPEC.md topic <c>transfers</c>).</summary>
+    public TransferLog Transfers { get; }
 
     /// <summary>Every object the node wants, and from whom.</summary>
     public WantScheduler Wants { get; }
@@ -75,6 +80,12 @@ internal sealed class NodeReplication : IDisposable
     /// <summary>A session ended.</summary>
     /// <param name="session">The session.</param>
     public void Closed(ReplicationSession session) => sessions.TryRemove(session.Connection, out _);
+
+    /// <summary>The established peers whose current listing names a Package (LOCAL-SPEC.md §5.4 <c>listedBy</c>).</summary>
+    /// <param name="package">The Package.</param>
+    /// <returns>The peer devices, each once.</returns>
+    public IReadOnlyList<DeviceId> ListedBy(PackageId package) =>
+        [.. sessions.Values.Where(s => s.Lists(package)).Select(s => s.Peer).Distinct()];
 
     /// <summary>Where replication stands now.</summary>
     /// <returns>A snapshot.</returns>
