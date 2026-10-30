@@ -41,8 +41,11 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 - **Rule:** LOCAL-SPEC.md §2.4 defers the exact ACL, socket modes, service account and allow list to `PIPE-ACCESS.md`.
 - **Instead:** the document does not exist.
 - **Evidence:** `Documentation/` holds no `PIPE-ACCESS.md`.
-- **Tolerated because:** no pipe listener exists yet.
-- **Paid in:** M8, with the pipe listeners.
+- **Tolerated because:** the listeners (M8) carry the effect §2.1 and §2.2 require: an owner-only access list with
+  `FILE_FLAG_FIRST_PIPE_INSTANCE` and `PIPE_REJECT_REMOTE_CLIENTS` on Windows, a 0600 socket file on Linux, the process
+  identity behind both, and `pipe.allowUsers` for a system service (`Axiom.Mesh.Host/README.md` documents the keys).
+  What is missing is the normative text.
+- **Paid in:** M13, with the documents of the release.
 
 ## 4. KEY-BACKUP.md is not written, and the user key has no backup
 
@@ -114,7 +117,10 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 ## 12. The Host answers only the phase-1 request subset
 
 - **Rule:** LOCAL-SPEC.md §15: every request of §6–§10 answered with its OK body and every listed error.
-- **Instead:** requests outside the phase-1 set of the fundamentals plan §2.5 answer `UnknownRequest`.
+- **Instead:** M8 serves the session and infrastructure requests (`GetIdentity`, `CreateIdentity`, `RenameDevice`,
+  `GetStore`, `ListServices`, `ListPeers`, `ListSessions`, `ListDiscovered`, `Subscribe`, `Unsubscribe`, `ListOperations`,
+  `GetOperation`, `CancelOperation`); M9 adds the rest of the phase-1 set of the fundamentals plan §2.5; everything else
+  answers `UnknownRequest` (`Axiom.Mesh.Core/Local/RequestRoutes.cs`).
 - **Evidence:** fundamentals plan §2.5 and D7.
 - **Tolerated because:** `UnknownRequest` is the specification's answer for a request a Host does not serve, so a
   half-built Host stays conformant; `CONFORMANCE.md` marks the missing rows planned.
@@ -245,14 +251,11 @@ following new Packages automatically (bit 0) is entry 30.
 
 ## 25. A node takes its device key at start only
 
-- **Rule:** LOCAL-SPEC.md §6.1: `CreateIdentity` creates the device key, the user key and the first Roster on a running
-  Host.
-- **Instead:** `MeshNode.StartAsync` reads the device key once; a node started without one listens but completes no
-  handshake until it is restarted with a key. `AdoptIdentityAsync` needs the key to exist already.
-- **Evidence:** `Axiom.Mesh.Core/MeshNode.cs` (`LoadCredentialAsync`, the `Credential` delegate of `MeshTlsOptions`).
-- **Tolerated because:** the TLS layer already reads the credential through a delegate, so swapping it in at run time is
-  a field, not a redesign; tests start nodes with keys.
-- **Paid in:** M9, with `CreateIdentity` and `ShowDevice` (the key is written to the key store and the credential swapped).
+Paid in 2c46710 (M8): `CreateIdentity` on a running node makes the device key (unless the key store holds one) and the
+user key from the node's `IEntropy`, writes both to the key store, swaps the device credential and the Entry writer in
+through `Transport/CredentialSlot.cs` (handshakes read it lock-free from then on), signs a Roster with seq 1 and adopts
+it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlreadyExists`,
+`Host.Tests: RealPipeTests`). `ShowDevice` enrolment uses the same slot in M10.
 
 ## 26. A Grant withdrawn by an owner's listing is withdrawn in memory only
 
@@ -324,5 +327,74 @@ following new Packages automatically (bit 0) is entry 30.
 - **Instead:** the node records facts (`ObjectStored`, `WantAnswered`, `FaultyContent`) and counters
   (`MeshNode.Replication`), but no `Transfer` records.
 - **Evidence:** `Axiom.Mesh.Core/Replication/ReplicationSession.cs`, `WantScheduler.cs`.
-- **Tolerated because:** nothing subscribes before the local port exists.
-- **Paid in:** M8, with the local port's subscriptions (a transfer sink the scheduler and the sessions write to).
+- **Tolerated because:** the `transfers` topic is subscribable since M8 and simply carries no events yet; no client
+  needs transfers before the CLI's progress output and the app.
+- **Paid in:** M9, with `Fetch` (a transfer sink the scheduler and the sessions write to, read by the local port's event
+  hub).
+
+## 32. Spawned services are configured, not spawned
+
+- **Rule:** LOCAL-SPEC.md §4.2: for a service the Host spawns, it puts a fresh token into the child's environment and
+  supervises the child.
+- **Instead:** `config.json` accepts `services.<name>.spawn`, but the daemon starts no process and gives no token, so
+  such a name is refused at `Hello` until a later version spawns it; the daemon logs a configuration note at start.
+  `LocalService` already carries a spawned service's token, and the `Hello` check compares it in constant time.
+- **Evidence:** `Axiom.Mesh.Host/HostRuntime.cs` (`Note`), `Axiom.Mesh.Host/Configuration/HostConfiguration.cs`
+  (`ServiceOf`); `LocalHelloTests.Refusals` (wrong spawned token).
+- **Tolerated because:** no first-party service runs out of process in phase 1a; the CLI and scripts are external.
+- **Paid in:** phase 1b, with the first service that runs as its own program (process supervision and restart).
+
+## 33. Package events are built from the batch, not from a diff of every field
+
+- **Rule:** LOCAL-SPEC.md §7.3, §5.4: `PackageChanged` carries the Package after the change, the Grant for change Grant,
+  the Head for change Head; `Package.listedBy` counts the established peers that list it.
+- **Instead:** a Grant change names the Grants that differ from the previous trust; a Head change names the Heads of
+  the devices whose Entries the batch stored (a Head that changed because an Entry was evicted is not announced, entry
+  18); `listedBy` is 0; the count of stored Entries is read from the index for each event.
+- **Evidence:** `Axiom.Mesh.Core/Local/LocalEventHub.cs` (`EventsOf`), `Local/PackageRecords.cs`.
+- **Tolerated because:** a client that needs the exact state calls `GetPackage` (M9) after an event, which §3.4 advises
+  anyway; no listing count is shown before the app.
+- **Paid in:** M9, with `GetPackage` and `ListPackages` (one record builder for requests and events, `listedBy` from the
+  sessions' listings, the Entry count kept per Package).
+
+## 34. ConfirmPairing is a user-key request in every mode
+
+- **Rule:** LOCAL-SPEC.md §2.2: `ConfirmPairing` is a user-key request in modes `ShowUser`, `JoinUser` and `AddDevice`.
+- **Instead:** the dispatcher marks `ConfirmPairing` user-key whatever the mode (`ShowDevice` included), because the
+  mode belongs to the running pairing, which does not exist before M10.
+- **Evidence:** `Axiom.Mesh.Core/Local/RequestRoutes.cs` (`SpendingUserKey`).
+- **Tolerated because:** it can only log or confine one request too many, never one too few.
+- **Paid in:** M10, with the pairing shell (the handler decides the mode and the confinement).
+
+## 35. An event's size is counted by encoding it once more
+
+- **Rule:** fundamentals plan §2.5, M8 brief: events are forwarded without re-encoding.
+- **Instead:** each event is made once and shared by every subscription and connection that receives it, but its frame
+  size (for the 16 MiB and 64 MiB bounds) is counted by writing it into a counting buffer once, and each connection then
+  encodes it again when it writes the frame. Responses are counted the same way.
+- **Evidence:** `Axiom.Mesh.Core/Local/FrameSizes.cs`, `Local/CountingBufferWriter.cs`.
+- **Tolerated because:** the count costs one pass over an event that is written at least once anyway, and nothing is
+  allocated beyond a pooled scratch buffer; a pre-encoded event needs an API in `Axiom.Mesh.Local`.
+- **Paid in:** M12, with the benchmarks (measure; if it matters, a pre-encoded `EventFrame` in Local).
+
+## 36. ListDiscovered lists what the discovery cache holds, not the last hour
+
+- **Rule:** LOCAL-SPEC.md §6.6: `ListDiscovered` lists every device discovery saw in the last hour.
+- **Instead:** it lists the peer table's devices and the devices the bounded discovery cache holds, whenever heard.
+- **Evidence:** `Axiom.Mesh.Core/Local/NodeRequests.cs` (`ListDiscoveredAsync`).
+- **Tolerated because:** the cache is bounded (1 024 devices on the Host) and a LAN rarely holds more; the hour needs a
+  timestamp per claim the cache does not keep.
+- **Paid in:** M9, with the peers requests (a time per claim in `AnnouncementCache`, or a seen-at in the peer table).
+
+## 37. Another operating-system user is refused end to end only in a unit test
+
+- **Rule:** LOCAL-SPEC.md §15: the pipe admitted for the Host's OS user and refused for another, by access list and by
+  process identity, on each desktop platform.
+- **Instead:** the decision is tested (`PipeAdmissionTests`) and the served user end to end on the real pipe
+  (`RealPipeTests`), but no test connects as another OS user: that needs a second account (Windows) or `sudo -u nobody`
+  (Linux), which a unit test cannot assume.
+- **Evidence:** `UnitTests/Axiom.Mesh.Host.Tests/Rules/RealPipeTests.cs`; CONFORMANCE.md (LOCAL §2.2, planned row).
+- **Tolerated because:** the access list (owner only) and the process identity check are independent fences, each
+  checked by construction and by the decision's tests.
+- **Paid in:** M11, with the integration tests (`PipeTests.AnotherUserIsRefusedByTheAccessListAndByProcessIdentity`,
+  skipped where no second account or sudo exists).

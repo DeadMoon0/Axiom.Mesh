@@ -15,7 +15,7 @@
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>Skeleton: axiom-meshd version.</PackageReleaseNotes>
+    <PackageReleaseNotes>In progress: axiom-meshd run and version; config.json with a default for every key, unknown keys refused, a cli token generated on first start; the key store (DPAPI on Windows, 0700/0600 on Linux); the pipe (Windows: first instance, remote clients rejected, owner-only access list; Linux: 0600 socket with the stale-file probe) with the process identity of every connection and admission of the served user; the store, database, discovery and logging (console and a rolling file).</PackageReleaseNotes>
     <RootNamespace>Axiom.Mesh.Host</RootNamespace>
   </PropertyGroup>
 

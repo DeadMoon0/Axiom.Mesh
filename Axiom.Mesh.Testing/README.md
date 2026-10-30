@@ -9,7 +9,8 @@ Namespace: `Axiom.Mesh.Testing`. Depends on `Axiom.Mesh.Host` (and so on Core an
 Phase 1a, in progress. Built (milestones M6, M7): the published test identities, `TestMesh` with trust seeding, connect,
 stop and start, partition, severed links and heal, `SettleAsync`, `FakeDiscovery`, `InMemoryDialer`, `InMemoryKeyStore`,
 `InMemoryNetwork`, `ScriptedPeer`, and content seams on `TestNode` (create, grant, follow, write, publish, wait for an
-object) with `ObjectFixtures`. Pairing (`PairAsync`, `EnrolAsync`) and the in-process CLI follow with the milestones that
+object) with `ObjectFixtures`; local clients (M8): `TestNode.ConnectUserAsync`, `ConnectServiceAsync`, `ConnectInProcessAsync`,
+`ConnectAsync` and `ConnectRaw` from a `TestProcess`, and `TestMesh.CreateIdentityAsync` over the local port. Pairing (`PairAsync`, `EnrolAsync`) and the in-process CLI follow with the milestones that
 build them.
 
 ## Quick Start
@@ -68,9 +69,10 @@ Console.WriteLine(bob.Node.Replication);                      // wants, counters
 |---|---|
 | `TestKeys` | The seven published PKCS#8 keys (users alice, bob, eve; devices alice-laptop, alice-phone, bob-desktop, eve-device), as in `Documentation/vectors/vectors.json`. Compiles against Model alone, so the lower suites link the file. |
 | `TestIdentity` | A published device with its user: `Of(name)`, `All`, `RosterOf(user)` (the user's first Roster, always the same object), `RosterOf(user, seq, removed…)` (a new one, signed anew). |
-| `TestMesh` | The mesh: `StartAsync(TestMeshOptions)`, `this[name]`, `Clock`, `Network`, `ConnectAsync`, `WaitUntilAsync`, `WaitForFactAsync`, `SettleAsync`, `StopNodeAsync`, `StartNodeAsync`, `Partition`, `Sever`, `Heal`. |
-| `TestMeshOptions`, `TrustSeed` | Which nodes, which of them know which users (`MutuallyKnown`, `And`), which keep silent (dial but are never dialled), which pairs are severed from the start, the seed. |
-| `TestNode` | One node: its identity, address (`10.0.0.n:41810`), what it keeps across restarts, its discovery, the running `MeshNode`; and content seams: `CreatePackageAsync`, `GrantAsync`, `FollowAsync`, `WriteEntryAsync`, `PublishAsync`, `WaitForEntryAsync`, `WaitForObjectAsync`. |
+| `TestMesh` | The mesh: `StartAsync(TestMeshOptions)`, `this[name]`, `Clock`, `Network`, `ConnectAsync`, `WaitUntilAsync`, `WaitForFactAsync`, `SettleAsync`, `StopNodeAsync`, `StartNodeAsync`, `Partition`, `Sever`, `Heal`, `CreateIdentityAsync(node, user, device)` (over the local port, for a node without identity). |
+| `TestMeshOptions`, `TrustSeed` | Which nodes, which of them know which users (`MutuallyKnown`, `And`), which keep silent (dial but are never dialled), which pairs are severed from the start, the seed, which start without an identity (`WithoutIdentity`), what every local port is told (`Local`), where nodes log (`Loggers`). |
+| `TestNode` | One node: its identity, address (`10.0.0.n:41810`), what it keeps across restarts, its discovery, the running `MeshNode`; and content seams: `CreatePackageAsync`, `GrantAsync`, `FollowAsync`, `WriteEntryAsync`, `PublishAsync`, `WaitForEntryAsync`, `WaitForObjectAsync`; and local clients: `ConnectUserAsync(name)`, `ConnectServiceAsync(name, token)`, `ConnectInProcessAsync(name)`, `ConnectAsync(options, process)` (each a `LocalClient` the mesh closes when it stops the node) and `ConnectRaw(process)` (the client's end of a connection, for frame-level tests). |
+| `TestProcess` | The process a local connection pretends to come from: `Served` (pid 4242, user `tester`, the user every test node serves), `AsOtherUser()`, `Running(executable, pid)`. |
 | `ObjectFixtures`, `TreeFixture` | Deterministic content (`Content`), a folder cut into Chunks with its ChunkLists and Tree (`Folder`), a Package filled with Messages (`WriteMessagesAsync`), `Message` and `Version` payloads. |
 | `TestNodeEnvironment` | In-memory LDB storage, object files and key store that survive a restart, on the mesh's clock with seeded randomness. |
 | `InMemoryNetwork` | Who listens where, the discovery board, the open links; `Partition` cuts the links across, `Sever` cuts one pair, `Heal` joins again. |

@@ -34,7 +34,7 @@ namespace Axiom.Mesh.Core;
 /// </para>
 /// <para>
 /// Start it with <see cref="StartAsync"/>, stop it with <see cref="StopAsync"/>: every session says <c>Bye(Shutdown)</c>
-/// before the node lets go of its store. The local port's requests follow in a later version.
+/// before the node lets go of its store, after its local clients heard <c>Drain</c> (<see cref="Local"/>).
 /// </para>
 /// </remarks>
 public sealed class MeshNode : IAsyncDisposable

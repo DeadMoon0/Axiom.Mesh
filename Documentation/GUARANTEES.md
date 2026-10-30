@@ -28,14 +28,17 @@ names no test, or when a proved row names a test that does not exist.
 | Every bound of an AMP/1 object is enforced: one over makes the object malformed, at the bound it is accepted. | `Model.Tests: ObjectBoundsTests.EveryObjectBoundIsAcceptedAtTheLimitAndMalformedOneOver` |
 | Every bound of AMP/1 is enforced: one over is refused, at the bound is accepted, as a violation in a message and as malformed in an object. | `Protocol.Tests: LimitTests.EveryLimitIsRefusedOneOverAndAcceptedAtTheLimit_AViolationInAMessageMalformedInAnObject` |
 | Every bound is a named constant with the specification's value. | `Model.Tests: LimitsDocumentTests.EveryLimitOfTheSpecIsANamedConstantWithTheSpecsValue`, `Model.Tests: LimitsTests.EveryLimitHasTheValueItsSectionStates` |
-| Every bound of the local protocol is enforced, one over refused and at the bound accepted. | planned: `Local.Tests: LimitTests.EveryLimitIsRefusedOneOverAndAcceptedAtTheLimit` |
-| A slow local client loses its subscription, never the mesh: other subscriptions and requests continue. | planned: `Core.Tests: SubscriptionTests.A257thEventOr16MiBLapsesOnlyThatSubscription_OthersAndRequestsContinue_64MiBUnacceptedIsByeUnresponsive` |
+| Every bound of the local protocol is enforced, one over refused and at the bound accepted. | `Local.Tests: LimitTests.EveryLimitIsRefusedOneOverAndAcceptedAtTheLimit`, `Core.Tests: LocalHelloTests.Refusals`, `Core.Tests: LocalHelloTests.NoHelloWithin10SecondsClosesWithoutAFrame_A17thWaiterClosesTheLongestWaiting`, `Core.Tests: LocalConnectionTests.ACorrelationOf0OrStillOutstanding_OrA65thOutstandingRequest_IsAViolation`, `Core.Tests: OperationTests.CancelOperationDrainAndAClosedConnectionEndAnOperationCancelled_A17thRunningIsBusy_The49thEndedDropsTheOldest` |
+| A slow local client loses its subscription, never the mesh: other subscriptions and requests continue. | `Core.Tests: SubscriptionTests.A257thEventOr16MiBLapsesOnlyThatSubscription_OthersAndRequestsContinue_64MiBUnacceptedIsByeUnresponsive` |
 
 ## The pipe
 
 | Promise | Proved by |
 |---|---|
-| The pipe admits the Host's operating-system user only. | planned: `Host.Tests: PipeAdmissionTests.Decide`, `Integration.Tests: PipeTests.AnotherUserIsRefusedByTheAccessListAndByProcessIdentity` |
+| The pipe admits the Host's operating-system user only. | `Host.Tests: PipeAdmissionTests.Decide_AnotherOsUserIsRefused_TheServedUserAdmitted_AnAllowListedUserAdmittedForASystemService`, `Host.Tests: RealPipeTests.AClientOfTheSameUserCreatesAnIdentityOverTheRealPipe_ItSurvivesARestart_ASecondDaemonOnThePipeDoesNotStart` |
+| Another operating-system user is refused on each desktop platform, by the access list and by process identity, end to end. | planned: `Integration.Tests: PipeTests.AnotherUserIsRefusedByTheAccessListAndByProcessIdentity` |
+| Every request that spends the user key is logged with its process id and executable, and may be confined to listed executables. | `Core.Tests: UserKeyRequestTests.EveryUserKeyRequestIsLoggedWithPidAndPath_AndOneFromAnUnlistedExecutableIsNotPermitted` |
+| An in-process service's name is never granted on the pipe; a spawned or external name only with its token. | `Core.Tests: LocalHelloTests.AnInProcessNameIsNeverGrantedOnThePipe_ASpawnedOrExternalNameNeedsItsToken` |
 | No record of the local protocol can carry a private key. | `Local.Tests: NoKeyCrossesThePipeTests.NoRecordHasAFieldThatCanHoldAPrivateKey` |
 
 ## Replication

@@ -6,7 +6,7 @@ Namespace: `Axiom.Mesh.Core` (the store's seams in `Axiom.Mesh.Core.Storage`). D
 
 ## Status
 
-Phase 1a, in progress. Built: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction (M5); the transport (M6): `MeshNode.StartAsync`, one LWSE server with the mesh port and the adopt-only outbound and local ports, mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, the duplicate rule, refusals, violations and backoff, the peer table and the dialler; replication (M7): listings, wants and answers, the history walk, push and relay, the Roster push, flow control, faulty-content and violation bookkeeping, counters, and the node's write seams (`FollowAsync`, `PutAsync`, `WriteEntryAsync`). The local port's requests (M8) follow.
+Phase 1a, in progress. Built: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction (M5); the transport (M6): `MeshNode.StartAsync`, one LWSE server with the mesh port and the adopt-only outbound and local ports, mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, the duplicate rule, refusals, violations and backoff, the peer table and the dialler; replication (M7): listings, wants and answers, the history walk, push and relay, the Roster push, flow control, faulty-content and violation bookkeeping, counters, and the node's write seams (`FollowAsync`, `PutAsync`, `WriteEntryAsync`). The local port (M8): the `Hello` checks, a data-driven dispatcher with the session and infrastructure requests (the rest answer `UnknownRequest` until M9), subscriptions with replay and lapse, operations, liveness and `Drain`, and identity creation on a running node.
 
 ## Quick Start
 
@@ -105,7 +105,7 @@ What a started node does on its own:
 
 - **Three ports, one server** (DESIGN.md §10.2): the mesh port (41810, or a number in memory) with mutual TLS as server,
   the adopt-only outbound port with mutual TLS as client for every peer it dials, and the adopt-only local port for the
-  pipe's clients (it closes them at once until the local port's requests land). Admission allows 4 connections per peer
+  pipe's clients and in-process services (see "The local port" below). Admission allows 4 connections per peer
   address (SPEC.md §4.6).
 - **Mutual TLS 1.3 pinned to the rosters** (SPEC.md §4.2, §4.3): a client certificate is required, ALPN `axiom-mesh/1`
   must be negotiated, no session resumption, no renegotiation, no chain or revocation check; the peer's key must be a
@@ -158,13 +158,39 @@ recorded against the device (`PeerRecord.Faulty`, a `FaultyContent` fact), never
 Toward the peer, at most 8 MiB of objects wait to be sent; answers past that are deferred while every other message
 flows.
 
+## The local port
+
+`MeshNode.Local` is where every client talks to the node over `axiom-mesh-local/1` (LOCAL-SPEC.md). The Host adopts each
+pipe connection with the process identity it read from the operating system (`Local.AdoptAsync(stream,
+ProcessIdentity.Pipe(pid, user, executable), ct)`); an in-process service connects with `Local.ConnectInProcess(name)`
+and hands the stream to `LocalClient.OpenAsync`. `MeshNodeOptions.Local` (`LocalPortOptions`) lists the services by name
+and provenance (in process, spawned or external with a token), the executables the user-key requests are confined to,
+the user the Host serves, and the drain's grace.
+
+- **Hello** (§4.2): version, role, a listed service name proven by its provenance (an in-process name only on its own
+  pair; spawned and external tokens compared in constant time), one connection per name (the live one is kept), at
+  most 64 user connections and 16 waiting for `Hello`.
+- **Requests** (§3.4, §6): every request gets exactly one response. Before a handler runs, the dispatcher checks the
+  role, the identity (`NoIdentity`), `Draining`, and the confinement of user-key requests, each of which is logged with
+  the connection's pid and executable. M8 serves `GetIdentity`, `CreateIdentity`, `RenameDevice`, `GetStore`,
+  `ListServices`, `ListPeers`, `ListSessions`, `ListDiscovered`, `Subscribe`, `Unsubscribe` and the operation requests;
+  every other request answers `UnknownRequest`.
+- **Subscriptions** (§7): the response precedes the first event; a replay from a store sequence reads one Entry at a time
+  (more than 256 is `GapTooLarge`); a subscription lapses alone at 256 events or 16 MiB; a connection holding 64 MiB its
+  client does not read, or a frame not accepted within 30 s, is closed `Bye(Unresponsive)` (256 MiB across connections).
+- **Liveness and drain** (§4.4, §4.5): `Ping` after 60 s of silence, `Bye(Unresponsive)` 30 s later; `MeshNode.StopAsync`
+  sends `Drain` first and `Bye(Shutdown)` when the grace elapsed or every client left.
+- **Identity** (§6.1): `CreateIdentity` makes the keys from the node's `IEntropy`, writes them to the `IKeyStore`, swaps
+  the device credential in and adopts a Roster with seq 1; `MeshNode.WhenIdentityAsync` completes then.
+
 ## What is in it
 
 | Folder | Types |
 |---|---|
 | `Seams/` | `IEntropy`, `SystemEntropy`, `DeterministicEntropy`, `IKeyStore`, `KeyRole`, `IDialer`, `TcpDialer` (public) |
 | `Transport/` | `DeviceCertificate` (public); `MeshTls` (key, ALPN sets), `MeshTlsLayer`, `MeshTlsOptions`, `PeerCheck` (the two-step validation), `PeerIdentity` (the connection feature), `DeviceCredential`, `PairingWindow`, `PairingGate`, `LinkActivity`, `ActivityStream`, `TlsRole` |
-| `Node/` | `MeshNodeOptions`, `MeshNodeEnvironment`, `MeshNodeException`, `NodeIdentity`, `NodeFacts`, `NodeFact`, `NodeFactKind` (public); `Ports`, `NodeModule`, `NodeObserver`, `PeerSessionHandler`, `LocalPortHandler`, `LoopService`, `NodeLog` |
+| `Node/` | `MeshNodeOptions`, `MeshNodeEnvironment`, `MeshNodeException`, `NodeIdentity`, `NodeFacts`, `NodeFact`, `NodeFactKind` (public); `Ports`, `NodeModule`, `NodeObserver`, `PeerSessionHandler`, `LoopService`, `NodeLog` |
+| `Local/` | `LocalPort`, `LocalPortOptions`, `LocalService`, `ServiceProvenance`, `ProcessIdentity`, `ProcessKind` (public); `LocalPortHandler`, `LocalConnection` (the per-connection actor), `ConnectionBook`, `LocalHelloRule`, `DispatchRule`, `RequestRoutes` (the dispatcher's table), `Outbox`, `LocalSubscription`, `FilterRule`, `OperationTable`, `LivenessRule`, `LocalEventHub`, the request handlers (`IdentityRequests`, `NodeRequests`, `SubscriptionRequests`, `OperationRequests`) and the record builders |
 | `Replication/` | `ReplicationStatus`, `SessionTraffic` (public); `ReplicationSession` (one per established session: read, write and push loops), `SessionOutbox` (control and object lanes), `ReplicationPlanner` (pure: `Plan`, `Walk`), `WantScheduler` (sources, 64 per peer, re-ask after 30 s; `IWantedSet`), `SourceBook`, `Listings` (pure), `ServedObjects` (visibility of a wanted hash), `Replicator` (the node's walk, held-buffer expiry and cancellations), `EntryWriter`, `NodeReplication`, `TelemetrySink`, `ObjectLinks` |
 | `Peers/` | `PeerRecord`, `PeerState` (public); `PeerTable`, `PeerSession`, `DialPolicy`, `DialDecision`, `SkipReason`, `Backoff`, `ViolationWindow`, `PeerDialler`, `DiscoveryPump`, `DialRequest`, `DialOutcome`, `EstablishVerdict` |
 | `Storage/` | `IObjectFiles`, `DirectoryObjectFiles`, `InMemoryObjectFiles`, `ObjectDeletion` (public); the LDB entities (`UserRow`, `DeviceRow`, `PackageRow`, `GrantRow`, `HeadRow`, `EntryRow`, `ObjectRow`, `PinRow`, `PeerRow`, `MetaRow`, `ReferenceRow`), `MeshDatabase` (tables, store epoch, schema version), `Rows<T>` |
