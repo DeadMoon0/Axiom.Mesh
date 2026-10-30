@@ -11,7 +11,7 @@ public static class Contracts
     public sealed class PackageConventions : ConventionTests<HostExitCode>
     {
         /// <inheritdoc />
-        protected override bool UsesJson => false;
+        protected override bool UsesJson => true;
     }
 
     /// <summary>Axiom.Mesh.Host's public surface can grow without breaking a compiled consumer.</summary>
@@ -21,7 +21,11 @@ public static class Contracts
     public sealed class ExceptionRecoveryContract : ExceptionRecoveryContractTests<HostExitCode>
     {
         /// <inheritdoc />
-        protected override IEnumerable<MeshException> Samples() => [];
+        protected override IEnumerable<MeshException> Samples() =>
+        [
+            new HostException(HostExitCode.PipeTaken, MeshFault.Environment, "Another axiom-meshd serves the pipe.", "Use the daemon that runs, or stop it first."),
+            new HostException(HostExitCode.Configuration, MeshFault.Environment, "The key directory is readable by others.", "Run: chmod 700 keys && chmod 600 keys/*.key"),
+        ];
     }
 
     /// <summary>The suite of Axiom.Mesh.Host keeps the three parts apart and never waits by the wall clock.</summary>

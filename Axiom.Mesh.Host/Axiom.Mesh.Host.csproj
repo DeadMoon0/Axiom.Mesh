@@ -30,4 +30,12 @@
     <ProjectReference Include="..\Axiom.Mesh.Core\Axiom.Mesh.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The console and the rolling file sink are the Host's; every library logs through the abstractions. -->
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <!-- DPAPI wraps the private keys on Windows (plan decision D3); the Host alone references it. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+  </ItemGroup>
+
 </Project>

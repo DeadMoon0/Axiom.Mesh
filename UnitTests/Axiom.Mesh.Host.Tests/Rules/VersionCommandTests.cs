@@ -34,6 +34,6 @@ public sealed class VersionCommandTests
 
         Assert.Equal(HostExitCode.Usage, exit);
         Assert.Empty(output.ToString());
-        Assert.StartsWith("usage: axiom-meshd version", error.ToString(), StringComparison.Ordinal);
+        Assert.StartsWith("usage: axiom-meshd run [--home <directory>]", error.ToString(), StringComparison.Ordinal);
     }
 }

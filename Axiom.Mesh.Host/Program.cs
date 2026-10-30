@@ -1,13 +1,30 @@
 using System;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Axiom.Mesh.Host;
 
-/// <summary>The process shell: reads what only a process has and hands it to <see cref="HostProgram"/>.</summary>
+/// <summary>The process shell: reads what only a process has (arguments, environment, signals) and hands it to <see cref="HostProgram"/>.</summary>
 internal static class Program
 {
-    private static int Main(string[] args) =>
-        (int)HostProgram.Run(args, Console.Out, Console.Error, InformationalVersion());
+    private static async Task<int> Main(string[] args)
+    {
+        using var stop = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, press) =>
+        {
+            press.Cancel = true;
+            stop.Cancel();
+        };
+        using PosixSignalRegistration terminate = PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =>
+        {
+            signal.Cancel = true;
+            stop.Cancel();
+        });
+
+        return (int)await HostProgram.RunAsync(args, Console.Out, Console.Error, InformationalVersion(), Environment.GetEnvironmentVariable, stop.Token).ConfigureAwait(false);
+    }
 
     private static string InformationalVersion() =>
         typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
