@@ -53,7 +53,7 @@ public sealed class MeshNode : IAsyncDisposable
     private int userKeyHeld;
     private int stopped;
 
-    private MeshNode(MeshNodeOptions options, MeshNodeEnvironment environment, MeshDatabase database, StoreWriter writer, ObjectStore store, CredentialSlot credentials, PeerTable table, NodeFacts facts, PairingGate pairing, LWSEServer server, NodeReplication replication, LocalPort local, StaticPeerBook statics, bool userKeyHeld)
+    private MeshNode(MeshNodeOptions options, MeshNodeEnvironment environment, MeshDatabase database, StoreWriter writer, ObjectStore store, CredentialSlot credentials, PeerTable table, NodeFacts facts, PairingGate pairing, PairingShell pairings, LWSEServer server, NodeReplication replication, LocalPort local, StaticPeerBook statics, bool userKeyHeld)
     {
         StaticPeers = statics;
         this.options = options;
@@ -66,7 +66,8 @@ public sealed class MeshNode : IAsyncDisposable
         this.server = server;
         this.replication = replication;
         Facts = facts;
-        Pairing = pairing;
+        PairingGate = pairing;
+        Pairings = pairings;
         Local = local;
         this.userKeyHeld = userKeyHeld ? 1 : 0;
         if (Identity is { } known)
@@ -115,7 +116,10 @@ public sealed class MeshNode : IAsyncDisposable
     internal StaticPeerBook StaticPeers { get; }
 
     /// <summary>Whether a pairing is under way, for the TLS layer.</summary>
-    internal PairingGate Pairing { get; }
+    internal PairingGate PairingGate { get; }
+
+    /// <summary>The pairing shell: the one pairing that runs, and the requests that drive it (PAIR-SPEC.md).</summary>
+    internal PairingShell Pairings { get; }
 
     /// <summary>
     /// The local port (LOCAL-SPEC.md): where the Host adopts every pipe connection with its process identity, and where
@@ -284,6 +288,62 @@ public sealed class MeshNode : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// The device credential, made now from a new device key (written to the key store first) when the node has none: what
+    /// a <c>ShowDevice</c> pairing needs to show its key before the device has an identity (PAIR-SPEC.md §3).
+    /// </summary>
+    /// <param name="cancellationToken">Cancels waiting for the key store.</param>
+    /// <returns>The credential the node presents from now on.</returns>
+    internal async Task<DeviceCredential> EnsureDeviceCredentialAsync(CancellationToken cancellationToken)
+    {
+        if (credentials.Credential is { } held)
+            return held;
+        await identityLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return credentials.Credential ?? credentials.Install(await CreateDeviceCredentialAsync(environment.Time.GetUtcNow(), cancellationToken).ConfigureAwait(false));
+        }
+        finally
+        {
+            identityLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Makes this device a device of a user by an enrolment (PAIR-SPEC.md §9.3): as <see cref="AdoptIdentityAsync(VerifiedRoster, CancellationToken)"/>,
+    /// keeping the user's display name the other side sent.
+    /// </summary>
+    /// <param name="roster">The Roster that enrols this device.</param>
+    /// <param name="userName">The user's display name.</param>
+    /// <param name="cancellationToken">Cancels waiting for the store.</param>
+    /// <returns><see langword="true"/> when the identity changed.</returns>
+    internal async Task<bool> AdoptIdentityAsync(VerifiedRoster roster, string userName, CancellationToken cancellationToken)
+    {
+        DeviceCredential own = credentials.Credential ?? throw new InvalidOperationException("An enrolled device has a device key.");
+        await identityLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await AdoptAsync(roster, own, userName, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            identityLock.Release();
+        }
+    }
+
+    /// <summary>Whether the key store holds the user key now (LOCAL-SPEC.md §6.2 <c>AddDevice</c>).</summary>
+    /// <param name="cancellationToken">Cancels reading the key store.</param>
+    /// <returns><see langword="true"/> when it does.</returns>
+    internal Task<bool> HoldsUserKeyNowAsync(CancellationToken cancellationToken) => HoldsUserKeyAsync(environment.Keys, cancellationToken);
+
+    /// <summary>Where a pairing code says this node listens (PAIR-SPEC.md §2.2): its network addresses with the mesh port.</summary>
+    /// <returns>The endpoints, as the environment reads them now.</returns>
+    internal IReadOnlyList<IPEndPoint> PairingAddresses()
+    {
+        int port = MeshEndpoint.Port;
+        return [.. environment.Addresses().Select(a => new IPEndPoint(a, port))];
+    }
+
     // Records the identity and stores the Roster; the identity is known from then on.
     private async Task<bool> AdoptAsync(VerifiedRoster roster, DeviceCredential own, string userName, CancellationToken cancellationToken)
     {
@@ -368,10 +428,11 @@ public sealed class MeshNode : IAsyncDisposable
             NodeReplication replicating = replication;
             var local = new LocalPort(options.Local, facts, time, environment.Loggers.CreateLogger("Axiom.Mesh.Local"), bus);
             StaticPeerBook statics = await StaticPeerBook.OpenAsync(options.StaticPeers, running, table, time, cancellationToken).ConfigureAwait(false);
+            var pairings = new PairingShell(pairing, dialler, table, facts, time, options.DeviceName, local.Hub.PairingChanged);
             table.OnChanged(local.Hub.PeersChanged);
             replicating.Transfers.OnRecorded(local.Hub.TransferChanged);
             var module = new NodeModule(
-                new PeerSessionHandler(() => running.Trust, table, facts, time, replicating),
+                new PeerSessionHandler(() => running.Trust, table, facts, time, replicating, pairings),
                 local.Handler,
                 new NodeObserver(facts),
                 [
@@ -405,8 +466,9 @@ public sealed class MeshNode : IAsyncDisposable
             }
 
             started.TrySetResult();
-            var node = new MeshNode(options, environment, database, running, store, credentials, table, facts, pairing, server, replicating, local, statics, userKeyHeld);
+            var node = new MeshNode(options, environment, database, running, store, credentials, table, facts, pairing, pairings, server, replicating, local, statics, userKeyHeld);
             local.Attach(node);
+            pairings.Attach(node);
             return node;
         }
         catch
@@ -548,6 +610,7 @@ public sealed class MeshNode : IAsyncDisposable
             return;
         try
         {
+            Pairings.Dispose();
             await Local.DrainAsync(cancellationToken).ConfigureAwait(false);
             await server.StopAsync(cancellationToken).ConfigureAwait(false);
         }

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Net;
 using Axiom.LDB;
 using Axiom.Mesh.Core.Storage;
 using Axiom.Mesh.Discovery;
@@ -42,4 +44,11 @@ public sealed class MeshNodeEnvironment
     /// the same admission, TLS and protocol as a socket. For in-memory meshes in tests.
     /// </summary>
     public bool InMemory { get; init; }
+
+    /// <summary>
+    /// Reads the addresses this device is reachable at on its networks, for the code a showing pairing shows (PAIR-SPEC.md
+    /// §2.2); the mesh port is added to each. Default: the unicast addresses of every network interface that is up, not
+    /// loopback, IPv4 first. A test mesh names its in-memory addresses.
+    /// </summary>
+    public Func<IReadOnlyList<IPAddress>> Addresses { get; init; } = NetworkAddresses.Read;
 }

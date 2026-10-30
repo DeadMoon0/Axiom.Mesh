@@ -75,6 +75,9 @@ public sealed class Amp
             .States(s => s
                 .Start(Connected)
                 .In(Connected)
+                    // A connection under the pairing ALPN leaves AMP/1 before its first frame (PAIR-SPEC.md §5.1); the
+                    // node switches it, a peer cannot.
+                    .Switchable()
                     .On<Hello>().Delegate().GoTo(Established)
                     .On<Bye>().Delegate().GoTo(Closed)
                     .OnSend<Hello>()

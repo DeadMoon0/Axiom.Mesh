@@ -85,6 +85,7 @@ public sealed class TestMesh : IAsyncDisposable
             nodes[identity.Name] = new TestNode(identity, address, new TestNodeEnvironment(identity, clock, options.Seed + (ulong)i)
             {
                 Loggers = options.Loggers,
+                Addresses = [address.Address],
                 Files = options.StoreDirectories.TryGetValue(identity.Name, out string? directory)
                     ? new DirectoryObjectFiles(directory, new DeterministicEntropy(options.Seed + (ulong)i))
                     : new InMemoryObjectFiles(),
@@ -242,6 +243,49 @@ public sealed class TestMesh : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Pairs the users of two nodes over the local port, as two people at their screens would (PAIR-SPEC.md, LOCAL-SPEC.md
+    /// §6.2): <paramref name="showing"/> starts <c>ShowUser</c>, <paramref name="entering"/> enters its code with
+    /// <c>JoinUser</c>, both wait until the short authentication strings show, compare them, and confirm. Waits on the
+    /// nodes' facts, never by time; the dial that follows under AMP/1 is not awaited (see <see cref="ConnectAsync"/>).
+    /// </summary>
+    /// <param name="showing">The node that shows the code.</param>
+    /// <param name="entering">The node that enters it.</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>The short authentication string both sides showed.</returns>
+    /// <exception cref="TestMeshException">A side refused a step, the strings differ, or a step did not happen within the deadline.</exception>
+    public Task<string> PairAsync(string showing, string entering, CancellationToken cancellationToken) =>
+        RunPairingAsync(showing, PairingMode.ShowUser, entering, PairingMode.JoinUser, cancellationToken);
+
+    /// <summary>
+    /// Enrols a new device into the user of another node (PAIR-SPEC.md §9.2, §9.3): <paramref name="device"/>, which has no
+    /// identity, starts <c>ShowDevice</c>, <paramref name="user"/> enters its code with <c>AddDevice</c> (its user key is
+    /// placed in its key store first), both compare and confirm, and the device holds the user's identity once this
+    /// returns.
+    /// </summary>
+    /// <param name="user">A node of the user, which signs the new Roster.</param>
+    /// <param name="device">The node being enrolled; started without an identity (<see cref="TestMeshOptions.WithoutIdentity"/>).</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>The short authentication string both sides showed.</returns>
+    /// <exception cref="TestMeshException">A side refused a step, the strings differ, or a step did not happen within the deadline.</exception>
+    public async Task<string> EnrolAsync(string user, string device, CancellationToken cancellationToken)
+    {
+        await this[user].HoldUserKeyAsync(cancellationToken).ConfigureAwait(false);
+        string sas = await RunPairingAsync(device, PairingMode.ShowDevice, user, PairingMode.AddDevice, cancellationToken).ConfigureAwait(false);
+        using var deadline = new CancellationTokenSource(Deadline);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+        try
+        {
+            await this[device].Node.WhenIdentityAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw Timeout(device, $"{device} to hold the identity of {this[user].Identity.UserName}");
+        }
+
+        return sas;
+    }
+
     /// <summary>Stops a node as a shutdown would: its sessions say <c>Bye(Shutdown)</c>, its announcement leaves the board.</summary>
     /// <param name="name">The node.</param>
     /// <param name="cancellationToken">Cuts the drain short.</param>
@@ -381,6 +425,81 @@ public sealed class TestMesh : IAsyncDisposable
         "Advance the mesh's Clock when the awaited step waits for time to pass (a backoff, a heartbeat), in steps no longer than the step needs: a dial a timer starts runs after Advance returns, and a long Advance expires its handshake.");
 
 
+    // Both sides of one pairing over their local ports: show, enter, compare, confirm (the showing side first), Paired.
+    private async Task<string> RunPairingAsync(string showing, PairingMode showMode, string entering, PairingMode enterMode, CancellationToken cancellationToken)
+    {
+        TestNode shower = this[showing];
+        TestNode enterer = this[entering];
+        LocalClient show = await shower.ConnectUserAsync("test-mesh pairing", cancellationToken).ConfigureAwait(false);
+        await using (show.ConfigureAwait(false))
+        {
+            LocalClient enter = await enterer.ConnectUserAsync("test-mesh pairing", cancellationToken).ConfigureAwait(false);
+            await using (enter.ConfigureAwait(false))
+            {
+                Pairing shown = Expect(showing, await show.SendAsync(new StartPairing { Mode = showMode }, cancellationToken).ConfigureAwait(false));
+                Pairing entered = Expect(entering, await enter.SendAsync(new StartPairing { Mode = enterMode, Code = shown.Code }, cancellationToken).ConfigureAwait(false));
+                shown = await WaitForPairingAsync(shower, show, p => p.State != PairingState.Waiting, "the other side to connect", cancellationToken).ConfigureAwait(false);
+                entered = await WaitForPairingAsync(enterer, enter, p => p.State != PairingState.Waiting, "the code's device to answer", cancellationToken).ConfigureAwait(false);
+                if (shown.State != PairingState.Confirm || entered.State != PairingState.Confirm || shown.Sas != entered.Sas)
+                {
+                    throw new TestMeshException(
+                        $"The pairing did not reach Confirm with equal strings: {showing} {shown.State} '{shown.Sas}' {shown.Failure}, {entering} {entered.State} '{entered.Sas}' {entered.Failure}.",
+                        "Read both nodes' PairingChanged facts: a Failed state names the check that refused.");
+                }
+
+                Expect(showing, await show.SendAsync(new ConfirmPairing { PairingId = shown.PairingId }, cancellationToken).ConfigureAwait(false));
+                Expect(entering, await enter.SendAsync(new ConfirmPairing { PairingId = entered.PairingId }, cancellationToken).ConfigureAwait(false));
+                await WaitForPairingAsync(shower, show, p => p.State is not (PairingState.Confirm or PairingState.Confirming), "the pairing to end", cancellationToken).ConfigureAwait(false);
+                Pairing done = await WaitForPairingAsync(enterer, enter, p => p.State is not (PairingState.Confirm or PairingState.Confirming), "the pairing to end", cancellationToken).ConfigureAwait(false);
+                if (done.State != PairingState.Paired)
+                    throw new TestMeshException($"{entering} ended the pairing {done.State}: {done.Failure}", "Read both nodes' PairingChanged facts.");
+                return shown.Sas;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Waits until a node's current pairing (<c>GetPairing</c>, LOCAL-SPEC.md §6.2) satisfies a condition, reading it again
+    /// after every <see cref="NodeFactKind.PairingChanged"/> fact.
+    /// </summary>
+    /// <param name="name">The node.</param>
+    /// <param name="client">A user client of that node.</param>
+    /// <param name="condition">What must hold.</param>
+    /// <param name="what">What is awaited, for the failure message.</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>The pairing once it holds.</returns>
+    /// <exception cref="TestMeshException">It did not hold within the deadline.</exception>
+    public Task<Pairing> WaitForPairingAsync(string name, LocalClient client, Func<Pairing, bool> condition, string what, CancellationToken cancellationToken) =>
+        WaitForPairingAsync(this[name], client, condition, what, cancellationToken);
+
+    // Re-reads the node's pairing after every PairingChanged fact until the condition holds.
+    private async Task<Pairing> WaitForPairingAsync(TestNode node, LocalClient client, Func<Pairing, bool> condition, string what, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(condition);
+        using var deadline = new CancellationTokenSource(Deadline);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+        try
+        {
+            while (true)
+            {
+                long seen = node.Node.Facts.LastSequence;
+                LocalResult<Pairing> read = await client.SendAsync(new GetPairing(), linked.Token).ConfigureAwait(false);
+                if (read.IsOk && condition(read.Value))
+                    return read.Value;
+                await node.Node.Facts.WaitForAsync(f => f.Kind == NodeFactKind.PairingChanged, seen, linked.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw Timeout(node.Name, what);
+        }
+    }
+
+    private static Pairing Expect(string name, LocalResult<Pairing> result) =>
+        result.IsOk ? result.Value
+        : throw new TestMeshException($"{name} refused a pairing request with {result.Status}: {result.Error?.Message}", "Read the node's PairingChanged facts and the request's status.");
+
     private async Task RunAsync(TestNode node, CancellationToken cancellationToken)
     {
         if (node.IsRunning)
@@ -389,7 +508,7 @@ public sealed class TestMesh : IAsyncDisposable
         MeshNode running;
         try
         {
-            running = await MeshNode.StartAsync(nodeOptions, environment, cancellationToken).ConfigureAwait(false);
+            running = await MeshNode.StartAsync(nodeOptions with { DeviceName = node.Name }, environment, cancellationToken).ConfigureAwait(false);
         }
         catch
         {

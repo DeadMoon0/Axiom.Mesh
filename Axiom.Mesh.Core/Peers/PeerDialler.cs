@@ -61,6 +61,58 @@ internal sealed class PeerDialler
         }
     }
 
+    /// <summary>
+    /// Dials an address of a pairing code once (PAIR-SPEC.md §4.1), outside the peer table: no backoff, no retry. The
+    /// pairing window decides that the handshake offers the pairing ALPN and pins the code's key.
+    /// </summary>
+    /// <param name="address">The address.</param>
+    /// <param name="cancellationToken">Stops the dial; a connection once open runs until it ends.</param>
+    /// <returns>A task that completes when the dial failed or the connection ended.</returns>
+    public async Task DialPairingAsync(IPEndPoint address, CancellationToken cancellationToken)
+    {
+        IConnectionAdoption seam = adoption ?? throw new InvalidOperationException("The dialler runs before the server was built.");
+        AdmissionLease? lease;
+        try
+        {
+            if (!seam.TryReserve(Ports.Outbound, address, Reservation, out lease))
+            {
+                facts.Record(NodeFactKind.DialFailed, 0, address, default, "pairing: admission refused the place");
+                return;
+            }
+        }
+        catch (AdoptionRefusedException ex)
+        {
+            facts.Record(NodeFactKind.DialFailed, 0, address, default, "pairing: " + ex.Message);
+            return;
+        }
+
+        facts.Record(NodeFactKind.Dialling, 0, address, default, "pairing");
+        Stream stream;
+        try
+        {
+            stream = await dialer.DialAsync(address, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or TimeoutException or OperationCanceledException)
+        {
+            lease.Dispose();
+            facts.Record(NodeFactKind.DialFailed, 0, address, default, "pairing: " + ex.Message);
+            return;
+        }
+
+        try
+        {
+            await seam.AdoptAsync(lease, stream, LocalOf(stream)).ConfigureAwait(false);
+        }
+        catch (AdoptionRefusedException)
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The server reported whatever ended the connection to its observers; the pairing shell saw the rest.
+        }
+    }
+
     private void Track(Task dial)
     {
         lock (running)

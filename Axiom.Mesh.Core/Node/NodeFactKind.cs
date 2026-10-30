@@ -77,4 +77,10 @@ public enum NodeFactKind
 
     /// <summary>A local connection ended (LOCAL-SPEC.md §2.3), for the reason in the detail; everything tied to it ended with it.</summary>
     LocalEnded = 23,
+
+    /// <summary>
+    /// A pairing changed (PAIR-SPEC.md §6) or its connection ended; the detail names the mode and state, or what ended the
+    /// connection, and <see cref="NodeFact.Device"/> the other side once known.
+    /// </summary>
+    PairingChanged = 24,
 }

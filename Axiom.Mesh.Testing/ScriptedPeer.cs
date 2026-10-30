@@ -30,6 +30,7 @@ public sealed class ScriptedPeer : IAsyncDisposable
     private readonly TimeProvider clock;
     private Connection? connection;
     private Session<MeshMessage, MeshMessage>? session;
+    private Session<PairMessage, PairMessage>? pairing;
 
     private ScriptedPeer(TestIdentity identity, SslStream tls, X509Certificate2 certificate, TimeProvider clock)
     {
@@ -329,6 +330,81 @@ public sealed class ScriptedPeer : IAsyncDisposable
             throw Unexpected("a close without a protocol byte", $"{read} bytes of protocol: {Convert.ToHexString(buffer, 0, read)}");
     }
 
+    /// <summary>
+    /// Sends a frame of <c>axiom-mesh-pair/1</c> (PAIR-SPEC.md §5): the connection then speaks the pairing protocol, never
+    /// AMP/1. For a connection whose handshake negotiated the pairing ALPN.
+    /// </summary>
+    /// <param name="message">The message.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when it was written.</returns>
+    public async Task SendPairAsync(PairMessage message, CancellationToken cancellationToken)
+    {
+        Session<PairMessage, PairMessage> open = await PairingAsync(cancellationToken).ConfigureAwait(false);
+        await open.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the next <c>axiom-mesh-pair/1</c> message the node sends; a frame of any other protocol (AMP/1 among them) does
+    /// not parse and fails the test.
+    /// </summary>
+    /// <typeparam name="T">The message expected.</typeparam>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>The message.</returns>
+    /// <exception cref="TestMeshException">Something else arrived, or nothing within the deadline.</exception>
+    public async Task<T> ExpectPairAsync<T>(CancellationToken cancellationToken)
+        where T : PairMessage
+    {
+        Session<PairMessage, PairMessage> open = await PairingAsync(cancellationToken).ConfigureAwait(false);
+        using var deadline = new CancellationTokenSource(TestMesh.Deadline);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+        ProtocolReadResult<PairMessage> read;
+        try
+        {
+            read = await open.ReadAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw Unexpected(typeof(T).Name, $"nothing within {TestMesh.Deadline.TotalSeconds:0} s");
+        }
+
+        return read.Message as T ?? throw Unexpected(typeof(T).Name, read.Message?.ToString() ?? "the end of the session");
+    }
+
+    /// <summary>
+    /// Waits until the node closes the pairing connection, and fails when any frame arrives before the close: the node
+    /// sends nothing after a pairing ended, of AMP/1 or of the pairing protocol.
+    /// </summary>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>A task that completes when the connection closed.</returns>
+    /// <exception cref="TestMeshException">A frame arrived, or the connection stayed open past the deadline.</exception>
+    public async Task ExpectPairingClosedAsync(CancellationToken cancellationToken)
+    {
+        Session<PairMessage, PairMessage> open = await PairingAsync(cancellationToken).ConfigureAwait(false);
+        using var deadline = new CancellationTokenSource(TestMesh.Deadline);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+        ProtocolReadResult<PairMessage> read;
+        try
+        {
+            read = await open.ReadAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw Unexpected("the end of the pairing connection", $"an open connection after {TestMesh.Deadline.TotalSeconds:0} s");
+        }
+        catch (ProtoStream.Errors.ProtocolViolationException violation)
+        {
+            throw Unexpected("the end of the pairing connection", "a frame that is not of the pairing protocol: " + violation.Violation.Detail);
+        }
+        catch (Exception ex) when (ex is ProtoStream.Errors.ProtoStreamException or IOException or AuthenticationException)
+        {
+            // Ended by a reset: ended all the same.
+            return;
+        }
+
+        if (!read.IsCompleted)
+            throw Unexpected("the end of the pairing connection", read.Message?.ToString() ?? "a message");
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
@@ -342,11 +418,26 @@ public sealed class ScriptedPeer : IAsyncDisposable
     {
         if (session is not null)
             return session;
+        if (pairing is not null)
+            throw new InvalidOperationException("The connection speaks axiom-mesh-pair/1 already.");
         if (HandshakeFailure is not null)
             throw Unexpected("a completed handshake", HandshakeFailure.Message);
         connection = Connection.FromStream(tls, new ConnectionOptions { TimeProvider = clock, LeaveOpen = true });
         session = await connection.OpenAsync(Amp.Definition, cancellationToken).ConfigureAwait(false);
         return session;
+    }
+
+    private async ValueTask<Session<PairMessage, PairMessage>> PairingAsync(CancellationToken cancellationToken)
+    {
+        if (pairing is not null)
+            return pairing;
+        if (session is not null)
+            throw new InvalidOperationException("The connection speaks AMP/1 already; a pairing connection speaks only axiom-mesh-pair/1.");
+        if (HandshakeFailure is not null)
+            throw Unexpected("a completed handshake", HandshakeFailure.Message);
+        connection = Connection.FromStream(tls, new ConnectionOptions { TimeProvider = clock, LeaveOpen = true });
+        pairing = await connection.OpenAsync(PairProtocol.Definition, cancellationToken).ConfigureAwait(false);
+        return pairing;
     }
 
     private static X509Certificate2 CertificateOf(TestIdentity identity, TimeProvider clock)

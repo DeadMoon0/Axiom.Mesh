@@ -39,4 +39,10 @@ public sealed record MeshNodeOptions
     /// <c>ListStaticPeers</c> and kept beside those <c>AddStaticPeer</c> adds (LOCAL-SPEC.md §6.6).
     /// </summary>
     public IReadOnlyList<string> StaticPeers { get; init; } = [];
+
+    /// <summary>
+    /// The name this device proposes for its Roster entry when another device of its user enrols it (PAIR-SPEC.md §5.2,
+    /// mode <c>ShowDevice</c>); cut to 64 UTF-8 bytes. Default <c>device</c>; the Host passes the machine's name.
+    /// </summary>
+    public string DeviceName { get; init; } = "device";
 }

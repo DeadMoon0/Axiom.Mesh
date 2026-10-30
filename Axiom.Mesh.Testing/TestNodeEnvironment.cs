@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.LDB;
@@ -51,6 +53,9 @@ public sealed class TestNodeEnvironment
     /// <summary>Where the node logs; nowhere by default.</summary>
     public ILoggerFactory Loggers { get; init; } = NullLoggerFactory.Instance;
 
+    /// <summary>The addresses the node says it listens at, for the code a showing pairing shows (PAIR-SPEC.md §2.2).</summary>
+    public IReadOnlyList<IPAddress> Addresses { get; init; } = [];
+
     /// <summary>Opens the database and hands out the environment for one start of the node.</summary>
     /// <param name="discovery">The node's discovery.</param>
     /// <param name="dialer">The node's dialler.</param>
@@ -73,6 +78,7 @@ public sealed class TestNodeEnvironment
             Entropy = new DeterministicEntropy(Seed),
             Loggers = Loggers,
             InMemory = true,
+            Addresses = () => Addresses,
         };
     }
 

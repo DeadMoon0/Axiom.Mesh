@@ -379,6 +379,30 @@ internal sealed class PeerTable : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Dials a device a pairing just made known (PAIR-SPEC.md §9), at the address the pairing reached: a backoff from
+    /// before the pairing, when the device was still unknown and refused, no longer holds.
+    /// </summary>
+    /// <param name="device">The device.</param>
+    /// <param name="user">Its user.</param>
+    /// <param name="address">Its address.</param>
+    public void DialPaired(DeviceId device, UserId user, IPEndPoint address)
+    {
+        lock (gate)
+        {
+            if (devices.TryGetValue(device, out Entry? entry))
+            {
+                entry.Failures = 0;
+                entry.FailedUntil = null;
+                entry.Refused = false;
+                entry.Retry?.Dispose();
+                entry.Retry = null;
+            }
+        }
+
+        DialDevice(device, user, address);
+    }
+
     /// <summary>A static peer was removed: its address is no longer retried.</summary>
     /// <param name="address">The address.</param>
     public void ForgetStatic(IPEndPoint address)

@@ -20,8 +20,8 @@ namespace Axiom.Mesh.Core;
 /// </summary>
 /// <remarks>
 /// Topic transfers carries what replication reports (<see cref="TransferChanged"/>), topic service what
-/// <see cref="ServiceEmitted"/> is handed; pairing (M10) is subscribable and carries no events yet; operations are the
-/// connection's own (<see cref="OperationTable"/>).
+/// <see cref="ServiceEmitted"/> is handed, topic pairing what the pairing shell reports (<see cref="PairingChanged"/>);
+/// operations are the connection's own (<see cref="OperationTable"/>).
 /// </remarks>
 internal sealed class LocalEventHub
 {
@@ -96,6 +96,23 @@ internal sealed class LocalEventHub
                 f => (f.Service.Length == 0 || string.Equals(f.Service, emitted.Service, StringComparison.Ordinal)) && (f.PackageId.Value.IsZero || f.PackageId == emitted.PackageId),
                 queued);
         }
+    }
+
+    /// <summary>
+    /// A pairing changed (§6.2): a <c>PairingChanged</c> on every subscription of topic pairing (§7.2). Called by the
+    /// pairing shell after every transition; it only queues.
+    /// </summary>
+    /// <param name="pairing">The pairing after the change.</param>
+    public void PairingChanged(Pairing pairing)
+    {
+        ArgumentNullException.ThrowIfNull(pairing);
+        LocalConnection[] live = Subscribed(Topic.Pairing);
+        if (live.Length == 0)
+            return;
+        var changed = new PairingChanged { Pairing = pairing };
+        var queued = new QueuedEvent(changed, FrameSizes.OfEvent(changed), 0);
+        foreach (LocalConnection connection in live)
+            connection.Offer(Topic.Pairing, static _ => true, queued);
     }
 
     /// <summary>Turns change sets into events until stopped.</summary>

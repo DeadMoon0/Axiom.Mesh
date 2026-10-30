@@ -117,7 +117,7 @@ public sealed class HandshakeTests
         await using (ScriptedPeer withoutWindow = await ScriptedPeer.ConnectAsync(alice, eve, pairing, None))
             await withoutWindow.ExpectClosedWithoutHelloAsync(None);
 
-        alice.Node.Pairing.Set(PairingWindow.Showing);
+        alice.Node.PairingGate.Set(PairingWindow.Showing);
         await using (ScriptedPeer underMesh = await ScriptedPeer.ConnectAsync(alice, eve, ScriptedPeerOptions.Default, None))
             await underMesh.ExpectClosedWithoutHelloAsync(None);
         Assert.DoesNotContain(alice.Node.Facts.Recent(), f => f.Kind == NodeFactKind.SessionOpened);

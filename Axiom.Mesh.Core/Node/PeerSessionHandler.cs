@@ -30,6 +30,7 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
     private readonly NodeFacts facts;
     private readonly TimeProvider time;
     private readonly NodeReplication replication;
+    private readonly PairingShell pairings;
 
     /// <summary>The handler of a node.</summary>
     /// <param name="trust">The node's trust now.</param>
@@ -37,8 +38,10 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
     /// <param name="facts">Where to record what happens.</param>
     /// <param name="time">The node's clock.</param>
     /// <param name="replication">What the node's sessions share for replication.</param>
-    public PeerSessionHandler(Func<TrustSnapshot> trust, PeerTable table, NodeFacts facts, TimeProvider time, NodeReplication replication)
+    /// <param name="pairings">The pairing shell, which serves every connection under the pairing ALPN.</param>
+    public PeerSessionHandler(Func<TrustSnapshot> trust, PeerTable table, NodeFacts facts, TimeProvider time, NodeReplication replication, PairingShell pairings)
     {
+        this.pairings = pairings;
         this.trust = trust;
         this.table = table;
         this.facts = facts;
@@ -54,11 +57,17 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
     /// <inheritdoc />
     public async ValueTask ServeAsync(ConnectionContext connection, Session<MeshMessage, MeshMessage> session, CancellationToken stopping)
     {
-        // MeshTls sets both features on every connection it lets through. A pairing connection belongs to the pairing
-        // shell, which is not built yet: it is closed without an AMP/1 byte (returning would send the definition's Bye).
-        if (!connection.TryGetFeature(out PeerIdentity? peer) || !connection.TryGetFeature(out LinkActivity? activity) || peer.IsPairing)
+        // MeshTls sets both features on every connection it lets through.
+        if (!connection.TryGetFeature(out PeerIdentity? peer) || !connection.TryGetFeature(out LinkActivity? activity))
         {
             connection.Abort();
+            return;
+        }
+
+        // A pairing connection leaves AMP/1 before its first frame (PAIR-SPEC.md §5.1): the shell switches it.
+        if (peer.IsPairing)
+        {
+            await ServePairingAsync(connection, session, peer, stopping).ConfigureAwait(false);
             return;
         }
 
@@ -137,6 +146,18 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
         finally
         {
             table.SessionEnded(tracked, ended);
+        }
+    }
+
+    private async ValueTask ServePairingAsync(ConnectionContext connection, Session<MeshMessage, MeshMessage> session, PeerIdentity peer, CancellationToken stopping)
+    {
+        try
+        {
+            await pairings.ServeAsync(connection, session, peer, stopping).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is ProtoStreamException or IOException or ObjectDisposedException || (ex is OperationCanceledException && stopping.IsCancellationRequested))
+        {
+            facts.Record(NodeFactKind.PairingChanged, connection.Id, connection.Remote, peer.Device, "the pairing connection broke: " + ex.Message);
         }
     }
 
