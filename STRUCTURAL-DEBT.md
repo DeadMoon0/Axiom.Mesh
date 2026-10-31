@@ -134,12 +134,10 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 
 ## 13. The executables are named after their assemblies, not `axiom-meshd`
 
-- **Rule:** DESIGN.md §11 and the fundamentals plan §1 name the daemon `axiom-meshd` and the CLI `axiom-mesh`.
-- **Instead:** the build produces `Axiom.Mesh.Host` and `Axiom.Mesh.Cli`; only the CLI's tool command is `axiom-mesh`.
-  The assembly names stay equal to the package names because the layering conventions read them.
-- **Evidence:** `Axiom.Mesh.Host/Axiom.Mesh.Host.csproj` sets no `AssemblyName`.
-- **Tolerated because:** nothing is published yet; the daemon prints and answers as `axiom-meshd`.
-- **Paid in:** M12, with the Native AOT publish (rename the published binary, keep the assembly name).
+Paid in M12: a Native AOT publish sets `TargetName`, so the published executables are `axiom-meshd` and `axiom-mesh`
+while the assemblies keep their package names for the layering conventions (`Axiom.Mesh.Host.csproj`,
+`Axiom.Mesh.Cli.csproj`); `Scripts/aot-smoke.ps1` ran them so on win-x64, `aot.yml` runs and uploads them on both
+platforms. A framework-dependent build (`dotnet run`, the tool package) keeps the assembly names.
 
 ## 14. The store directory is not flushed after a rename where .NET cannot open a directory
 
@@ -151,8 +149,11 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 - **Evidence:** `Axiom.Mesh.Core/Storage/DirectoryObjectFiles.cs`, `FlushDirectory`.
 - **Tolerated because:** the object is still absent or complete after a crash (the rename is atomic); what can be lost
   is a just-renamed object, which the index (written after the file) does not name yet unless its batch committed.
-- **Paid in:** M12, with the integration tests on Linux (an `fsync` on a directory descriptor through a P/Invoke-free API,
-  or `File.OpenHandle` on the directory where the runtime allows it).
+- **Not paid in M12:** the milestone had no Linux machine, and nothing in the integration suite, which CI runs on Linux,
+  can observe whether a directory was flushed; the M12 batch writes (`FileWrites`) did not change the flush itself.
+- **Paid in:** M13, with the install-script job that runs the published daemon on Linux (an `fsync` on a directory
+  descriptor through a P/Invoke-free API, or `File.OpenHandle` on the directory where the runtime allows it, with a log
+  line the job can read).
 
 ## 15. The index's composite keys are concatenated into one column
 
@@ -183,14 +184,10 @@ an Entry (`StoreBatch.HasParentFaultAsync`, `AdmitOutcome.Faulty`) and the sessi
 
 ## 18. Evicting an Entry forgets its Head without electing the next one
 
-- **Rule:** SPEC.md §9.3: a node keeps, per Package and device, the stored Entry with the highest clock.
-- **Instead:** when an Entry is evicted (possible only for a Package no longer followed, whose Entries are unpinned),
-  its `Heads` row is deleted and no other stored Entry of the device takes its place until one is stored again.
-- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs`, `UnlinkAsync`.
-- **Tolerated because:** an unfollowed Package is neither listed nor replicated; following it again fetches its Heads
-  from the peers' listings, and M7's `HeadsView` mirrors the `Heads` table exactly.
-- **Paid in:** M9, with the store requests (`Evict` and `GetStore`): electing the next stored Entry of the device on
-  eviction, in the writer and in `HeadsView`.
+Paid in M12, with entry 28: when an evicted or retired Entry was its device's Head, the store writer elects the device's
+next stored Entry by the head rule, writes its `Heads` row and `HeadsView`, and announces the change as a Head change
+(`StoreBatch.ElectHeadAsync`; `Core.Tests: LateParentTests.EvictingADevicesHeadMakesItsNextStoredEntryTheHead`). A
+dropped Package (entry 41) loses its Heads as a whole.
 
 ## 19. A user who stops being known keeps the stored Roster
 
@@ -280,34 +277,30 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
   copy on the send path; intake copies a frame once into a pooled buffer.
 - **Instead:** ProtoStream 0.2.0's frame-codec route encodes a whole message into its pooled write buffer and has no
   payload streaming, so an object is read from the store into one pooled buffer of its size and handed to
-  `ObjectMessage.FromStored`. Forwarding 16 objects of 1 MiB between two in-memory nodes allocates 4.2 to 4.7 MiB per
-  object (net8.0 and net10.0, Windows): 2 MiB are the two in-memory stores' own copies, intake stays within its pooled
-  copy, and the remaining ~1.5 MiB per object lies in the TLS, pipe and frame layers, not yet attributed.
-- **Evidence:** `Axiom.Mesh.Core/Replication/ReplicationSession.cs` (`SendObjectAsync`);
-  `ReplicationRegressionTests.ForwardingAMebibyteObjectAllocatesNoFurtherWholeCopy` (a budget of 5 MiB per object).
-- **Tolerated because:** nothing in it grows with more than one object at a time, the buffers on Mesh's own path are
-  pooled, and the benchmarks that measure throughput come in M12.
-- **Paid in:** M12, with the loopback benchmark (attribute the allocations; ask ProtoStream for a streamed payload on the
-  frame-codec route if the send path needs it).
+  `ObjectMessage.FromStored`. M12 attributed what forwarding allocates (`scenario forward` and `scenario loopback` of the
+  benchmark suite, Documentation/BENCHMARKS.md): the frame layer (ProtoStream's encoder, decoder and pipes over a loopback
+  TLS 1.3 stream, `SslStream` included) allocates about 53 KiB per 1 MiB object, Core's own buffers (intake's copy, the
+  send buffer) are pooled and allocate nothing per object, and two real nodes allocate about 0.64 MiB per 1 MiB object in
+  all, sampled by type as LDB's query and index arrays (`SlotRow[]`, `TreeEntry[]`) and byte arrays, from the index work
+  each stored, served and checked object asks for. The ~1.5 MiB of M7's in-memory measurement was the in-memory stores and
+  pipes. Core's part was cut in M12: the visibility walk remembers the whole path up from a visible Entry, so the Chunks of
+  one ChunkList cost one upward walk instead of one each (`ReferenceWalk`, `ServedObjects`), and the want scheduler's
+  settle checks no longer allocate a delegate per want.
+- **Evidence:** `Benchmarks/Axiom.Mesh.Benchmarks/Scenarios/ForwardScenario.cs`, `LoopbackScenario.cs` with
+  `AXIOM_MESH_ALLOCATIONS=1`; `ReplicationRegressionTests.ForwardingAMebibyteObjectAllocatesNoFurtherWholeCopy` (a budget
+  of 5 MiB per object, in memory).
+- **Tolerated because:** nothing in it grows with more than one object at a time, and the remainder belongs to the layers
+  that own it: LDB (per-row query and index arrays) and ProtoStream (no streamed payload on the frame-codec route).
+- **Paid in:** with the LDB release that pools its query buffers, and the ProtoStream release with a streamed payload on
+  the frame-codec route; Core then reads objects into the writer in slices.
 
 ## 28. An Entry stored before its parents is not checked against them
 
-- **Rule:** SPEC.md §8.6, §12.2: once its parents are held, an Entry whose parent is of another Package, whose clock is
-  not above every parent's, or more than 2^32 above the greatest, is faulty and not forwarded.
-- **Instead:** the writer checks an Entry when its parents are already stored. A history walk stores the newest Entry
-  first and its parents after it; when they arrive, the stored child is not checked again.
-- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs` (`HasParentFaultAsync` returns no fault while a parent is missing).
-- **Tolerated because:** such an Entry was signed by a device that may write (`EntryAdmission`), so a fault costs
-  ordering, not trust; the clock gap rule's purpose, that a writer cannot sort last for ever, still holds for every
-  Entry written after a held one.
-- **Not paid in M9:** `WriteEntry` never stores before its parents (it names stored parents only), so the request work
-  did not reach this path; the check belongs to the history walk.
-- **Not paid in M11:** SPEC.md draft 4 now states the rule (§8.6: checked when the last parent is stored; a faulty one no
-  longer listed, served or forwarded). Doing it needs a reverse parent index (a schema step) and a way to retire a stored
-  Entry from Heads, pins and serving, which is entry 18's missing Head election as well; the scenario suite's walks never
-  meet a faulty late parent, so nothing proved the shape of either.
-- **Paid in:** M12, together with entry 18: a `ParentRow` index written with each Entry, the children of a newly stored
-  Entry checked against `Lamport.TryFindParentFault`, a faulty one retired as an eviction that elects the next Head.
+Paid in M12, with entry 18: the store writer writes a `ParentRow` for each parent an Entry names that is not stored yet;
+when that parent is stored, each child whose last missing parent it was is checked against `Lamport.TryFindParentFault`
+from the index alone (a facts-based overload in Model), and one found faulty is retired: its pins dropped, its file and
+rows evicted, its device's next stored Entry elected Head, so it is no longer listed, served or forwarded (SPEC.md §8.6
+draft 5; `Core.Tests: LateParentTests`). What remains, recording the sender of such an Entry as faulty, is entry 59.
 
 ## 29. History is walked when an object is stored, not when the policy changes
 
@@ -348,26 +341,25 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 - **Rule:** LOCAL-SPEC.md §7.3, §5.4: `PackageChanged` carries the Package after the change, the Grant for change Grant,
   the Head for change Head.
 - **Instead:** a Grant change names the Grants that differ from the previous trust; a Head change names the Heads of
-  the devices whose Entries the batch stored (a Head that changed because an Entry was evicted is not announced, entry
-  18); the count of stored Entries is read from the index for each record. Since M9 one builder
+  the devices whose Entries the batch stored or whose Head the batch elected after an eviction (M12, entry 18); the count of stored Entries is read from the index for each record. Since M9 one builder
   (`PackageRecords.BuildAsync`) makes the record for `GetPackage`, `ListPackages`, the Package requests and the events,
   and `listedBy` counts the established sessions whose current listing names the Package.
 - **Evidence:** `Axiom.Mesh.Core/Local/LocalEventHub.cs` (`EventsOf`), `Local/PackageRecords.cs`.
 - **Tolerated because:** a client that needs the exact state calls `GetPackage` after an event, which §3.4 advises
   anyway; a peer listing or delisting a Package changes `listedBy` without an event of its own, which §14.12 does not ask
   for.
-- **Paid in:** M12, with the performance pass (an Entry count kept per Package instead of a count query per record).
+- **Not paid in M12:** the benchmarks of M12 put no record on a hot path (a `ListPackages` page is a handful of count
+  queries), so the Entry count per Package waits for a measurement that asks for it.
+- **Paid in:** phase 1b, with the Sync service's listing views, or earlier if a benchmark shows the count queries (an Entry
+  count kept per Package in `PackageRow`).
 
 ## 34. ConfirmPairing is a user-key request in every mode
 
-- **Rule:** LOCAL-SPEC.md §2.2: `ConfirmPairing` is a user-key request in modes `ShowUser`, `JoinUser` and `AddDevice`.
-- **Instead:** the dispatcher marks `ConfirmPairing` user-key whatever the mode (`ShowDevice` included), because the
-  mode belongs to the running pairing, which does not exist before M10.
-- **Evidence:** `Axiom.Mesh.Core/Local/RequestRoutes.cs` (`SpendingUserKey`).
-- **Tolerated because:** it can only log or confine one request too many, never one too few. M10 built the pairing
-  shell but kept the static table: confining by mode needs the dispatcher to read the running pairing's mode before the
-  handler, a change of `DispatchRule` that is not worth its risk for one request of a device that holds no user key.
-- **Paid in:** M12, with the security conformance pass (the dispatcher asks the pairing shell for the mode).
+Paid in M12: the dispatcher asks the pairing shell for the mode of the pairing a `ConfirmPairing` names
+(`PairingShell.ModeOf`, read without the lock) and `DispatchRule.SpendsUserKey` counts it as a user-key request in modes
+`ShowUser`, `JoinUser` and `AddDevice`, not in `ShowDevice`; a pairing that is not the current one still counts, so
+confinement errs only on the side of one request too many (`Core.Tests: DispatchRuleTests.ConfirmPairingSpendsTheUserKeyInEveryModeButShowDevice`).
+LOCAL-SPEC.md §2.2 says the reference Host now does this.
 
 ## 35. An event's size is counted by encoding it once more
 
@@ -378,7 +370,9 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 - **Evidence:** `Axiom.Mesh.Core/Local/FrameSizes.cs`, `Local/CountingBufferWriter.cs`.
 - **Tolerated because:** the count costs one pass over an event that is written at least once anyway, and nothing is
   allocated beyond a pooled scratch buffer; a pre-encoded event needs an API in `Axiom.Mesh.Local`.
-- **Paid in:** M12, with the benchmarks (measure; if it matters, a pre-encoded `EventFrame` in Local).
+- **Not paid in M12:** no benchmark of M12 drives events (the pipe scenarios measure requests); the counting pass stays
+  until one shows it.
+- **Paid in:** phase 1b, with the Sync service's event load measured (a pre-encoded `EventFrame` in Local if it matters).
 
 ## 36. ListDiscovered lists what the discovery cache holds, not the last hour
 
@@ -423,7 +417,9 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 - **Evidence:** `Axiom.Mesh.Core/Local/PinOrder.cs`, `Local/StoreRequests.cs` (`ListPinsAsync`).
 - **Tolerated because:** a desktop store holds thousands of pins, which sort in milliseconds; clients list pins of one
   object or one Package.
-- **Paid in:** M12, with the performance pass (a keyset page over an ordered key, as `EntryIndex` does for Entries).
+- **Not paid in M12:** pins are not on a measured hot path; a desktop store of thousands of pins sorts within a page.
+- **Paid in:** phase 1b, or earlier if a benchmark shows it (a keyset page over an ordered key, as `EntryIndex` does for
+  Entries).
 
 ## 40. Paths are opened as the Host's user, not the client's
 
@@ -435,35 +431,26 @@ write files as the client's own user, and `GetStorePath` only names the store di
 
 ## 41. An unfollowed Package that no peer lists stays Listed
 
-- **Rule:** LOCAL-SPEC.md §6.4: `UnfollowPackage` returns the record to Listed while a peer lists it, else it is dropped.
-- **Instead:** the record returns to Listed whatever the listings say.
-- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs` (`PackageAsync`), `Local/PackageRequests.cs`.
-- **Tolerated because:** a Listed record pins nothing and costs a row; following it again is the user's choice.
-- **Not paid in M11:** dropping the record means a Package of trust state `None` that may still have Entries in the
-  store (unpinned, evictable); what `ListPackages`, visibility and a later listing then make of those Entries is not
-  specified, and no scenario needed the drop.
-- **Paid in:** M12: drop the record when the last session that listed it omits it and nothing of it is pinned, evict its
-  Entries with it, and say so in LOCAL-SPEC.md §6.4.
+Paid in M12: "no peer lists it" is read from the listings the node already keeps, the established sessions' current
+listings (`NodeReplication.ListedBy`). `MeshNode.UnfollowAsync` drops the Package when no session lists it; a session whose
+completed listing omits a Package it listed before drops it when the Package is only Listed here and no other session
+lists it. A peer that merely disconnects omits nothing. The drop (`PackageCommandKind.Drop`, `StoreBatch.DropAsync`)
+evicts the Package's Entries, Manifest and Grants and forgets its record and trust, unless something of it is still pinned
+(a user or service pin), which keeps it Listed. LOCAL-SPEC.md §6.4 says so (`Core.Tests: PackageRequestTests.AnUnfollowedPackageNoPeerListsIsDropped_AndSoIsAListedOneTheLastListerOmits`).
+What remains, that no event announces the drop, is entry 58.
 
 ## 42. Fetch does not check that the Package references the object
 
-- **Rule:** LOCAL-SPEC.md §6.4: `packageId` is a followed Package whose Entries reference the object.
-- **Instead:** the Host checks that the Package is followed and asks the peers that list it; a peer resolves visibility
-  (SPEC.md §9.7) and answers `NotFound` for an object the Package does not reference, so the operation ends `NotFound`
-  after 60 seconds without a source.
-- **Evidence:** `Axiom.Mesh.Core/Local/OperationStarts.cs`, `Local/ObjectFetcher.cs`.
-- **Tolerated because:** nothing is served that the peer would not serve anyway; the cost is a slower `NotFound`.
-- **Paid in:** M12 (an upward walk over the reference rows before the operation starts).
+Paid in M12: `Fetch` walks the reference rows upwards from the object (`ReferenceWalk`, shared with the visibility check of
+serving) and is `NotFound` at once unless the object is a stored Entry of the Package or one of its stored Entries
+reaches it; nothing is wanted for a refused object (`Core.Tests: OperationKindTests.AFetchOfAnObjectNoStoredEntryOfThePackageReferencesIsNotFoundAtOnce`).
 
 ## 43. A Fetch notices a new source on its next look, once a second
 
-- **Rule:** ARCHITECTURE.md rule 6 and SPEC.md §10.5: no polling.
-- **Instead:** a waiting Fetch looks once a second on the node's clock whether a session now lists the Package, besides
-  waking for every change set; a session that lists the Package changes nothing in the store, so it has no event.
-- **Evidence:** `Axiom.Mesh.Core/Local/ObjectFetcher.cs` (`Look`).
-- **Tolerated because:** one timer per waiting operation, at most 16 per connection; the 60-second rule needs a clock
-  anyway.
-- **Paid in:** M12 (a listing event from the sessions to the scheduler).
+Paid in M12: the want scheduler raises a source signal (`WantScheduler.WhenSourcesChange`) when a session attaches or
+ends, a `Have` gains a source, a `NotFound` removes one, or a session completes a listing or receives a `PackageChanged`;
+a waiting Fetch wakes on it, on a stored object or on its 60-second deadline, and polls nothing. Tests no longer move the
+clock after a source connects (`Core.Tests: OperationKindTests.AFetchCompletesAsSoonAsASourceAppears_RecursivelyAndPinned`).
 
 ## 44. Forgetting a user does not announce its devices as forgotten
 
@@ -489,7 +476,11 @@ host name of a code into addresses before admission decides on each (`Core.Tests
   `--noscan` to the compiler when `PublishAot` is set. The result is correct, a little larger and slower to start.
 - **Evidence:** `Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj` (`IlcArg`); `Scripts/aot-smoke.ps1` passes with it.
 - **Tolerated because:** it is a compiler defect, not one of this code; the Host compiles with the scanner.
-- **Paid in:** M12, with `aot.yml`: drop the argument once a patched ILCompiler compiles the command line.
+- **Not paid in M12:** retried on 2026-10-31 with the newest SDK on the development machine, 10.0.302, which still
+  resolves ILCompiler 10.0.10 (the only ILCompiler in the package cache): without `--noscan` the publish fails with the same
+  `CodeGenerationFailedException` for `Dictionary<long, __Canon>.CopyTo`. The argument stays; `aot.yml` publishes with it.
+- **Paid in:** the first .NET 10 servicing release whose ILCompiler compiles the command line with the scanner: remove the
+  `IlcArg` and let `aot.yml` prove it on both platforms.
 
 ## 48. The command line does not read `pipe.name` from `config.json`
 
@@ -509,16 +500,10 @@ listener is bound to one address (`MeshNodeOptions.ListenAddress`, the Host's `m
 
 ## 50. The scripted peer can write a frame start beside its session
 
-- **Rule:** one writer per TLS stream (an `SslStream` takes one write at a time; AMP/1's writes are serialised by the
-  ProtoStream connection's write lock, the heartbeat and automatic answers included).
-- **Instead:** `ScriptedPeer.SendFrameStartAsync` (the harness, not the product) writes a partial frame straight to the TLS
-  stream while its session is open, outside that lock; a heartbeat or an automatic `Pong` of the session at the same
-  moment would make `SslStream` refuse the second write. `SendRawAsync` refuses to run with a session open.
-- **Evidence:** `Axiom.Mesh.Testing/ScriptedPeer.cs`. Every write of Core goes through `Session.WriteAsync` (M11 review
-  of `PeerSessionHandler`, `ReplicationSession`, `PairingShell`, `ActivityStream`, LWSE's in-memory transport).
-- **Tolerated because:** the one test that uses it writes after the session has been silent for less than 60 seconds,
-  when the session sends nothing on its own.
-- **Paid in:** M12, by asking ProtoStream for a raw write under the connection's lock (or a partial-frame message type).
+Paid in M12, in the harness: the scripted peer's AMP/1 and pairing sessions write through a `SerialWriteStream` over its
+TLS stream, and `SendFrameStartAsync` and `SendRawAsync` write and flush through the same stream under the same lock, so
+the TLS stream never sees two writes at once, heartbeats and automatic answers included. ProtoStream was not changed: a
+lock at the stream is enough for the harness, and the product writes only through `Session.WriteAsync`.
 
 ## 51. The socket fixture keeps its nodes' keys in memory
 
@@ -531,14 +516,15 @@ listener is bound to one address (`MeshNodeOptions.ListenAddress`, the Host's `m
 
 ## 52. A history walk asks for one parent per round trip
 
-- **Rule:** fundamentals plan §5: a 10 000-entry history walk within 10 s (benchmark target; the release floor is 120 s).
-- **Instead:** M11's floor measured 51.5 s on loopback with TLS (194 Entries/s, Windows, net10.0): a walk wants an Entry's
-  parents only once the Entry is stored, so a linear Channel costs one round trip and one store batch per Entry.
-- **Evidence:** `Integration.Tests: FloorTests.AHistoryOfTenThousandEntriesIsWalkedWithinTwoMinutes` (run with
-  `AXIOM_MESH_FLOORS=1`).
-- **Tolerated because:** the floor holds, and a follower catching up on a long Channel is rare in phase 1.
-- **Paid in:** M12, with the benchmark: batch the walk (ask for the parents of every Entry of a stored batch at once) and
-  measure against the 10 s target.
+Paid in M12. A linear history names each parent only in its child, so a walk is one round trip per Entry by nature; what
+made it slow was everything put on that round trip. Two changes took it off: the parents of an Entry are wanted from its
+sender as soon as intake admitted it, not once its batch committed (`Replicator.WantParentsAsync`), and the store writer
+writes a batch's object files several at a time before the transaction (`FileWrites`), where one flushed file per Entry
+had bounded the writer to about one Entry per millisecond and filled its queue. 10 000 Entries now walk in 9.25 s on
+loopback with real TLS (Documentation/BENCHMARKS.md, `scenario walk`; M11 measured 42.9 to 51.5 s), within the 10 s target;
+the release floor run the same evening measured 11.7 s, so on this laptop the walk sits at the target, within its
+run-to-run spread. What is left per Entry is a round trip with a signature check and a file open on the serving side.
+The release floor `FloorTests.AHistoryOfTenThousandEntriesIsWalkedWithinTwoMinutes` stays as the guard.
 
 ## 53. A cancelled read can leave the next write encrypted and refused
 
@@ -548,15 +534,16 @@ listener is bound to one address (`MeshNodeOptions.ListenAddress`, the Host's `m
   the next write hands an already-cancelled token to `SslStream`, which encrypts the record and then has it refused by
   the transport: the record sequence has a gap and the peer reports "decryption failed". M11 found this as the flaky
   `ListingTests("61 seconds")` (about one run in twelve of a 400-iteration stress, none in 1 600 after the fix).
-- **Paid in M11 for the violations a session raises outside the read** (a listing too slow, a frame not completed):
-  `ReplicationSession` no longer cancels its read; it abandons it and writes `Bye(Violation)` beside it. Writes of the
-  write loop and of the Hello exchange are never cancelled once begun.
-- **Still open:** the drain path (`Bye(Shutdown)` after the read is cancelled by the stopping token) and the frame bound
-  before `Hello` keep the pattern; a lost `Bye` there costs nothing but the reason.
-- **Evidence:** `Axiom.Mesh.Core/Replication/ReplicationSession.cs` (`RunAsync`); ProtoStream `Session.cs` (automatic reply
-  under the read's token), `StreamPipeWriter` (cancellation kept for the next flush).
-- **Paid in:** M12, upstream: ProtoStream flushes automatic answers without the read's token (or resets the writer's
-  cancellation before a write), after which the drain path needs no change.
+- **Paid in Core (M11, M12):** no session read of a mesh connection is cancelled any more. M11 abandoned the read for the
+  violations a session raises outside it; M12 does the same for the drain path and a closing session (`ReplicationSession`
+  races the read against the stopping token and abandons it) and for the frame bound and the drain before `Hello`
+  (`PeerSessionHandler` reads through `AbandonableRead`). Writes are never cancelled once begun.
+- **Still open, upstream:** the hazard itself is ProtoStream's: any other user of a session (the local port's
+  connections, the pairing shell) that cancels a read can still meet it.
+- **Evidence:** `Axiom.Mesh.Core/Node/AbandonableRead.cs`; ProtoStream `Session.cs` (automatic reply under the read's
+  token), `StreamPipeWriter` (cancellation kept for the next flush).
+- **Paid in:** a ProtoStream release that flushes automatic answers without the read's token (or resets the writer's
+  cancellation before a write); then `AbandonableRead` can go.
 
 ## 54. The latest-only retention row knows the `Version` kind
 
@@ -596,12 +583,90 @@ listener is bound to one address (`MeshNodeOptions.ListenAddress`, the Host's `m
 
 ## 57. Publishing a file costs one pipe round trip per Chunk
 
-- **Rule:** the quality bar (fast): a hot path has a benchmark.
-- **Instead:** `StoreFiles.PutFileAsync` puts each 1 MiB Chunk with its own `PutObject` and waits for its answer before
-  reading the next; a 1 GiB folder is about a thousand sequential round trips over the pipe, each copying the Chunk
-  once into the frame.
-- **Evidence:** `Axiom.Mesh.Local/Files/StoreFiles.cs` (`PutAsync`).
-- **Tolerated because:** correctness first; up to 64 requests may be outstanding per connection, so pipelining is a local
-  change once measured.
-- **Paid in:** M12: benchmark the pipe `PutObject` path (with the 1 GiB loopback floor) and pipeline the puts if it
-  misses the target.
+Paid in M12: `StoreFiles.PutFileAsync` keeps up to `DefaultChunksInFlight` (8) puts outstanding, or a window of 1 to 64
+the caller chooses (an overload), each Chunk read straight into a reused buffer behind its header and sealed in place
+(`Chunker.Seal`, no allocation per Chunk, `ChunkWindow`); the ChunkList names the Chunks in file order whatever order the
+Host answers in, the first refusal in file order ends the file, and memory stays at the window's buffers. The Host runs
+`PutObject` outside the connection's ordered lane (it writes no Package, LOCAL-SPEC.md §3.4) and queues the object and its
+pin back to back, so they share a batch. A 256 MiB file: 84 MiB/s with one in flight, 136 MiB/s with eight; the Host before
+M12 with one in flight: 80 MiB/s (Documentation/BENCHMARKS.md, `scenario putfile`). The writer's per-object flush bounds it
+from there (entry 60). `Core.Tests: StoreFilesTests.APipelinedPutStoresTheSameFileInFileOrderAsOneAtATime`.
+
+## 58. A dropped Package is announced by no event
+
+- **Rule:** LOCAL-SPEC.md §7.2: topic `packages` reports every change of a Package's record "in the order the changes
+  happened".
+- **Instead:** a Package dropped because no peer lists it any more (entry 41) leaves `ListPackages` without a
+  `PackageChanged`: §14.12 has no change kind for it, and the registry is closed.
+- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs` (`DropAsync` publishes no `PackageChange`); LOCAL-SPEC.md §6.4 says so.
+- **Tolerated because:** a drop follows an `Unfollowed` event or a revocation the client already saw; a client that
+  reconciles its view with `ListPackages` (§3.4) sees the drop.
+- **Paid in:** a LOCAL-SPEC.md draft that registers a change kind `Dropped` (14.12), with the event; M13 decides whether
+  before 0.1.0.
+
+## 59. A faulty Entry found after it was stored is not recorded against its sender
+
+- **Rule:** SPEC.md §12.2: the sender of faulty content is recorded as faulty for that object.
+- **Instead:** an Entry found faulty when its last parent arrives (entry 28) is retired from the store, but the index does
+  not keep which peer sent it, so no peer is marked faulty for it; an Entry found faulty on arrival still is
+  (`FaultyContentTests`).
+- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs` (`RetireAsync`); `EntryRow` has no origin column.
+- **Tolerated because:** "recorded" serves the peer table's diagnostics and backoff, not trust: the Entry is gone either
+  way, and a peer that serves it again sees it refused as faulty on arrival and recorded then.
+- **Paid in:** phase 1b, with the peer table persisted (entry 23): an origin column on the parent rows of Entries stored
+  from a peer.
+
+## 60. Replication moves about 190 MiB/s over loopback, half the target
+
+- **Rule:** fundamentals plan §5: 1 GiB of Chunks between two nodes over loopback with real TLS at 400 MiB/s or more.
+- **Instead:** 5.46 s, 188 MiB/s in the recorded run (Documentation/BENCHMARKS.md, `scenario loopback`; 249 MiB/s in an
+  earlier run the same day). The receiving store writer bounds it: every object is its own file, written to a temporary
+  name, flushed and renamed (SPEC.md §11.1), now several at a time (`FileWrites`, 8 at once); and every object stored,
+  served and checked costs index reads and writes (the visibility walk on the sender, the object, reference and pin rows on
+  the receiver).
+- **Evidence:** `Axiom.Mesh.Core/Store/FileWrites.cs`, `Store/StoreBatch.cs`; `StoreBenchmarks.Put1MiB` (3.2 ms per
+  object in a batch of its own).
+- **Tolerated because:** the release floor (60 s for 1 GiB) holds by a factor of ten, and a desktop catching up on a
+  folder is bound by its disk as much as by this path.
+- **Paid in:** phase 1b, with a measured choice among: more files written at once, one flush per batch on platforms where
+  a directory flush covers its renames, and fewer index rows per Chunk (a Chunk's object row written with its ChunkList's).
+
+## 61. Signing an Entry verifies it again, halving the signing rate
+
+- **Rule:** fundamentals plan §5: at least 10 000 Entries signed per second per core.
+- **Instead:** `EntryDraft.Sign` encodes, signs, parses the result back and verifies it against the signer's own key
+  (M1, so the encoder is proven on every signature); with ECDSA P-256 on .NET that is about 158 µs, 6 300 per second
+  per core (Documentation/BENCHMARKS.md, `EntrySignatureBenchmarks.SignEntry`); the verification alone is 78 µs.
+- **Evidence:** `Axiom.Mesh.Model/Producers/EntryDraft.cs`.
+- **Tolerated because:** a device writes Entries at human pace, and the store writer's commit (about 3.5 ms per Entry,
+  `IndexBenchmarks.EntryThroughTheWriter`) bounds a burst far below the signing rate; the self-check catches an encoder
+  defect before anything is stored or sent.
+- **Paid in:** phase 1b if a service writes faster than 6 000 Entries a second: verify the own signature in Debug builds
+  and in tests only, or check the re-parsed bytes without the signature.
+
+## 62. A thousand Entries in one LDB transaction take about 90 ms
+
+- **Rule:** fundamentals plan §5: 1 000 Entries committed in one transaction within 50 ms.
+- **Instead:** 88.4 ms ± 25.4 ms for 1 000 Entry rows and their object rows in one write transaction at full durability,
+  with 49.9 MB allocated inside LDB (Documentation/BENCHMARKS.md, `IndexBenchmarks.ThousandEntryRowsInOneTransaction`):
+  LDB 0.1.0 maintains five indexes per Entry row (hash, store sequence, Package, clock, redaction target) and two per
+  object row, and allocates its query and index arrays per row.
+- **Evidence:** `Axiom.Mesh.Core/Storage/EntryRow.cs` (the indexes); the benchmark above. One Entry per commit meets its
+  target (1 100 commits/s, `EntryRowCommit`).
+- **Tolerated because:** the store writer batches at most 256 commands, so a batch of Entries costs about 23 ms; a history
+  walk of 10 000 Entries meets its own target (debt 52).
+- **Paid in:** the LDB release that pools its per-row buffers; or, measured first, fewer Entry indexes (the redaction
+  target as a separate table holding only redactions).
+
+## 63. A `GetIdentity` allocates more than two objects in the Host
+
+- **Rule:** fundamentals plan §5: `GetIdentity` over the real pipe with at most 2 allocations in the Host.
+- **Instead:** the whole process (client, pipe and Host) allocates 3 568 bytes per round trip (Documentation/BENCHMARKS.md,
+  `scenario identity`); the client's share is at most 320 bytes (`Local.Tests: AllocationTests.AGetIdentityRoundTripOnTheClientAllocatesOnlyTheMessages`),
+  so the pipe and the Host account for about 3.2 KB: the request's state machines in the read loop and the handler, the
+  `Identity` record and its strings, the answer and its outbox entry, the frame's lazy body.
+- **Evidence:** `Axiom.Mesh.Core/Local/LocalConnection.cs` (`Accept`, `RunAsync`, `Answer`), `Local/IdentityRequests.cs`.
+- **Tolerated because:** the latency targets hold with room (p50 66 µs, p99 115 µs), and nothing grows with the number of
+  requests; the budget was set before the local port was built.
+- **Paid in:** phase 1b, with a Host-only measurement (a client in another process) and an allocation budget as a
+  `[ReleaseFact]` for the request path; a cached `Identity` answer and pooled answers are the first candidates.

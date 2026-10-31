@@ -66,7 +66,8 @@ Cli → Local. No service and no app references Core or Host.
 - [Guarantees](Documentation/GUARANTEES.md): every promise, with the test that proves it.
 - [Conformance](Documentation/CONFORMANCE.md): every requirement of the specifications, with its test.
 - [Limits](Documentation/LIMITS.md): every bound, its value and what happens when it is reached.
-- [Security](Documentation/SECURITY.md): every check of the threat model, where it lives and its test.
+- [Security](Documentation/SECURITY.md): the threat model, every check, where it lives and its test, the TLS scan.
+- [Benchmarks](Documentation/BENCHMARKS.md): every performance target, the number measured, its command and machine.
 
 ## Building and testing
 

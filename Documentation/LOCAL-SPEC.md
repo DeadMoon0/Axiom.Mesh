@@ -237,8 +237,8 @@ and `ForgetUser`) are the **user-key requests**; the Host's configuration MAY co
 paths, and a user-key request from any other process is answered `NotPermitted`. Every user-key request MUST
 be logged with the process id and path of the connection that sent it, whether it succeeded or not. A Host MAY
 treat `ConfirmPairing` as a user-key request in every mode, since its mode is known only from the pairing it names;
-the reference Host does, so a confined `ConfirmPairing` from another executable is `NotPermitted` in mode
-`ShowDevice` too. And every
+the reference Host reads the mode of the pairing named before it dispatches, so a confined `ConfirmPairing` of a
+`ShowDevice` pairing is served, and one naming a pairing that is not the current one is treated as a user-key request. And every
 path a client names (§13) is resolved as that client's user.
 
 ### 2.3 Connection lifetime
@@ -1003,9 +1003,12 @@ Rules:
   it does not hold it yet, Grants, Heads and history as SPEC.md §10.2 says, and the record moves to Followed
   with a `PackageChanged(Followed)`. A Package the Host knows nothing of is `NotFound`; on a Followed Package
   the request is `OK`, sets `policy` and changes nothing else. `UnfollowPackage` releases the Package's `Head`
-  and `Policy` pins; its Entries and objects become evictable and the record returns to Listed while a peer
-  lists it, else it is dropped. A Package the own user owns is always followed; `UnfollowPackage` on it is
-  `Invalid`.
+  and `Policy` pins; its Entries and objects become evictable and the record returns to Listed while an
+  established peer lists it, else it is dropped: its Entries, Manifest and Grants are evicted and the record is
+  forgotten, unless something of it is still pinned (a `User` or `Service` pin), which keeps it Listed. A Listed Package
+  is dropped the same way when the last established peer that listed it omits it from a completed listing; a peer that
+  disconnects omits nothing. No event announces a drop (§14.12 has no change kind for it); `ListPackages` no longer
+  lists the Package. A Package the own user owns is always followed; `UnfollowPackage` on it is `Invalid`.
 - `SetGrant` and `RevokeGrant` produce a Grant with `seq` one higher than the current Grant for that grantee, or
   1; `RevokeGrant` is `SetGrant` with `rights` 0 and is `NotFound` for a grantee without a current Grant. The
   owner only (`NotOwner`), with the user key (`UserKeyAbsent`); the grantee MUST be a known user (`NotFound`)

@@ -20,6 +20,7 @@ names no test, or when a proved row names a test that does not exist.
 | A revocation reaches the revoked user, who is then no longer listed or served. | `Core.Tests: ServingTests.ARevokedUserIsNoLongerListedOrServed_ButReceivesTheRevocationGrant` |
 | Two nodes holding two sessions to each other decide which one to keep identically, without talking. | `Model.Tests: DuplicateSessionTests.Decide` |
 | One session per device id: two nodes that connect twice keep the same one without talking. | `Core.Tests: DuplicateSessionTests.BothDialAtOnce_ExactlyOneSessionPerDeviceSurvives_TheSameConnectionOnBothNodes`, `Core.Tests: DuplicateSessionTests.TwoSessionsDialledByDifferentDevices_TheOneDialledByTheLowerDeviceIdIsKept` |
+| On a real socket every mesh connection negotiates TLS 1.3 with an AEAD suite and the ALPN `axiom-mesh/1`; a client limited to TLS 1.2 gets no handshake, and a connection without the ALPN is closed before a protocol byte. | `Integration.Tests: TlsConformanceTests.ARealNodeNegotiatesTls13WithAnAeadSuiteAndTheMeshAlpn`, `Integration.Tests: TlsConformanceTests.AClientThatOffersOnlyTls12IsRefused`, `Integration.Tests: TlsConformanceTests.AConnectionWithoutTheAlpnIsClosedWithoutAProtocolByte` |
 
 ## Bounds
 
@@ -50,6 +51,7 @@ names no test, or when a proved row names a test that does not exist.
 | The parents and clock chosen for a new Entry always make it well-formed and faultless, or writing stops with `ClockExhausted`. | `Model.Tests: ParentChoiceTests.Decide` |
 | A `WriteEntry` with no parents produces an Entry that orders identically on every node. | `Core.Tests: ServiceRoleTests.WithNoParentsTheEntryVerifiesOrdersAndIsFaultless_ForTheFourParentCases_AndTwoParentsWhenTheHighestClockIs2Pow32Plus1AboveTheOwnHead` |
 | A change crosses any number of hops without polling, and is never sent back to where it came from. | `Core.Tests: ReplicationScenarioTests.AChangeCrossesTwoHopsWithoutPolling`, `Core.Tests: ReplicationScenarioTests.AThirdNodeRelaysAndNothingIsSentBackToTheSource` |
+| An Entry stored before its parents is checked when the last of them arrives; a faulty one leaves the store, and its device's next stored Entry becomes the Head, as it does whenever a Head is evicted. | `Core.Tests: LateParentTests.AnEntryStoredBeforeItsParentIsCheckedWhenTheParentArrives_AndAFaultyOneIsNoLongerStoredOrAHead`, `Core.Tests: LateParentTests.AChildOfTwoParentsIsCheckedWhenTheLastArrives_AndAFaultlessOneStays`, `Core.Tests: LateParentTests.EvictingADevicesHeadMakesItsNextStoredEntryTheHead` |
 | The same scenario passes in memory and on sockets. | `Integration.Tests: ScenarioSuiteTests.TheSocketSuiteCompilesTheInMemorySuitesScenarioFileAndRunsEveryScenarioInIt` |
 
 ## Scenarios
@@ -143,6 +145,9 @@ with real TLS, a store and an index on disk and the real pipe (`Integration.Test
 | A service writes only the kinds its configuration lists, and never a kind another connected service holds. | `Core.Tests: ServiceRoleTests.AKindOutsideTheConfigurationIsNotPermitted_OneAnotherServiceHoldsIsKindTaken` |
 | The Host parses no payload: a payload that parses as nothing, of any kind, is stored and ordered like any other, while an Entry with a malformed envelope is never written here and never stored from a peer. | `Core.Tests: ServiceRoleTests.AMalformedEnvelopeIsInvalidHereAndMalformedFromAPeer_AnUnparseablePayloadOfAnyKindIsStoredAndOrdered`, `ReadmeSamples.Tests: ContentBlindHostTests.NoPayloadTypeIsReferencedByCoreOrHost` |
 | A Fetch never waits for ever: without a possible source it fails within 60 seconds, naming what it lacks. | `Core.Tests: OperationKindTests.AFetchWithoutASourceWaits_AndFailsNotFoundAfter60Seconds` |
+| A Fetch starts as soon as a peer that lists the Package is established, with nothing polling, and fetches only what a stored Entry of the Package reaches. | `Core.Tests: OperationKindTests.AFetchCompletesAsSoonAsASourceAppears_RecursivelyAndPinned`, `Core.Tests: OperationKindTests.AFetchOfAnObjectNoStoredEntryOfThePackageReferencesIsNotFoundAtOnce` |
+| A Package nobody lists any more and nobody follows is forgotten with its Entries, unless something of it is pinned. | `Core.Tests: PackageRequestTests.AnUnfollowedPackageNoPeerListsIsDropped_AndSoIsAListedOneTheLastListerOmits` |
+| Publishing a file pipelines its Chunks and still names them in file order, with memory bounded by the Chunks in flight; the first refusal in file order ends it. | `Core.Tests: StoreFilesTests.APipelinedPutStoresTheSameFileInFileOrderAsOneAtATime`, `Core.Tests: StoreFilesTests.APipelinedPutThatTheHostRefusesPartWayEndsWithTheRefusalAndPutsNoChunkList` |
 | The client's helpers write a Tree to disk byte-equal and never leave a partial file visible, and never delete a directory they did not write. | `Core.Tests: StoreFilesTests.AFolderPublishedWithTheHelpersMaterialisesByteEqualFromGetObject_AndExistingIsHonoured`, `Core.Tests: StoreFilesTests.ACancelledMaterialiseLeavesNoPartialFileVisible` |
 | An Entry of a kind no service knows replicates with every object its envelope references, and a redaction is honoured by its envelope whatever its kind. | `Core.Tests: ReplicationScenarioTests.AnEntryOfAKindNoServiceRegisteredReplicatesWithTheObjectsItsEnvelopeReferences`, `Core.Tests: RedactionTests.ARedactionIsReadFromTheEnvelope_AnyKindWithRedactsWithdraws_APayloadAloneDoesNot` |
 | The command line, with the token the daemon wrote for it, writes Entries as the `cli` service end to end. | `Host.Tests: CliServiceTests.TheCliExternalServiceWithTheTokenFromConfigJsonRegistersWritesAnEntryAndPutsAFile` |
@@ -155,3 +160,20 @@ with real TLS, a store and an index on disk and the real pipe (`Integration.Test
 | A withdrawn message is never shown with its text, in a table, in JSON or in `watch`. | `Cli.Tests: EntryDisplayTests.ARedactedMessageIsShownAsWithdrawnNeverItsText` |
 | Every command has help text, and a prefix that names two ids is refused naming both, never guessed. | `Cli.Tests: HelpTextTests.EveryCommandHasHelpText`, `Cli.Tests: IdMatchTests.AnAmbiguousPrefixNamesTheCandidates_AnUnknownOneSaysNoneMatches` |
 | A folder published from the command line materialises byte-equal on another device. | `Cli.Tests: CliScenarioTests.APublishedFolderMaterialisesByteEqualOnASecondNodeThatFollowsIt` |
+
+## Performance
+
+The hot paths keep their allocation budgets in Release builds (`[ReleaseFact]`, deterministic: the least of several
+runs); throughput is measured by the benchmark suite and recorded with its command in
+[BENCHMARKS.md](BENCHMARKS.md), which promises nothing a test does not hold. The release floors run with
+`AXIOM_MESH_FLOORS=1`.
+
+| Promise | Proved by |
+|---|---|
+| Hashing a mebibyte and comparing ids allocate nothing. | `Model.Tests: AllocationTests.HashingAMebibyteAndComparingIdsAllocatesNothing` |
+| Cutting a file into Chunks allocates nothing per Chunk: each is sealed in a reused buffer. | `Model.Tests: AllocationTests.SealingAChunkInAReusedBufferAllocatesNothing` |
+| Parsing a ChunkList of 32 768 Chunks allocates only the parsed object; verifying an Entry nothing that grows with it. | `Model.Tests: AllocationTests.ParsingAChunkListAllocatesOnlyTheParsedObject`, `Model.Tests: AllocationTests.VerifyingAnEntryAllocatesNothingThatGrowsWithTheEntry` |
+| Decoding a 1 MiB `Object` frame allocates only the message: the object is read in place. | `Protocol.Tests: AllocationTests.DecodingA1MiBObjectFrameAllocatesOnlyTheMessage` |
+| Admitting a 1 MiB Chunk from a peer allocates only its pooled copy; forwarding one makes no further whole copy. | `Core.Tests: AllocationTests.AdmittingAMebibyteChunkAllocatesOnlyThePooledCopy`, `Core.Tests: ReplicationRegressionTests.ForwardingAMebibyteObjectAllocatesNoFurtherWholeCopy` |
+| A `GetIdentity` round trip allocates only its messages on the client. | `Local.Tests: AllocationTests.AGetIdentityRoundTripOnTheClientAllocatesOnlyTheMessages` |
+| 1 GiB of Chunks crosses loopback with real TLS within 60 seconds, and a history of 10 000 Entries is walked within two minutes (Release, `AXIOM_MESH_FLOORS=1`). | `Integration.Tests: FloorTests.OneGibibyteOfChunksCrossesLoopbackWithRealTlsWithinSixtySeconds`, `Integration.Tests: FloorTests.AHistoryOfTenThousandEntriesIsWalkedWithinTwoMinutes` |

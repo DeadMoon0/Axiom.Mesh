@@ -108,7 +108,7 @@ static class Publishing
 | Records | every record of §5 (`Identity`, `User`, `Device`, `Package`, `Grant`, `Entry`, `Peer`, `Session`, `StaticPeer`, `Store`, `Pin`, `PinKey`, `Service`, `Operation`, `Error`, `Pairing`, `Transfer`, `TelemetrySeries`, `TelemetryPoint`, `Filter`) and the OK bodies with several fields (`PackagePage`, `EntryPage`, …) |
 | Frames | `IClientMessage` / `IHostMessage`: `Hello`, `HelloAck`, `Bye`, `Ping`, `Pong`, `Drain`, `RequestFrame`, `Response`, `EventFrame`, `Callback`, `Reply`, and `UnknownRequest` / `UnknownEvent` / `UnknownCallback` for ids a side does not know; `ServiceToken`, `LocalMessageIds`, `MessageClass` |
 | Protocol | `LocalProtocol.HostSide` and `LocalProtocol.ClientSide`, the ProtoStream definitions; the enumerations of §14 (`Status`, `Topic`, `ByeReason`, `PinReason`, …) |
-| Files | `StoreFiles` (`PutFileAsync` → `StoredFile`, `MaterialiseAsync` → `MaterialisedTree` with `MaterialiseProgress`, `MarkerName`, `PartialPrefix`), `Trees.PublishDirectoryAsync` → `PublishedTree`; `ExistingPath` |
+| Files | `StoreFiles` (`PutFileAsync` → `StoredFile`, with up to `DefaultChunksInFlight` (8) Chunks in flight or a window of 1 to 64 of your choosing, `MaterialiseAsync` → `MaterialisedTree` with `MaterialiseProgress`, `MarkerName`, `PartialPrefix`), `Trees.PublishDirectoryAsync` → `PublishedTree`; `ExistingPath` |
 
 ## Rules of use
 
