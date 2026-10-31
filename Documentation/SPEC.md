@@ -1,6 +1,10 @@
 # Axiom Mesh Protocol, Version 1 (AMP/1)
 
-**Status:** Draft 3, 2026-10-28. Draft 2 followed an adversarial review of draft 1 (36 findings, all addressed
+**Status:** Draft 4, 2026-10-31. Draft 4 states what the first implementation settled where draft 3 left a choice
+open: which 256 Heads a state lists and how an omission is compared (§7.2), what a revocation's `PackageChanged`
+carries (§7.3), what a `Cancel` of a hash wanted twice settles (§7.5), what the 8 MiB object queue counts (§7.6), when
+an Entry stored before its parents is checked (§8.6), and where parents and payload objects are wanted from (§10.4).
+Draft 3, 2026-10-28. Draft 2 followed an adversarial review of draft 1 (36 findings, all addressed
 or recorded in §13); draft 3 adds what the review of the local protocol ([LOCAL-SPEC.md](LOCAL-SPEC.md) draft 2)
 needed from AMP/1: a listed Package's Manifest may be held before following (§1.2, §10.6), a node pushes its
 own user's new Roster (§7.6), a Channel append may name two parents to keep the clock gap rule (§8.6, §9.3,
@@ -394,10 +398,13 @@ owner or holds a current `Read` or `Write` Grant (§8.9), and no other. Rules fo
 - A page MUST be cut so that its frame stays within §5.1; the list maximum of 64 is a bound on count, not a
   guarantee of fit.
 - The receiver replaces its view of the sender's state when `last` is true.
+- A node that holds Heads of more than 256 devices for a Package lists the 256 with the highest clocks, ties to the
+  lower device id, in ascending order of device id; the others are reached through history (§10.3).
 
 A node whose user is not the owner and that receives a listing from a device of the owner which omits a
 Package the same device listed before MUST treat its own Grant for that Package as withdrawn until a newer
-Grant proves otherwise.
+Grant proves otherwise. "Before" is the previous complete listing of the same session: the first listing after a
+connection is established withdraws nothing, and each device's listings are compared only with its own.
 
 ### 7.3 `PackageChanged` (3), Established only
 
@@ -410,6 +417,9 @@ Package changed: a new current Manifest or Grant, or a Head it stored, whether f
 received object, except to the peer the change came from. Also sent when a Grant now lets the peer see a
 Package it could not see before. A receiver MUST treat it as an update to its view from `Packages`. A
 `PackageChanged` MUST NOT be sent while a listing (§7.2) is incomplete.
+
+The `PackageChanged` that carries a revocation to the revoked user (§9.7) names the current Manifest, lists the
+revoking Grant alone in `grants`, and no `heads`: the revoked user is told of the Grant and nothing else.
 
 ### 7.4 `Have` (4), Established only
 
@@ -435,7 +445,9 @@ hashes:     list<hash>(64)
 MUST answer every hash eventually unless a `Cancel` for it arrives first. A node MUST NOT have more than 64
 hashes outstanding (wanted, not yet answered or cancelled) toward one peer; a `Want` that would exceed that
 on the receiving side is a violation. Hashes count per `Want`: a hash that appears in two outstanding `Want`s
-counts twice, and each is settled by its own answer or by the `Cancel` that names it.
+counts twice, and each is settled by its own answer or by the `Cancel` that names it. A `Cancel` that names a hash
+once settles every outstanding want of that hash whose answer has not started; an answer already being written is
+sent and settles its own want.
 
 ### 7.6 `Object` (6), Established only
 
@@ -456,7 +468,9 @@ A sender MUST NOT have more than 8 MiB of `Object` payload queued toward one pee
 read and parse frames (so `Ping`, `Pong` and `Cancel` are still processed) but defers answering further
 `Want`s until the queue drains. The 8 MiB bound counts the `object` fields queued, not the frames around
 them. Only answers with an `Object` are deferred; a `NotFound` is sent without waiting for the queue. The
-64-outstanding bound of §7.5 covers deferred wants too.
+64-outstanding bound of §7.5 covers deferred wants too. An answer counts from the moment it is queued until its
+frame has been handed to the TLS layer; what the transport holds after that is bounded by TCP's own flow control,
+not by this rule.
 
 ### 7.7 `NotFound` (7), Established only
 
@@ -634,7 +648,9 @@ of `deviceId` in the current roster of a user who is the Package's owner or hold
 and `deviceId` is not removed in that roster. Once an Entry is stored it stays valid: a later Roster or
 Grant change affects only Entries not yet stored (§9.6). Once its parents are held, an Entry is faulty
 content (§12.2) if any parent belongs to another `packageId`, if `clock` is not greater than every parent's
-clock, or if `clock` exceeds the greatest parent clock by more than 2^32.
+clock, or if `clock` exceeds the greatest parent clock by more than 2^32. An Entry stored before its parents (a
+history walk stores the newest first) is checked when the last of its parents is stored; one found faulty then is
+no longer listed as a Head, served or forwarded.
 
 ### 8.7 `Manifest` (tag 5)
 
@@ -845,7 +861,8 @@ once except when a peer has not answered within 30 seconds.
 ### 10.4 Choosing a source
 
 Wants are addressed to a peer that announced `Have` for the hash, or, for an Entry named in a Head, to the
-peer that sent that Head, or, for a Manifest or Grant, to the peer that listed it. When several peers
+peer that sent that Head, or, for a Manifest or Grant, to the peer that listed it, or, for the parents and payload
+objects an Entry, Tree or ChunkList names (§10.3), to the peer that sent that object. When several peers
 qualify, a node SHOULD spread wants by each peer's outstanding count (§7.5). A `NotFound` removes that peer
 as a source for that hash until a later `Have` from it.
 

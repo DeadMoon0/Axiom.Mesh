@@ -50,7 +50,7 @@ internal static class Listings
             manifest.Hash,
             manifest.Content.Seq,
             [.. grants.Select(g => g.Hash).Order().Take(Limits.MaxPackageGrants)],
-            held.Count <= Limits.MaxPackageHeads ? held : [.. held.OrderByDescending(h => h.Clock).Take(Limits.MaxPackageHeads).OrderBy(h => h.Device)]);
+            held.Count <= Limits.MaxPackageHeads ? held : [.. held.OrderByDescending(h => h.Clock).ThenBy(h => h.Device).Take(Limits.MaxPackageHeads).OrderBy(h => h.Device)]);
     }
 
     /// <summary>
