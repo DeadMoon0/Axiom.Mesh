@@ -264,9 +264,16 @@ Entry
   deviceId        who wrote it
   clock           Lamport clock: max(clock of every parent) + 1
   parents         hashes of the entries this one follows (0 for the first, 1 normally, 2 for a merge)
-  kind-specific payload
+  kind            service-defined
+  references      the objects this entry needs (trees, chunk lists, attachments)
+  redacts         the entry this one withdraws, or none
+  payload         kind-specific, opaque to the node; the owning service parses it
   signature       by the device key; valid only if the device is in the owner's roster or a writer's roster
 ```
+
+The node acts on the signed envelope only: it routes, pins, wants and redacts by `references` and `redacts` and
+never parses a payload (SPEC.md §8.5, §8.6), so a kind no service on a device knows is carried and served all the
+same. The payload layouts of the first services are in [PAYLOADS.md](PAYLOADS.md).
 
 Entry types the two first services define:
 
@@ -308,8 +315,8 @@ The protocol (§12) is the same for every kind. A node:
 1. On connect, exchanges `Hello` and then `Packages`: every Package the sender holds **that the receiver's
    user is granted**. Nothing else is listed; a Package you may not read does not exist on the wire.
 2. For every Package both follow, exchanges heads. A head the receiver lacks is wanted.
-3. Walks from a new head down the parents it lacks, wanting each Entry, then the Entry's payload objects as
-   the retention policy says (a desktop wants the whole tree and all chunks; a phone wants the tree and
+3. Walks from a new head down the parents it lacks, wanting each Entry, then the objects its `references` name
+   as the retention policy says (a desktop wants the whole tree and all chunks; a phone wants the tree and
    stops).
 4. Pushes a change notice to every connected peer that may see the Package the moment its listable state
    changes, from a local write or from an object it received, except back to the peer it came from. A change
@@ -367,13 +374,14 @@ defines `Channel`, `Message` and `Redaction`. A service is written against one c
 protocol in its **service role** (§10.4). Through it a service
 
 - registers its kind and the entry kinds it owns, within what the Host's configuration lets that service
-  register; the Host parses the built-in payload layouts (`Version`, `Message`, `Redaction`) itself and
-  stores extension kinds opaquely with the references the writer named, so no service validates payloads for
-  the Host (LOCAL-SPEC.md §9.4);
+  register; the Host parses no payload: what it needs (the objects an entry references, the entry it redacts)
+  is in the entry's signed envelope, which the service fills when it writes, so no service validates payloads for
+  the Host and none needs to run for its kind to be carried (LOCAL-SPEC.md §9.4);
 - receives every entry of its kind the Host stores, and every listing, head, manifest and grant change of its
   Packages, as pushed events;
 - writes new entries, which the Host signs with the device key, stores and replicates;
-- asks the Host to pin or release objects, and to materialise or read them;
+- asks the Host to store, pin, release and read objects; it cuts files into chunks and writes trees to disk
+  itself, with the client library's helpers (`StoreFiles`, `Trees`), as its own user;
 - publishes what the user-facing clients may ask it (a Channel's rendered timeline, a folder's sync state),
   which the Host relays to user clients as that service's namespace of the local protocol.
 
@@ -454,12 +462,14 @@ subscription; the app renders history and live state from the same feed. Nothing
 
 ```
 Axiom.Mesh.Discovery/        mDNS, UDP broadcast, static peers; references Model for the ids, nothing else
-Axiom.Mesh.Model/            objects, entries, signing, DAG, order and merge rules (honest)
+Axiom.Mesh.Model/            objects, entries, signing, DAG, order and merge rules (honest); the payload layouts
+                             of PAYLOADS.md in namespace Axiom.Mesh.Payloads, for services and apps only
 Axiom.Mesh.Protocol/         the ProtoStream description of axiom-mesh/1 and its messages (honest)
 Axiom.Mesh.Local/            the ProtoStream description of axiom-mesh-local/1, both roles (honest);
                              the one package a client or a service references
 Axiom.Mesh.Core/             store, registry, roster, grants, MeshTls, replication, pins, the local port
-Axiom.Mesh.Host/             the daemon: configuration, the pipe per platform, service supervision
+Axiom.Mesh.Host/             the daemon: configuration, the pipe per platform, service supervision; connections,
+                             routing, basic management, security; the Host parses no payload
 Services/Axiom.Mesh.Sync/    the Archive kind and the folder watcher; a client of Axiom.Mesh.Local
 Services/Axiom.Mesh.Chat/    the Channel kind; a client of Axiom.Mesh.Local
 Axiom.Mesh.Edge/             the Edge role: links, transports, crossing lists, the crossing log (later)
@@ -478,6 +488,12 @@ honest and depends on nothing but ProtoStream, so a client that references it ta
 references Model for the device and user ids, so an id has one definition, and stays usable alone. The Host
 references the services only to start them in-process; a convention test enforces that no service and no app
 references Core or Host.
+
+The Host's scope is connections, routing, basic management and security; **the Host parses no payload**. What
+it needs to route, pin, want and redact is in the signed Entry envelope (SPEC.md §8.6), and what a payload says
+is the business of the service that owns its kind. Content helpers (cutting a file into chunks, writing a tree
+to disk) live in Axiom.Mesh.Local, on the client's side of the pipe. A convention test enforces that neither
+Core nor Host references `Axiom.Mesh.Payloads`.
 
 ## 12. Wire protocol `axiom-mesh/1`
 

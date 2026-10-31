@@ -58,7 +58,7 @@ user key `axiom-mesh pair join <its code>`, then `pair confirm` on both.
 | `package create <name> [--kind archive\|channel] [--retention default\|everything\|latest]` | A Package you own; a Channel by default. |
 | `package list [--followed]`, `package show <package>` | Packages listed to you or followed here; one Package and its Grants; each with `--json`. |
 | `package follow <package>`, `package unfollow <package>` | Replicate a Package here, or stop. |
-| `package publish <dir> --package <package> [--label <branch>]` | A folder as a Version of an Archive. |
+| `package publish <dir> --package <package> [--label <branch>]` | A folder as a Version of an Archive: its Chunks, ChunkLists and Trees put, a Version that references the root Tree written. |
 | `package materialise <package> <dir> [--existing fail\|replace\|merge]` | The latest Version into a folder. |
 | `grant set <package> <user> [--write]`, `grant revoke <package> <user>` | Let a known user read (or write) a Package you own; withdraw it. |
 | `write <package> --text "…"` | A message to a Channel. |
@@ -90,8 +90,10 @@ Packages and users also by their exact name. A prefix that names two is refused 
   `AXIOM_MESH_SERVICE_TOKEN` names, else `services.cli.token` of the Host's `config.json`, found by the Host's own rule:
   `AXIOM_MESH_HOME`, else `%LOCALAPPDATA%\Axiom.Mesh` on Windows, else `$XDG_CONFIG_HOME/axiom-mesh` (or
   `~/.config/axiom-mesh`). The Host writes the token when it first starts.
-- **Paths:** `package publish` and `package materialise` resolve a relative folder against the current directory; the
-  Host reads and writes it.
+- **Files:** `package publish` and `package materialise` resolve a relative folder against the current directory and read
+  or write it themselves, as your user, with the helpers of Axiom.Mesh.Local (`Trees.PublishDirectoryAsync`,
+  `StoreFiles.MaterialiseAsync`); the Host only stores objects and parses no payload. `package materialise` fetches what
+  the device lacks from its peers first (`Fetch`), then writes every file under a hidden name renamed into place.
 
 ## Output
 

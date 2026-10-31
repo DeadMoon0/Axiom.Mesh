@@ -316,8 +316,8 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
   a Package followed again) wants nothing for the Entries already stored; a change subscription that lapses loses the
   walks of the change sets it dropped until a peer lists the Package again.
 - **Evidence:** `Axiom.Mesh.Core/Replication/Replicator.cs` (`WalkAsync`).
-- **Tolerated because:** a desktop keeps everything from the start, and since M9 `Fetch` and `Materialise` fetch on
-  demand through the same scheduler, which covers what a grown policy would want.
+- **Tolerated because:** a desktop keeps everything from the start, and since M9 `Fetch` fetches on demand through the
+  same scheduler (the client's helpers fetch with it before they materialise), which covers what a grown policy would want.
 - **Paid in:** phase 1b, with the Sync service's device policies (a walk over the stored Entries of a Package when its
   policy grows).
 
@@ -427,14 +427,11 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 
 ## 40. Paths are opened as the Host's user, not the client's
 
-- **Rule:** LOCAL-SPEC.md §13: `Materialise`, `PutFile` and `GetStorePath` open paths as the user of the connection that
-  named them (Windows: impersonation around every open, create, delete and rename).
-- **Instead:** the Host opens them as itself. Host capability bit 1 tells a client of another OS user that the Host runs
-  under another account, and bit 0 is clear for it.
-- **Evidence:** `Axiom.Mesh.Core/Local/MaterialiseWork.cs`, `Local/PutFileWork.cs`.
-- **Tolerated because:** in phase 1a the Host runs as the one user it serves (the pipe admits that user only, entry 3),
-  so the Host's user and the client's are the same.
-- **Paid in:** with the system-service mode of entry 10 (impersonation on Windows, a per-user Host on Unix).
+Paid in M11b by removal: no request asks the Host to open a path a client names any more. `Materialise` and `PutFile`
+left the Host (LOCAL-SPEC.md draft 4, ids 317 and 515 reserved); the client library's `StoreFiles` and `Trees` read and
+write files as the client's own user, and `GetStorePath` only names the store directory a service reads read-only
+(`Core.Tests: StoreFilesTests.AFolderPublishedWithTheHelpersMaterialisesByteEqualFromGetObject_AndExistingIsHonoured`,
+`ReadmeSamples.Tests: ContentBlindHostTests.NoPayloadTypeIsReferencedByCoreOrHost`).
 
 ## 41. An unfollowed Package that no peer lists stays Listed
 
@@ -448,7 +445,7 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 - **Paid in:** M12: drop the record when the last session that listed it omits it and nothing of it is pinned, evict its
   Entries with it, and say so in LOCAL-SPEC.md §6.4.
 
-## 42. Fetch and Materialise do not check that the Package references the object
+## 42. Fetch does not check that the Package references the object
 
 - **Rule:** LOCAL-SPEC.md §6.4: `packageId` is a followed Package whose Entries reference the object.
 - **Instead:** the Host checks that the Package is followed and asks the peers that list it; a peer resolves visibility
@@ -560,3 +557,51 @@ listener is bound to one address (`MeshNodeOptions.ListenAddress`, the Host's `m
   under the read's token), `StreamPipeWriter` (cancellation kept for the next flush).
 - **Paid in:** M12, upstream: ProtoStream flushes automatic answers without the read's token (or resets the writer's
   cancellation before a write), after which the drain path needs no change.
+
+## 54. The latest-only retention row knows the `Version` kind
+
+- **Rule:** DESIGN.md §11 and plan §6f: the Host parses no payload and leaves the meaning of a kind to its service.
+- **Instead:** the phone row of SPEC.md §11.2 keeps, for an Archive, only what the newest `Version` references; the
+  store writer recognises that Entry by its envelope `kind` 1 (`Axiom.Mesh.Core/Store/StoreBatch.cs`
+  `RecordNewestVersionAsync`, `Store/PinBook.cs` `ApplyPolicyAsync`). No payload is read, but one registered kind has a
+  meaning inside the node.
+- **Evidence:** `EntryKind.Version` in those two files; SPEC.md §11.2 (draft 5) names the kind.
+- **Tolerated because:** the rule is the specification's, and the kind is read from the signed envelope, which is
+  routing data; a node that parses nothing still keeps the row.
+- **Paid in:** phase 1b (Sync): the service declares what its kinds keep under each row (a field of `RegisterKind`, or
+  of the Manifest), and the node applies that declaration instead of knowing kind 1.
+
+## 55. The file helpers touch the file system directly
+
+- **Rule:** ARCHITECTURE.md rule 8: time, sockets, disk and the pipe are injected edges.
+- **Instead:** the deciding parts of the helpers are pure (`Axiom.Mesh.Local/Files/FileNameRule.cs`,
+  `MaterialisePlan.cs`, `ExistingRule.cs`, `FolderTrees.cs`, `ObjectReader.MayReadDirectly`) and the client is handed in,
+  but the shells (`StoreFiles.cs`, `Trees.cs`, `TreeWriter.cs`, `ObjectReader.cs`) call `System.IO` themselves; tests use
+  real temporary directories.
+- **Evidence:** those files; `Core.Tests: StoreFilesTests` writes to the system's temporary folder.
+- **Tolerated because:** the shells only sequence what the pure parts decided, and a file-system seam in the public
+  surface of the package every app references is a design decision of its own.
+- **Paid in:** M13, with the Sync service's needs known: an internal file-system seam for the shells, or a decision
+  recorded that the real file system is the edge.
+
+## 56. A store written before SPEC.md draft 5 is not refused at start
+
+- **Rule:** ARCHITECTURE.md rule 7: a failure says who must act.
+- **Instead:** Entries stored by an earlier build have the draft-4 layout; draft 5 parses them as malformed, so they are
+  neither served nor listed correctly, and the index's `schema.version` was not bumped (no release exists).
+- **Evidence:** `Axiom.Mesh.Core/Storage/MeshDatabase.cs` (schema version unchanged since M5).
+- **Tolerated because:** nothing is released; the only stores are developers' and test runs'.
+- **Paid in:** M13: bump the schema version before 0.1.0 so that a store of a pre-release build is refused at start
+  with the step "delete the data directory", and say so in the release notes.
+
+## 57. Publishing a file costs one pipe round trip per Chunk
+
+- **Rule:** the quality bar (fast): a hot path has a benchmark.
+- **Instead:** `StoreFiles.PutFileAsync` puts each 1 MiB Chunk with its own `PutObject` and waits for its answer before
+  reading the next; a 1 GiB folder is about a thousand sequential round trips over the pipe, each copying the Chunk
+  once into the frame.
+- **Evidence:** `Axiom.Mesh.Local/Files/StoreFiles.cs` (`PutAsync`).
+- **Tolerated because:** correctness first; up to 64 requests may be outstanding per connection, so pipelining is a local
+  change once measured.
+- **Paid in:** M12: benchmark the pipe `PutObject` path (with the 1 GiB loopback floor) and pipeline the puts if it
+  misses the target.
