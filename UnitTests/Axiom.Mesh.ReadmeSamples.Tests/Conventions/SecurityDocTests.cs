@@ -16,7 +16,7 @@ namespace Axiom.Mesh.ReadmeSamples.Tests.Conventions;
 public sealed partial class SecurityDocTests
 {
     // The first header of each table the document holds; each table's last column says what proves the row.
-    private static readonly string[] Tables = ["Threat", "Check", "Key fact", "Pipe fact", "Parameter"];
+    private static readonly string[] Tables = ["Threat", "Check", "Key fact", "Pipe fact", "Release fact", "Parameter"];
 
     private static string Document => File.ReadAllText(Path.Combine(Repository.Root, "Documentation", "SECURITY.md"));
 

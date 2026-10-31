@@ -17,7 +17,8 @@ using Axiom.Mesh.Local;
 
 CancellationToken ct = CancellationToken.None;
 
-// The pipe of the Host this process talks to: AXIOM_MESH_PIPE, else the platform's default (LOCAL-SPEC.md §2.1).
+// The pipe of the Host this process talks to: AXIOM_MESH_PIPE, else the platform's default (LOCAL-SPEC.md §2.1);
+// LocalPipe.Locate(name) also takes the pipe.name of the Host's config.json, as the Host and axiom-mesh do.
 Stream pipe = await LocalPipe.ConnectAsync(LocalPipe.Locate(), ct);
 await using LocalClient client = await LocalClient.OpenAsync(pipe, new LocalClientOptions { Name = "quick-start" }, ct);
 
@@ -38,6 +39,17 @@ await using Subscription<PackageChanged> packages = subscribed.Value;
 LocalResult<PackagePage> page = await client.SendAsync(new ListPackages { FollowedOnly = true }, ct);
 foreach (Package package in page.Value.Packages)
     Console.WriteLine($"{package.Name} ({package.Kind}, {package.Entries} entries)");
+
+// Storing a file is the client's work (LOCAL-SPEC.md draft 4): StoreFiles cuts it into 1 MiB Chunks and puts them with
+// PutObject, eight in flight, as a service. The cli service's token is in the Host's config.json (services.cli.token).
+if (ServiceToken.TryParseHex(Environment.GetEnvironmentVariable(ServiceToken.EnvironmentVariable), out ServiceToken token))
+{
+    Stream servicePipe = await LocalPipe.ConnectAsync(LocalPipe.Locate(), ct);
+    await using LocalClient service = await LocalClient.OpenAsync(servicePipe, new LocalClientOptions { Role = Role.Service, Name = "cli", Token = token }, ct);
+    LocalResult<StoredFile> stored = await StoreFiles.PutFileAsync(service, Path.GetFullPath("notes.txt"), progress: null, ct);
+    if (stored.IsOk)
+        Console.WriteLine($"notes.txt is ChunkList {stored.Value.ChunkList} ({stored.Value.Size} bytes in {stored.Value.Chunks.Count} Chunks)");
+}
 
 // The enumeration ends when the subscription does: unsubscribed, or lapsed for reading too slowly (see Lapse).
 await foreach (PackageChanged changed in packages)
@@ -102,7 +114,7 @@ static class Publishing
 | Area | Types |
 |---|---|
 | Client | `LocalClient` (`OpenAsync`, `SendAsync`, `SubscribeAsync`, `UnsubscribeAsync`, `ByeAsync`, `Host`, `Draining`, `Closed`), `LocalClientOptions`, `LocalResult<TOk>`, `Subscription<TEvent>`, `Reconnect.Delay`, `IndexCatchUp`, `LocalConnectionException`, `RequestLimitException` |
-| Pipe | `LocalPipe` (`Locate`, `ConnectAsync`: the one place the package touches the OS), `PipeLocation.Resolve`, `PipeEnvironment`, `LocalPlatform`, `PipeKind` |
+| Pipe | `LocalPipe` (`Locate()`, `Locate(configuredName)`, `ConnectAsync`: the one place the package touches the OS), `PipeLocation.Resolve` (`AXIOM_MESH_PIPE`, else `pipe.name`, else the default), `PipeEnvironment`, `LocalPlatform`, `PipeKind` |
 | Requests | one sealed record per request of §6 to §10 (56, every id of §14.1 but the two reserved since draft 4), each an `IRequest<TSelf, TOk>` naming its id, roles and OK body; `RequestTable` (id → name, section, roles, body reader) for the Host's dispatcher |
 | Events, callbacks | one sealed record per event of §7.3 (`IEvent<TSelf>`, with its `Topic`), `ForwardedCall` (`ICallback<TSelf, TReply>`) |
 | Records | every record of §5 (`Identity`, `User`, `Device`, `Package`, `Grant`, `Entry`, `Peer`, `Session`, `StaticPeer`, `Store`, `Pin`, `PinKey`, `Service`, `Operation`, `Error`, `Pairing`, `Transfer`, `TelemetrySeries`, `TelemetryPoint`, `Filter`) and the OK bodies with several fields (`PackagePage`, `EntryPage`, …) |

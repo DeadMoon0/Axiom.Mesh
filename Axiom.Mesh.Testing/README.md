@@ -2,20 +2,20 @@
 
 An in-memory [Axiom.Mesh](https://github.com/DeadMoon0/Axiom.Mesh) of any number of nodes for tests: one fake clock per mesh, fake discovery with partitions, in-memory stores, scripted peers that speak raw AMP/1, and waits backed by the nodes' facts, never by sleeps.
 
-Namespace: `Axiom.Mesh.Testing`. Depends on `Axiom.Mesh.Host` (and so on Core and everything below it) and on
-`Axiom.Mesh.Cli`, which it runs in-process.
+Namespace: `Axiom.Mesh.Testing`. Depends on `Axiom.Mesh.Core` (and so on everything below it), LDB's in-memory storage
+and `Microsoft.Extensions.TimeProvider.Testing`. The command line (`Axiom.Mesh.Cli.dll`), which `TestNode.CliAsync` runs
+in-process, travels inside this package: its own package is a dotnet tool, which no package can depend on. The daemon
+(`Axiom.Mesh.Host`) is not needed: a test node is a `MeshNode` with in-memory seams.
 
 ## Status
 
-Phase 1a, in progress. Built (milestones M6, M7): the published test identities, `TestMesh` with trust seeding, connect,
-stop and start, partition, severed links and heal, `SettleAsync`, `FakeDiscovery`, `InMemoryDialer`, `InMemoryKeyStore`,
-`InMemoryNetwork`, `ScriptedPeer`, and content seams on `TestNode` (create, grant, follow, write, publish, wait for an
-object) with `ObjectFixtures`; local clients (M8): `TestNode.ConnectUserAsync`, `ConnectServiceAsync`, `ConnectInProcessAsync`,
-`ConnectAsync` and `ConnectRaw` from a `TestProcess`, and `TestMesh.CreateIdentityAsync` over the local port. Pairing (M10):
-`TestMesh.PairAsync`, `EnrolAsync` and `WaitForPairingAsync`, `ScriptedPeer`'s pairing frames; the command line in-process:
-`TestNode.CliAsync`. The scenario fixture (M11): `IMeshFixture`, which `TestMesh` implements and the integration suite's
-socket fixture implements on real nodes, `TestCliService`, `MeshWaits`, `MeshPairing`, and `ScriptedPeer.ConnectAsync`
-over any open connection (a TCP one included).
+0.1.0. `TestMesh` (trust seeding, connect, stop and start, partition, severed links, heal, `SettleAsync`, `PairAsync`,
+`EnrolAsync`, `WaitForPairingAsync`), `TestNode` (content seams: create, grant, follow, write, publish, wait for an
+Entry or object; local clients: `ConnectUserAsync`, `ConnectServiceAsync`, `ConnectInProcessAsync`, `ConnectAsync`,
+`ConnectRaw` from a `TestProcess`; the command line in-process: `CliAsync`), the published test identities, fake
+discovery, the in-memory dialler, key store and network, `ScriptedPeer` (raw AMP/1 and pairing frames over the node's
+own mutual TLS, or over any open connection), and `IMeshFixture`, which `TestMesh` implements in memory and the
+integration suite's socket fixture on real nodes, so one scenario source runs both ways.
 
 ## Quick Start
 

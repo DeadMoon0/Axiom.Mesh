@@ -41,14 +41,11 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 
 ## 3. PIPE-ACCESS.md is not written
 
-- **Rule:** LOCAL-SPEC.md §2.4 defers the exact ACL, socket modes, service account and allow list to `PIPE-ACCESS.md`.
-- **Instead:** the document does not exist.
-- **Evidence:** `Documentation/` holds no `PIPE-ACCESS.md`.
-- **Tolerated because:** the listeners (M8) carry the effect §2.1 and §2.2 require: an owner-only access list with
-  `FILE_FLAG_FIRST_PIPE_INSTANCE` and `PIPE_REJECT_REMOTE_CLIENTS` on Windows, a 0600 socket file on Linux, the process
-  identity behind both, and `pipe.allowUsers` for a system service (`Axiom.Mesh.Host/README.md` documents the keys).
-  What is missing is the normative text.
-- **Paid in:** M13, with the documents of the release.
+Paid in M13: [Documentation/PIPE-ACCESS.md](Documentation/PIPE-ACCESS.md) says who may open the pipe on each desktop
+platform (the access list, the socket mode, the remote-client and first-instance flags), how the Host decides on a
+connection that reached it (`PipeAdmission.Decide` over the process identity), what `pipe.allowUsers` does and does not
+do today, how the pipe is named (`AXIOM_MESH_PIPE`, `pipe.name`, the default), and which proofs exist per platform
+(entry 37).
 
 ## 4. KEY-BACKUP.md is not written, and the user key has no backup
 
@@ -103,13 +100,18 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
   sealing can be added.
 - **Paid in:** a later phase (DESIGN.md §17, "later").
 
-## 10. Installing the Host as a Windows service or a systemd unit is documented, not automated
+## 10. The Host starts at the user's logon, not as a system service
 
 - **Rule:** DESIGN.md §10.5 (how the Host runs per platform).
-- **Instead:** the user starts `axiom-meshd run` or registers it by hand following the documentation.
-- **Evidence:** fundamentals plan, D7.
-- **Tolerated because:** phase 1a is proven on two PCs by hand (ACCEPTANCE.md).
-- **Paid in:** phase 3, with the desktop app's installer.
+- **Instead:** since M13 the install scripts and `axiom-mesh host install` register the Host to start at the user's
+  logon (a per-user scheduled task on Windows, a systemd user unit on Linux; fundamentals plan §6e), which is what a
+  desktop needs. A Host that runs before anyone logs on, as a Windows service or a system unit serving one user, is not
+  automated, and `pipe.allowUsers` (entry 3, PIPE-ACCESS.md) has no effect until it is.
+- **Evidence:** `Apps/Axiom.Mesh.Cli/Autostart/ScheduledTaskPlan.cs`, `SystemdUnitPlan.cs`; `install.ps1`, `install.sh`;
+  `Cli.Tests: AutostartPlanTests`, `HostInstallTests`; `.github/workflows/install-tests.yml`.
+- **Tolerated because:** a desktop's user is logged on whenever the mesh matters to them; a headless node can run
+  `axiom-meshd run` from any supervisor today.
+- **Paid in:** phase 3, with the desktop app's installer, or earlier for a headless node if a user asks.
 
 ## 11. Pairing codes are text, not QR codes or six words
 
@@ -136,24 +138,21 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
 
 Paid in M12: a Native AOT publish sets `TargetName`, so the published executables are `axiom-meshd` and `axiom-mesh`
 while the assemblies keep their package names for the layering conventions (`Axiom.Mesh.Host.csproj`,
-`Axiom.Mesh.Cli.csproj`); `Scripts/aot-smoke.ps1` ran them so on win-x64, `aot.yml` runs and uploads them on both
-platforms. A framework-dependent build (`dotnet run`, the tool package) keeps the assembly names.
+`Axiom.Mesh.Cli.csproj`); `Scripts/aot-smoke.ps1` ran them so on win-x64, and since M13 `install-tests.yml` (which
+replaced `aot.yml`) and `release.yml` publish, smoke and zip them on both platforms through `Scripts/package.*`. A
+framework-dependent build (`dotnet run`, the tool package) keeps the assembly names.
 
 ## 14. The store directory is not flushed after a rename where .NET cannot open a directory
 
-- **Rule:** SPEC.md §11.1: write to a temporary name and rename into place, "flushing the file and, on platforms that
-  need it, the directory".
-- **Instead:** `DirectoryObjectFiles` flushes the file, renames, and then tries to open the directory as a file stream
-  to flush it; where the runtime refuses that (not verified on Linux yet: the suite ran on Windows, which needs no
-  directory flush), the attempt is skipped silently.
-- **Evidence:** `Axiom.Mesh.Core/Storage/DirectoryObjectFiles.cs`, `FlushDirectory`.
-- **Tolerated because:** the object is still absent or complete after a crash (the rename is atomic); what can be lost
-  is a just-renamed object, which the index (written after the file) does not name yet unless its batch committed.
-- **Not paid in M12:** the milestone had no Linux machine, and nothing in the integration suite, which CI runs on Linux,
-  can observe whether a directory was flushed; the M12 batch writes (`FileWrites`) did not change the flush itself.
-- **Paid in:** M13, with the install-script job that runs the published daemon on Linux (an `fsync` on a directory
-  descriptor through a P/Invoke-free API, or `File.OpenHandle` on the directory where the runtime allows it, with a log
-  line the job can read).
+Paid in M13: .NET refuses to open a directory as a file stream on Unix (it checks `S_ISDIR` after `open` and throws), so
+the old attempt was skipped on every Linux run. `DirectorySync` now opens the directory read-only through libc
+(`open`, `fsync`, `close`, blittable P/Invokes as `LocalPipe` already uses for `getuid`) after every rename on Linux and
+macOS; Windows needs no directory flush. `DirectoryObjectFiles.ProbeDirectoryFlush` reports `NotNeeded`, `Flushed` or
+`Unsupported`, the daemon logs it at start (`store <path>: directory flush Flushed`), and two places prove it on Linux:
+`Core.Tests: StoreTests.TheStoreDirectoryIsFlushedWhereThePlatformNeedsIt_AndNeedsNoFlushOnWindows` (on the Linux unit
+job) and the install job, which greps the published daemon's log (`install-tests.yml`, step "The store directory is
+flushed"). What no test can prove is that the disk honours `fsync`; that is the file system's promise. Both CI proofs
+are new in M13 and have not run on a Linux machine yet (the development machine runs Windows).
 
 ## 15. The index's composite keys are concatenated into one column
 
@@ -174,7 +173,10 @@ platforms. A framework-dependent build (`dotnet run`, the tool package) keeps th
 - **Evidence:** `Axiom.Mesh.Core/Store/StoreWriter.cs` (files first, then the transaction); `StoreTests.AnInterruptedWriteLeavesNoObject_ACompleteOneIsFoundUnderItsHash`.
 - **Tolerated because:** both are verified bytes or never found under a hash; they cost disk only, and a later store
   of the same object reuses an orphan.
-- **Paid in:** M9, with `GetStore` (a start-up sweep of temporary files and of files the index does not name).
+- **Not paid in M9:** an earlier text said so, but no sweep was ever written; corrected in M13 after re-reading the
+  code (`DirectoryObjectFiles` has no enumeration, `StoreWriter` no start-up pass).
+- **Paid in:** phase 1b: a start-up sweep of `*.tmp-*` files and of object files the index does not name, bounded and
+  run in the background before the first eviction pass.
 
 ## 17. Intake does not check an Entry's parents
 
@@ -393,11 +395,17 @@ LOCAL-SPEC.md §2.2 says the reference Host now does this.
   proved by its two fences separately (`OnWindowsThePipesAccessListAllowsTheHostsAccountAlone`,
   `OnWindowsAConnectionThroughTheMachinesNameIsRefused`); a connection as another Windows account needs that account's
   password (`LogonUser`) or elevation, and is skipped with that reason.
-- **Evidence:** `UnitTests/Axiom.Mesh.Host.Tests/Rules/RealPipeTests.cs`; CONFORMANCE.md (LOCAL §2.2, planned row).
+- **Evidence:** `UnitTests/Axiom.Mesh.Host.Tests/Rules/RealPipeTests.cs`; CONFORMANCE.md (LOCAL §2.2);
+  Documentation/PIPE-ACCESS.md §4.
 - **Tolerated because:** the access list (owner only) and the process identity check are independent fences, each
   checked by construction and by the decision's tests.
-- **Paid in:** M13, narrowed to Windows: the install-script CI job (which runs as an administrator on the runner) creates
-  a second local account and connects as it.
+- **Narrowed in M13:** the install job's Windows run (`install-tests.yml`, step "Another Windows account is refused by
+  the pipe") creates a second local account on the runner, where the job's user is an administrator, and runs
+  `axiom-mesh status` as that account with `Start-Process -Credential` against the Host the install script started; it
+  must exit 2. The step is `continue-on-error` until a first run on the hosted runner shows the step itself works
+  (secondary logon from the runner's session is not verifiable on the development machine, whose user is no
+  administrator); it has not run anywhere yet. The development machine cannot run it.
+- **Paid in:** the first green run of that step: remove its `continue-on-error`, then this entry.
 
 ## 38. A budget set by request is not kept across a restart
 
@@ -478,18 +486,20 @@ host name of a code into addresses before admission decides on each (`Core.Tests
 - **Tolerated because:** it is a compiler defect, not one of this code; the Host compiles with the scanner.
 - **Not paid in M12:** retried on 2026-10-31 with the newest SDK on the development machine, 10.0.302, which still
   resolves ILCompiler 10.0.10 (the only ILCompiler in the package cache): without `--noscan` the publish fails with the same
-  `CodeGenerationFailedException` for `Dictionary<long, __Canon>.CopyTo`. The argument stays; `aot.yml` publishes with it.
+  `CodeGenerationFailedException` for `Dictionary<long, __Canon>.CopyTo`. The argument stays; the AOT publish of
+  `Scripts/package.*` (run by `install-tests.yml` and `release.yml`, which replaced `aot.yml` in M13) publishes with it,
+  so the released `axiom-mesh` is compiled without the scanner.
 - **Paid in:** the first .NET 10 servicing release whose ILCompiler compiles the command line with the scanner: remove the
-  `IlcArg` and let `aot.yml` prove it on both platforms.
+  `IlcArg` and let `install-tests.yml` prove it on both platforms.
 
 ## 48. The command line does not read `pipe.name` from `config.json`
 
-- **Rule:** the Host's pipe name precedence: `AXIOM_MESH_PIPE`, then `pipe.name` in `config.json`, then the default.
-- **Instead:** the command line finds the pipe by `AXIOM_MESH_PIPE` or the platform default (`LocalPipe.Locate`); a Host
-  configured with another `pipe.name` is reached only with the variable set.
-- **Evidence:** `Apps/Axiom.Mesh.Cli/Program.cs` (`Locate`).
-- **Tolerated because:** `pipe.name` is rare outside system services; the failure line names the pipe it tried.
-- **Paid in:** M13, with the install scripts, which set up the pipe the command line expects.
+Paid in M13: the precedence lives in one place, `PipeLocation.Resolve` (`PipeEnvironment.ConfiguredName`, used when
+`AXIOM_MESH_PIPE` is unset or empty, before the default); the Host passes its `pipe.name` there, and the command line
+reads `pipe.name` from the same `config.json` it reads the `cli` token from (`CliConfig.TryReadPipeName`) and resolves
+through `LocalPipe.Locate(configuredName)` (`Local.Tests: PipeLocationTests.TheVariableWinsOverTheConfiguredName_WhichWinsOverTheDefault`,
+`Cli.Tests: PipeNameTests`). The local install run of M13 used a home whose `config.json` names its own pipe, and the
+command line found it.
 
 ## 49. A pairing code lists every interface's address, reachable or not
 
@@ -512,7 +522,15 @@ lock at the stream is enough for the harness, and the product writes only throug
   `FileKeyStore` is internal to the Host and covered by `Host.Tests` (`FileKeyStoreTests`, `RealPipeTests`).
 - **Evidence:** `IntegrationTests/Axiom.Mesh.Integration.Tests/Support/RealNode.cs`.
 - **Tolerated because:** the scenarios test replication, trust and the pipe, not key storage.
-- **Paid in:** M13, with the install-script job that runs the published daemon end to end.
+- **Narrowed in M13, by decision:** the published daemon's `FileKeyStore` is run end to end where it ships: the AOT smoke
+  (`Scripts/aot-smoke.*`, inside `Scripts/package.*`) and the install job (`install-tests.yml`) start the Native AOT
+  `axiom-meshd`, create an identity (both keys written, DPAPI-wrapped on Windows, 0600 under a 0700 directory on Linux),
+  and write and read an Entry signed with the key read back from the files. The socket scenarios keep their keys in
+  memory on purpose: they restart nodes many times per run, and their subject is replication over real sockets, not key
+  storage, which `Host.Tests: FileKeyStoreTests` covers by rule. Giving `RealNode` the Host's internal key store would
+  open the Host's internals to the integration suite for no new proof.
+- **Paid in:** nothing further planned; the entry stays as the record of the decision until the release after 0.1.0
+  re-reads it.
 
 ## 52. A history walk asks for one parent per round trip
 
@@ -568,18 +586,24 @@ The release floor `FloorTests.AHistoryOfTenThousandEntriesIsWalkedWithinTwoMinut
 - **Evidence:** those files; `Core.Tests: StoreFilesTests` writes to the system's temporary folder.
 - **Tolerated because:** the shells only sequence what the pure parts decided, and a file-system seam in the public
   surface of the package every app references is a design decision of its own.
-- **Paid in:** M13, with the Sync service's needs known: an internal file-system seam for the shells, or a decision
-  recorded that the real file system is the edge.
+- **Narrowed in M13, by decision:** the real file system is the edge of these helpers. Their job is file I/O as the
+  client's own user (LOCAL-SPEC.md draft 4 moved it out of the Host for exactly that), every decision in them is a pure
+  function tested by rule (`FileNameRule`, `MaterialisePlan`, `ExistingRule`, `FolderTrees`, `ObjectReader.MayReadDirectly`),
+  and what a fake file system would replace (temporary names, renames, the marker file, symlinks becoming files, a
+  cancelled write leaving nothing visible) is what the real-directory tests are there to prove; an in-memory fake would
+  prove the fake. An internal seam was weighed and not built: it would add an interface every shell call goes through and
+  no test that fails today.
+- **Paid in:** phase 1b, only if the Sync service needs the helpers over something that is not a local directory (a
+  phone's content provider, for one); then the seam is designed for that, public, with its first real second
+  implementation.
 
 ## 56. A store written before SPEC.md draft 5 is not refused at start
 
-- **Rule:** ARCHITECTURE.md rule 7: a failure says who must act.
-- **Instead:** Entries stored by an earlier build have the draft-4 layout; draft 5 parses them as malformed, so they are
-  neither served nor listed correctly, and the index's `schema.version` was not bumped (no release exists).
-- **Evidence:** `Axiom.Mesh.Core/Storage/MeshDatabase.cs` (schema version unchanged since M5).
-- **Tolerated because:** nothing is released; the only stores are developers' and test runs'.
-- **Paid in:** M13: bump the schema version before 0.1.0 so that a store of a pre-release build is refused at start
-  with the step "delete the data directory", and say so in the release notes.
+Paid in M13: `MeshDatabase.SchemaVersion` is 2 (the Entry layout of draft 5, the `UserRow.Name` column of M11 and the
+`Parents` table of M12), and a store of version 1 is refused at start with a `MeshStoreException` (the daemon exits 4)
+whose steps say there is no migration before 0.1.0: stop the Host, delete the pre-release data and keys directories,
+start again, create the identity, pair again (`Core.Tests: StoreSequenceTests.AStoreOfAPreReleaseBuildIsRefusedAtStart_AndTheStepsSayToDeleteIt`).
+A store of a newer version keeps the older refusal ("run the version that made it"). CHANGELOG.md says both, for 0.1.0.
 
 ## 57. Publishing a file costs one pipe round trip per Chunk
 
@@ -594,15 +618,13 @@ from there (entry 60). `Core.Tests: StoreFilesTests.APipelinedPutStoresTheSameFi
 
 ## 58. A dropped Package is announced by no event
 
-- **Rule:** LOCAL-SPEC.md §7.2: topic `packages` reports every change of a Package's record "in the order the changes
-  happened".
-- **Instead:** a Package dropped because no peer lists it any more (entry 41) leaves `ListPackages` without a
-  `PackageChanged`: §14.12 has no change kind for it, and the registry is closed.
-- **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs` (`DropAsync` publishes no `PackageChange`); LOCAL-SPEC.md §6.4 says so.
-- **Tolerated because:** a drop follows an `Unfollowed` event or a revocation the client already saw; a client that
-  reconciles its view with `ListPackages` (§3.4) sees the drop.
-- **Paid in:** a LOCAL-SPEC.md draft that registers a change kind `Dropped` (14.12), with the event; M13 decides whether
-  before 0.1.0.
+Paid in M13, before 0.1.0: LOCAL-SPEC.md §14.12 registers change kind 8, `Dropped` (`PackageChange.Dropped`), and §6.4
+says a drop is announced. The store writer's drop publishes it (`StoreBatch.DropAsync`), the event hub builds the record
+from the trust before the drop (the Package's last name, kind and owner, `state` Listed, no Heads, `entries` 0), and an
+`UnfollowPackage` that drops reports `Unfollowed` then `Dropped`
+(`Core.Tests: PackageRequestTests.AnUnfollowedPackageNoPeerListsIsDropped_AndSoIsAListedOneTheLastListerOmits`; the
+registry drift test reads the new row). Decided before the release because the registry is closed once clients exist,
+and a client otherwise had to poll `ListPackages` to notice a drop.
 
 ## 59. A faulty Entry found after it was stored is not recorded against its sender
 

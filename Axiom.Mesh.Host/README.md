@@ -6,7 +6,7 @@ Namespace: `Axiom.Mesh.Host`. Depends on `Axiom.Mesh.Core`, Microsoft.Extensions
 
 ## Status
 
-Phase 1a, in progress. Built (M8): `axiom-meshd run` and `axiom-meshd version`; `config.json` with a default for every key; the key store (DPAPI on Windows, 0600 on Linux); the pipe with process identity on every connection; the store and database on disk; discovery; logging. The requests the node serves over the pipe are those of `Axiom.Mesh.Core`'s local port: the phase-1 set (M9), with the `cli` external service of the default configuration able to register a kind, write Entries and put files with the token the daemon writes into `config.json`; pairing (M10) runs over the mesh port while a pairing waits, and the command line `axiom-mesh` (M10) drives all of it. The machine's name is what a device being enrolled proposes for itself.
+0.1.0. `axiom-meshd run` and `axiom-meshd version`; `config.json` with a default for every key; the key store (DPAPI on Windows, 0600 on Linux); the pipe with process identity on every connection (who may open it: [PIPE-ACCESS.md](https://github.com/DeadMoon0/Axiom.Mesh/blob/main/Documentation/PIPE-ACCESS.md)); the store and database on disk; discovery; logging. The requests it serves are those of `Axiom.Mesh.Core`'s local port, pairing included; the `cli` external service of the default configuration writes Entries and puts objects with the token the daemon writes into `config.json`. **The daemon ships as a GitHub Release asset only** (Native AOT, one zip per platform with `axiom-mesh` and `SHA256SUMS`, fetched by `install.ps1` / `install.sh`), never as a NuGet package; `PipeHost` stays public for a custom host or an installer test that builds the daemon from source.
 
 ## Running it
 
@@ -28,9 +28,9 @@ axiom-meshd 0.1.0 runs.
 Press Ctrl-C to stop.
 ```
 
-Ctrl-C or SIGTERM sends `Drain` to every local client, gives them 5 seconds, says `Bye(Shutdown)` to the rest, closes the mesh sessions and releases the store. The daemon runs in the foreground; running it at logon as a scheduled task or a systemd user unit is documented, not automated, until the installer (STRUCTURAL-DEBT.md entry 10).
+Ctrl-C or SIGTERM sends `Drain` to every local client, gives them 5 seconds, says `Bye(Shutdown)` to the rest, closes the mesh sessions and releases the store. The daemon runs in the foreground; to run it at every logon, `axiom-mesh host install` registers it (a per-user scheduled task on Windows that starts it through `conhost.exe --headless`, so no window opens; a systemd user unit on Linux), as the install scripts do, and `axiom-mesh host uninstall` stops it and removes the registration. A system service is not automated (STRUCTURAL-DEBT.md entry 10).
 
-To run a second daemon on one machine (tests, a second identity), give it its own home and pipe: `AXIOM_MESH_PIPE=my-test axiom-meshd run --home ./second`, and the same `AXIOM_MESH_PIPE` to its clients.
+To run a second daemon on one machine (tests, a second identity), give it its own home with a `config.json` that names its own pipe and port (`{ "mesh": { "port": 41820 }, "pipe": { "name": "my-test" } }`) and start it with `AXIOM_MESH_HOME` pointing there; `axiom-mesh` with the same `AXIOM_MESH_HOME` reads `pipe.name` from that file and finds it. `AXIOM_MESH_PIPE` still wins over `pipe.name` for both.
 
 ## Where everything lives
 
@@ -42,7 +42,7 @@ To run a second daemon on one machine (tests, a second identity), give it its ow
 | logs | `<dir>/logs/` | `%LOCALAPPDATA%\Axiom.Mesh\logs\` | `$XDG_STATE_HOME/axiom-mesh/logs/` (`~/.local/state`) |
 | pipe | `AXIOM_MESH_PIPE`, else `pipe.name` | `\\.\pipe\axiom-mesh` | `$XDG_RUNTIME_DIR/axiom-mesh.sock` |
 
-The keys are the device key and, on the device that created the identity, the user key, each PKCS#8. On Windows each file is wrapped with DPAPI for the current user; on Linux the key directory is 0700 and each file 0600, and the daemon refuses to start when either is wider. `config.json` holds the `cli` token; on Linux it is 0600, on Windows `%LOCALAPPDATA%` admits the user alone. The log is one line per message in `axiom-meshd-<date>.log`, a new file each day and past 10 MiB, the newest 10 kept.
+The keys are the device key and, on the device that created the identity, the user key, each PKCS#8. On Windows each file is wrapped with DPAPI for the current user; on Linux the key directory is 0700 and each file 0600, and the daemon refuses to start when either is wider. `config.json` holds the `cli` token; on Linux it is 0600, on Windows `%LOCALAPPDATA%` admits the user alone. The log is one line per message in `axiom-meshd-<date>.log`, a new file each day and past 10 MiB, the newest 10 kept. At start it logs where it runs and how a rename in the store is made durable here (`store <data>: directory flush NotNeeded` on Windows, `Flushed` where the directory was fsynced, `Unsupported` where it could not be).
 
 ## The pipe
 
@@ -50,7 +50,7 @@ On Windows the daemon creates every pipe instance itself (`CreateNamedPipe`), be
 
 On Linux the socket file is created 0600 in `$XDG_RUNTIME_DIR`; a file left by a crashed daemon is removed only after a connection to it was refused, and one that answers means another daemon runs (exit code 3). For every connection the peer's pid and uid come from `SO_PEERCRED`, its executable from `/proc/<pid>/exe`.
 
-A connection whose user is not the daemon's own is closed before `Hello` is answered. A daemon that runs as a system service (Windows: SYSTEM or a service account; Linux: root) admits besides the users `pipe.allowUsers` lists. The exact access lists are to be specified in `PIPE-ACCESS.md` (STRUCTURAL-DEBT.md entry 3).
+A connection whose user is not the daemon's own is closed before `Hello` is answered. A daemon that runs as a system service (Windows: SYSTEM or a service account; Linux: root) admits besides the users `pipe.allowUsers` lists. The access lists, modes and the allow list are specified in [PIPE-ACCESS.md](https://github.com/DeadMoon0/Axiom.Mesh/blob/main/Documentation/PIPE-ACCESS.md).
 
 ## config.json
 
@@ -96,7 +96,7 @@ Every key is optional; a key the daemon does not know, or a value out of range, 
 | `mesh.broadcast` | true | Announce and listen on UDP 41811 (SPEC.md §3.2), once the device has an identity. |
 | `mesh.staticPeers` | [] | `host:port` addresses dialled without discovery (SPEC.md §3.3). `AddStaticPeer` adds more, which the node keeps in its index; these configured ones are removed here, not by `RemoveStaticPeer`. |
 | `store.budgetBytes` | 0 | The store's budget; 0 for none. Eviction keeps the store under it; a local write that would pin past it is `StoreFull`. |
-| `pipe.name` | null | The pipe's name (Windows) or socket path (Linux); `AXIOM_MESH_PIPE` wins over it. |
+| `pipe.name` | null | The pipe's name (Windows) or socket path (Linux); `AXIOM_MESH_PIPE` wins over it. `axiom-mesh` reads it from the same file, so its clients find the daemon without the variable. |
 | `pipe.allowUsers` | [] | Users a daemon that runs as a system service admits (Windows `DOMAIN\name`, Linux the uid). |
 | `services.<name>` | `cli` | A service by name (1 to 32 of `A–Z a–z 0–9 . - _`), with exactly one of `inProcess`, `spawn` (an absolute path) and `external`. |
 | `services.<name>.token` | generated | An external service's token, 64 lowercase hex characters; an empty one is generated and written back. Whoever holds it may claim the name. |

@@ -4,6 +4,10 @@ Finding [Axiom.Mesh](https://github.com/DeadMoon0/Axiom.Mesh) nodes on a local n
 
 Namespace: `Axiom.Mesh.Discovery`. Depends on `Axiom.Mesh.Model` for the ids; usable alone.
 
+**A building block of Core and Local, not referenced directly.** It is published on nuget.org as Core's dependency (one
+version for every Axiom.Mesh package); a node gets discovery through `Axiom.Mesh.Core`. It stays usable on its own for a
+tool that only wants to see which nodes announce themselves on a LAN.
+
 ## Quick Start
 
 ```csharp

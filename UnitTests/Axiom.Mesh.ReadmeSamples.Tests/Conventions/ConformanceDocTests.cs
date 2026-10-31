@@ -53,7 +53,24 @@ public sealed class ConformanceDocTests
     [Fact]
     public void EveryTestARowNames_ExistsUnlessTheRowIsPlanned()
     {
-        var missing = TestCatalog.Missing(Requirements().Where(r => !r.IsPlanned).SelectMany(r => DocumentTables.References(r.Cells[^1])));
+        var missing = TestCatalog.Missing(Requirements().Where(r => !r.IsPlanned && !r.IsDeferred).SelectMany(r => DocumentTables.References(r.Cells[^1])));
         Assert.True(missing.Count == 0, "CONFORMANCE.md names tests that do not exist: " + string.Join(", ", missing));
+    }
+
+    // Since 0.1.0 every requirement of phase 1a is proved: no row is planned, and a row that defers to a later phase or a
+    // manual check names the STRUCTURAL-DEBT.md entry that records why.
+    [Fact]
+    public void NoRowIsPlanned_AndADeferredRowNamesADebtEntryThatExists()
+    {
+        string debt = File.ReadAllText(Path.Combine(Repository.Root, "STRUCTURAL-DEBT.md"));
+        TableRow[] rows = Requirements();
+        string[] planned = [.. rows.Where(r => r.IsPlanned).Select(r => "line " + r.Line)];
+        string[] unrecorded = [.. rows.Where(r => r.IsDeferred)
+            .Where(r => System.Text.RegularExpressions.Regex.Match(r.Cells[^1], @"STRUCTURAL-DEBT\.md entry (\d+)") is not { Success: true } m
+                || !debt.Contains("\n## " + m.Groups[1].Value + ". ", StringComparison.Ordinal))
+            .Select(r => "line " + r.Line)];
+
+        Assert.True(planned.Length == 0, "Rows still planned: " + string.Join(", ", planned));
+        Assert.True(unrecorded.Length == 0, "Deferred rows without an existing STRUCTURAL-DEBT.md entry: " + string.Join(", ", unrecorded));
     }
 }

@@ -92,6 +92,18 @@ ALPN `axiom-mesh/1`, and checks its own rules first (`--self-test`). The scan ta
 | Session tickets, resumption, 0-RTT | none (`AllowTlsResume = false` on both roles; without a ticket there is no early data) | `Core.Tests: HandshakeTests.NoSessionTicketsAndNoEarlyData`, `tls-scan.yml` |
 | Handshake deadline | 10 seconds on the node's clock | `Core.Tests: HandshakeTests.AHandshakeWithoutAClientCertificateOrWithoutAlpnFails_AndCompletesWithin10Seconds` |
 
+Who may open the pipe, per platform, with every configuration key that touches it: [PIPE-ACCESS.md](PIPE-ACCESS.md).
+
+## Install and release
+
+| Release fact | Where |
+|---|---|
+| The binaries are verified before anything is installed: the install scripts download the release zip and `SHA256SUMS` over HTTPS from GitHub and refuse a zip whose SHA-256 is not the one listed; nothing is unpacked before. | `install.ps1` (`Get-ListedHash`), `install.sh` (the `awk` over `SHA256SUMS`), run against a local zip and its `SHA256SUMS` by `install-tests.yml` |
+| The script itself is fetched from `main`, which can change; the checksum protects the binaries, not the script. The strict option fetches the script from a release tag. Neither is signed (no code signing in 0.1.0). | README.md "Install", the scripts' headers; `install-tests.yml` runs the script of the commit it tests |
+| Nothing needs administrator rights or root: the executables go to the user's own directories, the PATH change is the user's, the autostart is a per-user scheduled task (logon trigger for the user's account, the user's interactive token, least privilege) or a systemd user unit. | `Cli.Tests: AutostartPlanTests.OnWindowsTheHostIsAPerUserLogonTaskRunningTheDaemonHiddenWithoutATimeLimit`, `Cli.Tests: AutostartPlanTests.OnLinuxTheHostIsASystemdUserUnitEnabledForTheDefaultTarget`, `install-tests.yml` |
+| The release workflow publishes to nuget.org with Trusted Publishing (a short-lived key from GitHub's OIDC token, no API key stored as a secret) and creates the GitHub Release only after both platforms' tests, AOT smokes and the NuGet push passed; `SHA256SUMS` is computed over the zips the release job attaches and checked against what each platform's job computed. | `release.yml` |
+| A store a pre-release build wrote is refused at start rather than read under a layout it was not written in. | `Core.Tests: StoreSequenceTests.AStoreOfAPreReleaseBuildIsRefusedAtStart_AndTheStepsSayToDeleteIt` |
+
 ## Out of scope
 
 - **Traffic analysis.** Discovery announces that a node exists and its ids; a passive observer learns who talks to whom
@@ -101,7 +113,7 @@ ALPN `axiom-mesh/1`, and checks its own rules first (`--self-test`). The scan ta
   listed executables (`userKeyRequests.confineTo`), which narrows but does not close that door.
 - **Everything deferred in plan decision D7 and STRUCTURAL-DEBT.md:** encryption at rest (entry 9), key backup and the
   recovery from a lost user key (entry 4), spawned services (entry 32), service calls (entry 7), an installer that
-  registers the daemon as a service (entry 10).
+  registers the daemon as a system service (entry 10; the logon start of 0.1.0 is a per-user task or unit).
 
 ## Reporting a vulnerability
 

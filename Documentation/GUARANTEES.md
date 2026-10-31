@@ -1,7 +1,7 @@
 # Guarantees
 
 What Axiom.Mesh promises, each with the test that proves it. **A promise without a test is not made:** a row whose
-test does not exist yet says `planned:` before the test that will prove it, and is a goal, not a promise. Test names
+test does not exist yet would say `planned:` before the test that will prove it (no row does since 0.1.0). Test names
 are `<test project>: <class>.<method>`; projects live under `UnitTests/` (or `IntegrationTests/`), `Shared` is
 `UnitTests/Shared`, whose classes every suite derives. `GuaranteeTests` (in `ReadmeSamples.Tests`) fails when a row
 names no test, or when a proved row names a test that does not exist.
@@ -160,6 +160,23 @@ with real TLS, a store and an index on disk and the real pipe (`Integration.Test
 | A withdrawn message is never shown with its text, in a table, in JSON or in `watch`. | `Cli.Tests: EntryDisplayTests.ARedactedMessageIsShownAsWithdrawnNeverItsText` |
 | Every command has help text, and a prefix that names two ids is refused naming both, never guessed. | `Cli.Tests: HelpTextTests.EveryCommandHasHelpText`, `Cli.Tests: IdMatchTests.AnAmbiguousPrefixNamesTheCandidates_AnUnknownOneSaysNoneMatches` |
 | A folder published from the command line materialises byte-equal on another device. | `Cli.Tests: CliScenarioTests.APublishedFolderMaterialisesByteEqualOnASecondNodeThatFollowsIt` |
+
+## Install and release
+
+| Promise | Proved by |
+|---|---|
+| The Host starts at the user's logon as the release design says: on Windows a per-user logon task with the user's own token, no time limit, not stopped on batteries, running the daemon without a window; on Linux a systemd user unit enabled for the default target. An uninstall stops the Host and removes exactly that registration. | `Cli.Tests: AutostartPlanTests.OnWindowsTheHostIsAPerUserLogonTaskRunningTheDaemonHiddenWithoutATimeLimit`, `Cli.Tests: AutostartPlanTests.OnLinuxTheHostIsASystemdUserUnitEnabledForTheDefaultTarget`, `Cli.Tests: AutostartPlanTests.AnUninstallStopsTheHostAndRemovesTheRegistration_WhatIsNotThereIsNoFailure` |
+| Registering the Host never asks the Host, and a system program that fails is one line and exit 3. | `Cli.Tests: HostInstallTests.InstallRegistersAndStartsTheHostWithoutAskingIt`, `Cli.Tests: HostInstallTests.ASystemProgramThatFailsIsOneLineAndExit3` |
+| A path in the registration is taken literally by the system that runs it, spaces, `%` and `$` included. | `Cli.Tests: AutostartPlanTests.AHomeOfItsOwnIsPassedAsHome_QuotedSoThatEveryPathIsTakenLiterally` |
+| The command line finds a Host whose `config.json` names its own pipe, by the precedence the Host listens by. | `Local.Tests: PipeLocationTests.TheVariableWinsOverTheConfiguredName_WhichWinsOverTheDefault`, `Cli.Tests: PipeNameTests.PipeNameIsReadFromConfigJson` |
+| A store written by a build before 0.1.0 is refused at start, with the steps to replace it; nothing in it is changed. | `Core.Tests: StoreSequenceTests.AStoreOfAPreReleaseBuildIsRefusedAtStart_AndTheStepsSayToDeleteIt` |
+| A dropped Package is announced to every subscriber of its topic. | `Core.Tests: PackageRequestTests.AnUnfollowedPackageNoPeerListsIsDropped_AndSoIsAListedOneTheLastListerOmits` |
+| Where the platform needs it, a stored object's directory is flushed after the rename, so a complete object survives a power failure. | `Core.Tests: StoreTests.TheStoreDirectoryIsFlushedWhereThePlatformNeedsIt_AndNeedsNoFlushOnWindows` |
+| The local protocol's published vectors decode and re-encode to the same bytes, so another implementation can check itself against them. | `Local.Tests: VectorTests.EveryPublishedVectorDecodesAndReencodesToTheSameBytes` |
+
+The install scripts, the release workflow and the install job are not unit-tested; what they do is described in
+[ACCEPTANCE.md](ACCEPTANCE.md) and `.github/workflows/install-tests.yml`, and the checksum check is the install script's
+own (it refuses a zip that does not match `SHA256SUMS`).
 
 ## Performance
 

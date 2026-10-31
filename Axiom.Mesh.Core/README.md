@@ -6,45 +6,17 @@ Namespace: `Axiom.Mesh.Core` (the store's seams in `Axiom.Mesh.Core.Storage`). D
 
 ## Status
 
-Phase 1a, in progress. Built: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction (M5); the transport (M6): `MeshNode.StartAsync`, one LWSE server with the mesh port and the adopt-only outbound and local ports, mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, the duplicate rule, refusals, violations and backoff, the peer table and the dialler; replication (M7): listings, wants and answers, the history walk, push and relay, the Roster push, flow control, faulty-content and violation bookkeeping, counters, and the node's write seams (`FollowAsync`, `PutAsync`, `WriteEntryAsync`). The local port (M8): the `Hello` checks, a data-driven dispatcher, subscriptions with replay and lapse, operations, liveness and `Drain`, and identity creation on a running node. The requests (M9): the phase-1 set of LOCAL-SPEC.md §6 and §9 (known users and devices, Packages, Grants, history and objects, pins and the store, peers and static peers, `Fetch` and `Materialise`, and the service role with `RegisterKind`, `WriteEntry`, `PutObject`, `PutFile` and `GetStorePath`), callbacks to services, and the `transfers` and `service` topics. Pairing (M10): the pairing shell of PAIR-SPEC.md in all four modes (`ShowUser`, `JoinUser`, `ShowDevice`, `AddDevice`) over mutual TLS under `axiom-mesh-pair/1`, driven by `StartPairing`, `ConfirmPairing`, `CancelPairing` and `GetPairing` and reported on topic `pairing`. Content-blind (M11b): the node reads an Entry's envelope only (`references`, `redacts`, SPEC.md draft 5) and parses no payload; `Materialise` and `PutFile` left it for the helpers of Axiom.Mesh.Local (LOCAL-SPEC.md draft 4).
+0.1.0, phase 1a. The whole engine of the fundamentals plan: the store and its index, trust, intake, pins and eviction;
+the transport (mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, duplicates, backoff, the peer table);
+replication (listings, wants, push and relay, flow control, faulty-content and violation bookkeeping, late parents);
+the local port with the phase-1 request set, subscriptions, operations and `Fetch`; the pairing shell of PAIR-SPEC.md in
+all four modes. The node reads an Entry's envelope only (`references`, `redacts`, SPEC.md draft 5) and parses no
+payload; cutting files and writing Trees to disk is the client's work (`StoreFiles`, `Trees` in Axiom.Mesh.Local). Since
+0.1.0 the index is schema version 2 (a store of a pre-release build is refused at start with the steps out), a dropped
+Package is announced (`PackageChanged(Dropped)`, LOCAL-SPEC.md §14.12), and on Linux and macOS the store directory is
+fsynced after each rename (`DirectoryObjectFiles.ProbeDirectoryFlush` says how renames are made durable here).
 
-## Quick Start
-
-What a Host or a test hands the engine are its seams: where object files live and where randomness comes from. Both have an in-memory implementation for tests and one for a real node.
-
-```csharp
-using Axiom.Mesh;
-using Axiom.Mesh.Core;
-using Axiom.Mesh.Core.Storage;
-using Axiom.Mesh.Payloads;
-
-// In memory, reproducible: what a test or an in-memory mesh uses. A real node uses
-// new DirectoryObjectFiles(storePath, new SystemEntropy()) and SystemEntropy.
-IEntropy entropy = new DeterministicEntropy(42);
-IObjectFiles files = new InMemoryObjectFiles();
-
-// Only verified bytes reach the files: a Chunk names itself by its hash.
-Chunk chunk = ObjectBuilders.Chunk("hello"u8);
-bool written = await files.WriteAtomicAsync(chunk.Hash, chunk.Bytes, CancellationToken.None);   // true
-bool again = await files.WriteAtomicAsync(chunk.Hash, chunk.Bytes, CancellationToken.None);     // false: idempotent
-
-// A reader keeps the bytes it opened even when the store deletes the name meanwhile (LOCAL-SPEC.md §9.7).
-if (files.TryOpenRead(chunk.Hash, out Stream? reader))
-{
-    using (reader)
-    {
-        Console.WriteLine(files.TryDelete(chunk.Hash));   // Deleted
-        Console.WriteLine(reader.Length);                   // 7: tag, version and five bytes of data
-    }
-}
-
-byte[] nonce = new byte[32];
-entropy.Fill(nonce);                                         // the same bytes on every run with seed 42
-```
-
-On disk, an object with hash `h` is the file `<store>/objects/<h[0..1]>/<h[2..3]>/<h>` holding exactly its bytes, written to a temporary name in the same directory, flushed and renamed into place; a crash leaves it absent or complete.
-
-## Starting a node
+## Quick Start: embedding a node
 
 A node is started once, with everything dishonest handed in: object files, the database, the key store, discovery, the
 dialler, the clock, randomness and logging. This is what the Host does on disk and sockets; `Axiom.Mesh.Testing` does the
@@ -120,6 +92,42 @@ What a started node does on its own:
   known users; static peers are dialled and the handshake decides. A failed dial, or a close before the peer's `Hello`,
   backs off 10 seconds doubling to 5 minutes, then the node redials on its own; three violations within an hour hold
   dials back for an hour.
+
+## The store's seams
+
+What a Host or a test hands the engine are its seams: where object files live and where randomness comes from. Both have an in-memory implementation for tests and one for a real node.
+
+```csharp
+using Axiom.Mesh;
+using Axiom.Mesh.Core;
+using Axiom.Mesh.Core.Storage;
+using Axiom.Mesh.Payloads;
+
+// In memory, reproducible: what a test or an in-memory mesh uses. A real node uses
+// new DirectoryObjectFiles(storePath, new SystemEntropy()) and SystemEntropy.
+IEntropy entropy = new DeterministicEntropy(42);
+IObjectFiles files = new InMemoryObjectFiles();
+
+// Only verified bytes reach the files: a Chunk names itself by its hash.
+Chunk chunk = ObjectBuilders.Chunk("hello"u8);
+bool written = await files.WriteAtomicAsync(chunk.Hash, chunk.Bytes, CancellationToken.None);   // true
+bool again = await files.WriteAtomicAsync(chunk.Hash, chunk.Bytes, CancellationToken.None);     // false: idempotent
+
+// A reader keeps the bytes it opened even when the store deletes the name meanwhile (LOCAL-SPEC.md §9.7).
+if (files.TryOpenRead(chunk.Hash, out Stream? reader))
+{
+    using (reader)
+    {
+        Console.WriteLine(files.TryDelete(chunk.Hash));   // Deleted
+        Console.WriteLine(reader.Length);                   // 7: tag, version and five bytes of data
+    }
+}
+
+byte[] nonce = new byte[32];
+entropy.Fill(nonce);                                         // the same bytes on every run with seed 42
+```
+
+On disk, an object with hash `h` is the file `<store>/objects/<h[0..1]>/<h[2..3]>/<h>` holding exactly its bytes, written to a temporary name in the same directory, flushed and renamed into place; a crash leaves it absent or complete.
 
 ## Replicating
 
@@ -203,9 +211,9 @@ the user the Host serves, and the drain's grace.
 | `Local/` | `LocalPort`, `LocalPortOptions`, `LocalService`, `ServiceProvenance`, `ProcessIdentity`, `ProcessKind` (public); `LocalPortHandler`, `LocalConnection` (the per-connection actor), `ConnectionBook`, `LocalHelloRule`, `DispatchRule`, `RequestRoutes` (the dispatcher's table), `Outbox`, `LocalSubscription`, `FilterRule`, `OperationTable`, `LivenessRule`, `LocalEventHub`, the request handlers (`IdentityRequests`, `NodeRequests`, `SubscriptionRequests`, `OperationRequests`) and the record builders |
 | `Replication/` | `ReplicationStatus`, `SessionTraffic` (public); `ReplicationSession` (one per established session: read, write and push loops), `SessionOutbox` (control and object lanes), `ReplicationPlanner` (pure: `Plan`, `Walk`), `WantScheduler` (sources, 64 per peer, re-ask after 30 s; `IWantedSet`), `SourceBook`, `Listings` (pure), `ServedObjects` (visibility of a wanted hash), `Replicator` (the node's walk, held-buffer expiry and cancellations), `EntryWriter`, `NodeReplication`, `TelemetrySink`, `ObjectLinks` |
 | `Peers/` | `PeerRecord`, `PeerState` (public); `PeerTable`, `PeerSession`, `DialPolicy`, `DialDecision`, `SkipReason`, `Backoff`, `ViolationWindow`, `PeerDialler`, `DiscoveryPump`, `DialRequest`, `DialOutcome`, `EstablishVerdict` |
-| `Storage/` | `IObjectFiles`, `DirectoryObjectFiles`, `InMemoryObjectFiles`, `ObjectDeletion` (public); the LDB entities (`UserRow`, `DeviceRow`, `PackageRow`, `GrantRow`, `HeadRow`, `EntryRow`, `ObjectRow`, `PinRow`, `PeerRow`, `MetaRow`, `ReferenceRow`), `MeshDatabase` (tables, store epoch, schema version), `Rows<T>` |
+| `Storage/` | `IObjectFiles`, `DirectoryObjectFiles`, `InMemoryObjectFiles`, `ObjectDeletion`, `StoreDirectoryFlush` (public); `DirectorySync` (the directory fsync through libc), the LDB entities (`UserRow`, `DeviceRow`, `PackageRow`, `GrantRow`, `HeadRow`, `EntryRow`, `ObjectRow`, `PinRow`, `PeerRow`, `MetaRow`, `ReferenceRow`, `ParentRow`), `MeshDatabase` (tables, store epoch, schema version 2), `Rows<T>` |
 | `Trust/` | `TrustSnapshot` (immutable `ITrustSnapshotView`, `TryResolveDevice`, `MayList`, `MayServeGrant`, `MayServeRoster`, `TryGetCurrent`), `TrustBuilder`, `UserTrust`, `PackageTrust`, `SelfIdentity`, `CurrentSigned` |
-| `Store/` | `StoreWriter` (the single writer), `StoreBatch`, `PinBook`, the commands, `ObjectStore`, `ObjectHandle`, `Promises`, `Evictor`, `EntryIndex`, `HeadsView`, `RetentionRule`, `ChunkStreamer` |
+| `Store/` | `StoreWriter` (the single writer), `StoreBatch`, `PinBook`, the commands, `ObjectStore`, `ObjectHandle`, `Promises`, `Evictor`, `EntryIndex`, `HeadsView`, `RetentionRule`, `FileWrites` |
 | `Intake/` | `Intake`, `IntakeRules`, `HeldBuffer`, `IWantedSet` |
 | `Changes/` | `ChangeBus`, `ChangeSubscription`, `ChangeSet` and its records |
 | root | `MeshNode`, `MeshStoreException` |

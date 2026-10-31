@@ -26,6 +26,14 @@ public sealed class GuaranteeTests
         Assert.True(unnamed.Length == 0, "Promises that name no test: " + string.Join(", ", unnamed));
     }
 
+    // Since 0.1.0 every promise is proved: a goal without its test does not stand in the table.
+    [Fact]
+    public void NoPromiseIsPlanned()
+    {
+        string[] planned = [.. Promises().Where(r => r.IsPlanned).Select(r => "line " + r.Line)];
+        Assert.True(planned.Length == 0, "Promises still planned: " + string.Join(", ", planned));
+    }
+
     [Fact]
     public void EveryTestAProvedPromiseNames_Exists()
     {

@@ -13,4 +13,10 @@ internal sealed record TableRow(int Line, IReadOnlyList<string> Cells)
     /// recorded, and the test it names does not exist yet.
     /// </summary>
     public bool IsPlanned => Cells.Count > 0 && Cells[^1].StartsWith("planned", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether the row's last cell starts with <c>deferred</c>: a later phase, or a manual check, meets the requirement,
+    /// and the cell names the STRUCTURAL-DEBT.md entry that records it.
+    /// </summary>
+    public bool IsDeferred => Cells.Count > 0 && Cells[^1].StartsWith("deferred", StringComparison.OrdinalIgnoreCase);
 }

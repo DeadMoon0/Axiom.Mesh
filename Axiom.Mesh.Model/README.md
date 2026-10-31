@@ -6,6 +6,11 @@ and keys: no socket, no disk, no clock, no randomness.
 
 Namespace: `Axiom.Mesh`. Depends on `Axiom.ProtoStream` (`WireReader`/`WireWriter`) only.
 
+**A building block of Core and Local, not referenced directly.** It is published on nuget.org as their dependency (one
+version for every Axiom.Mesh package); a program that talks to the Host references `Axiom.Mesh.Local`, one that embeds a
+node `Axiom.Mesh.Core`, and gets this package with them. A service that builds or parses Entry payloads uses its
+`Axiom.Mesh.Payloads` namespace through them.
+
 ## Quick Start
 
 ```csharp

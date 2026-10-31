@@ -9,7 +9,7 @@
 </objective>
 
 <package_scope>
-    Namespace Axiom.Mesh.Discovery (folders for orientation only).
+    A building block of Core and Local, not referenced directly by apps: published on nuget.org as their dependency, one version with every Axiom.Mesh package. Namespace Axiom.Mesh.Discovery (folders for orientation only).
     Root: Announcement(Device, User, Address: IPEndPoint, Source) [ClosedShape] with ForStaticPeer(address) (all-zero ids) and ClaimsTheSameAs; DiscoverySource flags (None, Mdns, Broadcast, Static); SelfRecord { Device, User, Port } (non-zero ids, port not 0); IDiscovery { ObserveAsync(ct) : IAsyncEnumerable&lt;Announcement&gt;; AnnounceAsync(ct) }; DiscoveryFacts (bounded sink, Record, Reader) with DiscoveryFact { At, Mechanism, Kind, Subject, Detail } and DiscoveryFactKind.
     Codecs (pure): DnsSdCodec (ServiceType _axiom-mesh._tcp, InstanceName(device) = first 32 hex, WriteQuery, WriteAnswer(self, addresses), IsServiceQuery(packet), ReadAnnouncements(packet, source); bounds MaxPacketLength 9000, MaxRecords 64, MaxInstances 8, MaxAddresses 16); BroadcastCodec (Port 41811, Length 71, Magic "AMD1", TryParse, Write(kind, self[, span])); BroadcastDatagram(Kind, Device, User, Port).ToAnnouncement(source); BroadcastKind (Query 0, Announcement 1).
     Rules (pure, timestamps in): AnnounceGate.TryPass(timestamp, interfaceIndex) (at most 1 per second per interface); AnnouncementCache(capacity, repeatAfter).Observe(announcement, timestamp) → AnnouncementNovelty (Duplicate, New, Changed, Repeated), TryGet(device), Snapshot().

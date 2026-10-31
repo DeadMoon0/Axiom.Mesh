@@ -1,20 +1,28 @@
 # Axiom.Mesh.Cli
 
 `axiom-mesh`, the command line of [Axiom.Mesh](https://github.com/DeadMoon0/Axiom.Mesh): a user client of the local
-protocol, installed as a .NET tool, that explains every failure in one line and never prints a stack trace for a known
-fault.
+protocol that explains every failure in one line and never prints a stack trace for a known fault. It ships beside the
+Host (`axiom-meshd`) in every release zip, Native AOT, and as the .NET tool `axiom-mesh` for developers.
 
 Namespace: `Axiom.Mesh.Cli`. Depends on `Axiom.Mesh.Local` only, never on the Host or its engine.
 
 ## Status
 
-Phase 1a (milestone M10): every command of the fundamentals plan §2.7 below. `host install` and `host uninstall` come with
-the release (M13); the pairing code is printed as text and, on a terminal, in a box; a QR code follows later
+0.1.0: every command of the fundamentals plan §2.7 below, and `host install` / `host uninstall`, which register the Host
+to start at logon. The pairing code is printed as text and, on a terminal, in a box; a QR code follows later
 (STRUCTURAL-DEBT.md 11).
 
 ## Quick Start
 
-Start the Host once (`axiom-meshd run`), then on the first device:
+Install the Host and the command line in one line; the Host is registered to start at every logon and started now:
+
+```text
+Windows (PowerShell):  irm https://raw.githubusercontent.com/DeadMoon0/Axiom.Mesh/main/install.ps1 | iex
+Linux:                 curl -fsSL https://raw.githubusercontent.com/DeadMoon0/Axiom.Mesh/main/install.sh | sh
+```
+
+With the .NET SDK instead: `dotnet tool install -g Axiom.Mesh.Cli`, then the daemon from a release zip and
+`axiom-mesh host install --daemon <path to axiom-meshd>` (or `axiom-meshd run` in a terminal). Then, on the first device:
 
 ```bash
 axiom-mesh identity create --user alice --device laptop
@@ -46,6 +54,21 @@ axiom-mesh watch                     # every Entry stored from now on, until Ctr
 Enrol your second device into your user: on the new device `axiom-mesh pair show --device`, on a device that holds the
 user key `axiom-mesh pair join <its code>`, then `pair confirm` on both.
 
+The two-PC acceptance run, step by step with what each command prints and a run log:
+[ACCEPTANCE.md](https://github.com/DeadMoon0/Axiom.Mesh/blob/main/Documentation/ACCEPTANCE.md). Its commands in short:
+
+```bash
+axiom-mesh status                                    # both PCs: the Host answers
+axiom-mesh identity create --user alice --device pc-a
+axiom-mesh pair show / pair join <code> / pair confirm
+axiom-mesh peers                                     # the other PC established (else: peer add <ip>:41810)
+axiom-mesh package create Family && axiom-mesh grant set Family bob
+axiom-mesh write Family --text "hello from A"
+axiom-mesh package follow Family && axiom-mesh history Family   # on B: the same Entry hash
+axiom-mesh host uninstall / host install            # B offline and back: it catches up
+axiom-mesh grant revoke Family bob
+```
+
 ## Commands
 
 | Command | What it does |
@@ -66,6 +89,8 @@ user key `axiom-mesh pair join <its code>`, then `pair confirm` on both.
 | `entry <hash> [--json]`, `object <hash> [--out <file>]` | One Entry in full; one object's tag and size, or its bytes. |
 | `watch [<package>]` | Every Entry stored from now on, until Ctrl-C. |
 | `store`, `pins [--json]`, `pin <hash>`, `unpin <hash>` | The store; pins; keep or release an object. |
+| `host install [--daemon <path>] [--no-start] [--json]` | Start the Host at every logon (a per-user scheduled task on Windows, a systemd user unit on Linux, as the install scripts do), and now; the daemon next to this tool unless `--daemon` names one. |
+| `host uninstall [--daemon <path>] [--json]` | Stop the Host and remove its start at logon; nothing registered is no failure. Binaries and data stay. |
 | `version`, `help [<command>]` | This tool's version; every command, or one command's options. |
 
 Ids are accepted in full (64 hex digits) or as a prefix that names exactly one (the 12 digits a table shows are enough);
@@ -83,9 +108,12 @@ Packages and users also by their exact name. A prefix that names two is refused 
 
 ## Where it looks
 
-- **The Host:** the pipe `AXIOM_MESH_PIPE` names, else `\\.\pipe\axiom-mesh` on Windows and
-  `$XDG_RUNTIME_DIR/axiom-mesh.sock` on Linux (LOCAL-SPEC.md §2.1). A Host configured with another `pipe.name` is reached
-  with `AXIOM_MESH_PIPE` set (STRUCTURAL-DEBT.md 48).
+- **The Host:** the pipe `AXIOM_MESH_PIPE` names, else the `pipe.name` of the Host's `config.json` (found as below), else
+  `\\.\pipe\axiom-mesh` on Windows and `$XDG_RUNTIME_DIR/axiom-mesh.sock` on Linux (LOCAL-SPEC.md §2.1): the precedence
+  the Host listens by.
+- **The autostart:** `host install` writes the task definition and runs `schtasks` (Windows), or writes
+  `~/.config/systemd/user/axiom-meshd.service` and runs `systemctl --user` (Linux); with `AXIOM_MESH_HOME` set it passes
+  `--home` to the daemon. Everything it does is planned first and printed with `--json`; the Host is not asked.
 - **The write path:** `write` and `package publish` connect as the external service `cli` (decision D4) with the token
   `AXIOM_MESH_SERVICE_TOKEN` names, else `services.cli.token` of the Host's `config.json`, found by the Host's own rule:
   `AXIOM_MESH_HOME`, else `%LOCALAPPDATA%\Axiom.Mesh` on Windows, else `$XDG_CONFIG_HOME/axiom-mesh` (or

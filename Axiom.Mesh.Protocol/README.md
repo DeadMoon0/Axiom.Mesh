@@ -7,6 +7,10 @@ codecs and pure functions only: no socket, no clock, no randomness.
 
 Namespace: `Axiom.Mesh.Protocol`. Depends on `Axiom.Mesh.Model` and `Axiom.ProtoStream`.
 
+**A building block of Core and Local, not referenced directly.** It is published on nuget.org as Core's dependency (one
+version for every Axiom.Mesh package); embed a node with `Axiom.Mesh.Core`, or test against one with
+`Axiom.Mesh.Testing`, whose scripted peers speak AMP/1 through this package.
+
 ## Quick Start
 
 ```csharp
