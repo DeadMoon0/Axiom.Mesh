@@ -27,7 +27,9 @@ Linux:    curl -fsSL https://raw.githubusercontent.com/DeadMoon0/Axiom.Mesh/main
 ```
 
 Before a release exists, from a zip you built (`Scripts/package.ps1 -Output dist` on Windows,
-`sh Scripts/package.sh linux-x64 dist` on Linux) and copied over with its `SHA256SUMS`:
+`sh Scripts/package.sh linux-x64 dist` on Linux, which needs clang, zlib1g-dev and zip) or downloaded from the
+artifacts `axiom-mesh-win-x64` / `axiom-mesh-linux-x64` of a green run of the Install workflow, unpacked so the zip and
+its `SHA256SUMS` sit side by side:
 
 ```text
 Windows:  .\install.ps1 -Source C:\path\to\axiom-mesh-0.1.0-win-x64.zip

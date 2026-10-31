@@ -52,7 +52,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: axiom-mesh-linux-x64
-          path: ${{ runner.temp }}/dist/axiom-mesh-*.zip
+          path: |
+            ${{ runner.temp }}/dist/axiom-mesh-*.zip
+            ${{ runner.temp }}/dist/SHA256SUMS
           if-no-files-found: error
 
       # The runner's user has no systemd user manager until it lingers; with one, 'systemctl --user' works as in a login.
@@ -132,7 +134,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: axiom-mesh-win-x64
-          path: ${{ runner.temp }}/dist/axiom-mesh-*.zip
+          path: |
+            ${{ runner.temp }}/dist/axiom-mesh-*.zip
+            ${{ runner.temp }}/dist/SHA256SUMS
           if-no-files-found: error
 
       - name: Install from the local zip
