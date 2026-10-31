@@ -1,5 +1,5 @@
 {
-  "specification": "AMP/1, SPEC.md draft 3, §15",
+  "specification": "AMP/1, SPEC.md draft 5, §15",
   "about": "Each .hex file is one object (SPEC.md §8), lowercase hex, 64 characters per line. 'hash' is H(object). Signed vectors verify against the key 'verifiedWith' names (a key below, the object's own key field, or another vector's owner key); their signatures are not deterministic, so compare them by verifying, never byte for byte. The keys are published test keys (PKCS#8 DER, hex): never use them for anything else.",
   "regenerate": "Set AXIOM_MESH_WRITE_VECTORS=1 and run the Model.Tests suite (VectorTests).",
   "keys": [
@@ -82,7 +82,7 @@
       "file": "entry.hex",
       "tag": 4,
       "object": "Entry",
-      "hash": "e197fdd8c5148eda075cdd34373c5bd40d042ec7aed41f708aa72ad8a2655912",
+      "hash": "06f0ff16707a8d4b5403b77efab5adc20c22ae06339a447541637b892cf95865",
       "signedBy": "alice-laptop",
       "verifiedWith": "alice-laptop"
     },
@@ -90,7 +90,7 @@
       "file": "manifest.hex",
       "tag": 5,
       "object": "Manifest",
-      "hash": "f4d555f253a7eaaafc8180f4c0a4f3b3c92fdf215221c3720bcf0826a0671e80",
+      "hash": "5d60e429495062353e96c7bc7787b4d1e5ed5e7719f98b8ea495fc8340840758",
       "signedBy": "alice",
       "verifiedWith": "ownerKey"
     },
@@ -98,7 +98,7 @@
       "file": "roster.hex",
       "tag": 6,
       "object": "Roster",
-      "hash": "941e62f480d0b55b04a639027b6b0a9ba9c411b1ff5c1fdaf54f7704d629084c",
+      "hash": "96f0d1618708d4d8a197d06ac9ce551dc770ea8765505bdd86367acc4667c781",
       "signedBy": "alice",
       "verifiedWith": "userKey"
     },
@@ -106,7 +106,7 @@
       "file": "grant.hex",
       "tag": 7,
       "object": "Grant",
-      "hash": "fc2da57bbefc935852cff3feb109f5e1d85da8c048191de89d9251d57920e689",
+      "hash": "9b80aa1beb9e74a9775cb959bc2432ce8382619191aadf43813eb1a68f7ccd1a",
       "signedBy": "alice",
       "verifiedWith": "manifest.hex"
     }

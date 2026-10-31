@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Integration.Tests.Support;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
 using Axiom.Mesh.Testing;
 using Xunit.Abstractions;
 
@@ -53,7 +54,7 @@ public sealed class FloorTests(ITestOutputHelper output)
 
         Assert.True(ObjectBuilders.TryTree(entries, out Tree? root, out string? problem), problem);
         Assert.True(await alice.PutAsync(root, None));
-        await alice.WriteEntryAsync(photos, new VersionPayload { Tree = root.Hash, Label = "main", Prerelease = string.Empty, Notes = string.Empty }, None);
+        await alice.WriteEntryAsync(photos, new VersionPayload { Tree = root.Hash, Label = "main", Prerelease = string.Empty, Notes = string.Empty }.ToBody(), None);
         await mesh.SettleAsync(None);
 
         var watch = Stopwatch.StartNew();
@@ -78,7 +79,7 @@ public sealed class FloorTests(ITestOutputHelper output)
         PackageId channel = await CreateAsync(mesh, "Family", PackageKind.Channel);
         MeshNode alice = mesh.Node("alice-laptop");
         for (int i = 0; i < Entries; i++)
-            await alice.WriteEntryAsync(channel, new MessagePayload { Text = $"message {i}", Attachments = [], ReplyTo = default }, None);
+            await alice.WriteEntryAsync(channel, new MessagePayload { Text = $"message {i}", Attachments = [], ReplyTo = default }.ToBody(), None);
         await mesh.SettleAsync(None);
 
         var watch = Stopwatch.StartNew();

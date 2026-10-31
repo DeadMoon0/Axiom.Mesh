@@ -124,4 +124,10 @@ internal static class EntryIndex
     /// <returns>Its key.</returns>
     public static EntryKey KeyOf(EntryRow row) =>
         new(row.Clock, new DeviceId(RowKeys.Hash(row.Device)), new ObjectHash(RowKeys.Hash(row.Hash)));
+
+    /// <summary>What the parent and redaction rules read of an Entry row (SPEC.md §8.6, §9.4).</summary>
+    /// <param name="row">The row.</param>
+    /// <returns>Its facts.</returns>
+    public static EntryFacts FactsOf(EntryRow row) =>
+        new(new PackageId(RowKeys.Hash(row.Package)), row.Target is { } target ? new ObjectHash(RowKeys.Hash(target)) : default, KeyOf(row));
 }

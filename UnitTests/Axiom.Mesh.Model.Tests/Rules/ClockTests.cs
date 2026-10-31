@@ -23,7 +23,7 @@ public sealed class ClockTests
 
         EntryContent atGap = Samples.Parse<UnverifiedEntry>(RawEntry(100 + (1UL << 32), [parent])).Content;
         EntryContent pastGap = Samples.Parse<UnverifiedEntry>(RawEntry(101 + (1UL << 32), [parent])).Content;
-        EntryFacts held = new(Package, EntryKind.Message, new EntryKey(100, TestKeys.AlicePhone.PublicKey.AsDeviceId(), parent));
+        EntryFacts held = new(Package, default, new EntryKey(100, TestKeys.AlicePhone.PublicKey.AsDeviceId(), parent));
 
         Assert.False(Lamport.TryFindParentFault(atGap, [held], out _));
         Assert.True(Lamport.TryFindParentFault(pastGap, [held], out ObjectFault fault));
@@ -40,9 +40,9 @@ public sealed class ClockTests
         EntryContent entry = Samples.Parse<UnverifiedEntry>(RawEntry(10, [low, high])).Content;
         DeviceId device = TestKeys.AlicePhone.PublicKey.AsDeviceId();
 
-        Assert.False(Lamport.TryFindParentFault(entry, [new(Package, EntryKind.Message, new(9, device, high)), new(Package, EntryKind.Message, new(3, device, low))], out _));
-        Assert.True(Lamport.TryFindParentFault(entry, [new(Package, EntryKind.Message, new(10, device, high)), new(Package, EntryKind.Message, new(3, device, low))], out _));
-        Assert.True(Lamport.TryFindParentFault(entry, [new(new PackageId(RawObjects.Hash(7).Value), EntryKind.Message, new(9, device, high)), new(Package, EntryKind.Message, new(3, device, low))], out _));
+        Assert.False(Lamport.TryFindParentFault(entry, [new(Package, default, new(9, device, high)), new(Package, default, new(3, device, low))], out _));
+        Assert.True(Lamport.TryFindParentFault(entry, [new(Package, default, new(10, device, high)), new(Package, default, new(3, device, low))], out _));
+        Assert.True(Lamport.TryFindParentFault(entry, [new(new PackageId(RawObjects.Hash(7).Value), default, new(9, device, high)), new(Package, default, new(3, device, low))], out _));
     }
 
     // §8.6: "parents … ascending as byte strings"; a list out of order, or one parent named twice, is malformed.

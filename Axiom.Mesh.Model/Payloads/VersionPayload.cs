@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using Axiom.ProtoStream.Codecs;
 
-namespace Axiom.Mesh;
+namespace Axiom.Mesh.Payloads;
 
-/// <summary>A version of an Archive's files (SPEC.md §8.5, kind 1).</summary>
+/// <summary>A version of an Archive's files (PAYLOADS.md §2, kind 1).</summary>
 public sealed class VersionPayload : EntryPayload
 {
     /// <summary>The root Tree of the version.</summary>
@@ -43,7 +43,7 @@ public sealed class VersionPayload : EntryPayload
     internal void Write(ref WireWriter writer)
     {
         if (Label.Length == 0)
-            throw new ArgumentException("A Version's label must not be empty (SPEC.md §8.5).", nameof(Label));
+            throw new ArgumentException("A Version's label must not be empty (PAYLOADS.md §2).", nameof(Label));
 
         Tree.Write(ref writer);
         Wire.WriteString(ref writer, Label, Limits.MaxVersionLabelLength);

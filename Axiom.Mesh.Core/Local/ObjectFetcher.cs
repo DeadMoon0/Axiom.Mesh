@@ -8,7 +8,7 @@ using Axiom.Mesh.Local;
 namespace Axiom.Mesh.Core;
 
 /// <summary>
-/// The work of LOCAL-SPEC.md §6.4 <c>Fetch</c>, which <c>Materialise</c> shares: the object and, when recursive,
+/// The work of LOCAL-SPEC.md §6.4 <c>Fetch</c>: the object and, when recursive,
 /// everything it references through Trees and ChunkLists, wanted from the peers that list the Package (SPEC.md §10.4)
 /// until it is stored. An object already stored counts at once. When, for 60 seconds, no established peer is a possible
 /// source for an object still lacking, the fetch ends <c>NotFound</c> naming it; until then it waits. A cancelled fetch

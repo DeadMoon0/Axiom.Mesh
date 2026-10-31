@@ -51,10 +51,15 @@ internal static class RawObjects
             output.Write(FakeSignature);
         });
 
-    /// <summary>An Entry body with every field as given, parents in the given order.</summary>
-    public static Action<IBufferWriter<byte>> EntryBody(PackageId package, DeviceId device, ulong clock, IReadOnlyList<ObjectHash> parents, ushort kind, ReadOnlySpan<byte> payload)
+    /// <summary>An Entry body with every field as given, parents in the given order, no references and no <c>redacts</c>.</summary>
+    public static Action<IBufferWriter<byte>> EntryBody(PackageId package, DeviceId device, ulong clock, IReadOnlyList<ObjectHash> parents, ushort kind, ReadOnlySpan<byte> payload) =>
+        EntryBody(package, device, clock, parents, kind, [], default, payload);
+
+    /// <summary>An Entry body with every field as given, parents and references in the given order.</summary>
+    public static Action<IBufferWriter<byte>> EntryBody(PackageId package, DeviceId device, ulong clock, IReadOnlyList<ObjectHash> parents, ushort kind, IReadOnlyList<ObjectHash> references, ObjectHash redacts, ReadOnlySpan<byte> payload)
     {
         byte[] payloadCopy = payload.ToArray();
+        ObjectHash[] referencesCopy = [.. references];
         return output =>
         {
             var writer = new WireWriter(output);
@@ -65,6 +70,10 @@ internal static class RawObjects
             foreach (ObjectHash parent in parents)
                 parent.Write(ref writer);
             writer.UInt16BigEndian(kind);
+            writer.UInt16BigEndian((ushort)referencesCopy.Length);
+            foreach (ObjectHash reference in referencesCopy)
+                reference.Write(ref writer);
+            redacts.Write(ref writer);
             writer.UInt32BigEndian((uint)payloadCopy.Length);
             writer.Bytes(payloadCopy);
         };

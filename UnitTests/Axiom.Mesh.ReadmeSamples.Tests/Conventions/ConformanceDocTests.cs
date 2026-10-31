@@ -18,6 +18,7 @@ public sealed class ConformanceDocTests
         ["SPEC"] = "SPEC.md",
         ["LOCAL"] = "LOCAL-SPEC.md",
         ["PAIR"] = "PAIR-SPEC.md",
+        ["PAYLOADS"] = "PAYLOADS.md",
     };
 
     private static TableRow[] Requirements() =>

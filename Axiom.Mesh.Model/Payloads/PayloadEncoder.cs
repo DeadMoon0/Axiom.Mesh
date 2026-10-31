@@ -2,9 +2,9 @@ using System;
 using System.Buffers;
 using Axiom.ProtoStream.Codecs;
 
-namespace Axiom.Mesh;
+namespace Axiom.Mesh.Payloads;
 
-/// <summary>Encodes a payload in the layout of SPEC.md §8.5, the inverse of <see cref="EntryPayload.TryParse"/>.</summary>
+/// <summary>Encodes a payload in the layouts of PAYLOADS.md, the inverse of <see cref="EntryPayload.TryParse"/>.</summary>
 public static class PayloadEncoder
 {
     /// <summary>The payload's bytes.</summary>

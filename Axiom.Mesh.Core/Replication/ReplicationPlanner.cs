@@ -68,8 +68,9 @@ internal static class ReplicationPlanner
 
     /// <summary>
     /// SPEC.md §10.3 for one stored object of a followed Package: an Entry's parents always (until held Entries are
-    /// reached, which the caller checks), then the objects the retention row keeps: an Entry's payload objects, a Tree's
-    /// entries, a ChunkList's Chunks (§11.2). Under the latest-only row an Archive keeps only its newest Version's Tree.
+    /// reached, which the caller checks), then the objects the retention row keeps: what an Entry's envelope references,
+    /// a Tree's entries, a ChunkList's Chunks (§11.2). Under the latest-only row an Archive keeps only what its newest
+    /// Version references.
     /// </summary>
     /// <param name="tag">The stored object's tag.</param>
     /// <param name="links">What it names.</param>
@@ -92,7 +93,7 @@ internal static class ReplicationPlanner
 
         foreach (ObjectLink child in links.Children)
         {
-            // A Message attachment names a Tree or a ChunkList; the row keeps both or neither, so a Tree stands for it.
+            // An envelope reference names a Tree, a ChunkList or anything else; the row keeps them or not as it keeps a Tree.
             ObjectTag target = child.Tag == ObjectTag.Unassigned ? ObjectTag.Tree : child.Tag;
             if (RetentionRule.Keeps(row, kind, tag, target))
                 wants.Add(new PlannedWant(child.Hash, WantKind.Payload));

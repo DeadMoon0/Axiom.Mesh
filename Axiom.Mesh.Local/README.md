@@ -66,17 +66,49 @@ A service connects the same way with `Role = Role.Service`, its configured `Name
 (`ServiceToken.TryParseHex` of `AXIOM_MESH_SERVICE_TOKEN` when the Host spawned it, or of the token the Host's
 configuration holds for an external service), then sends `RegisterKind`.
 
+Files in and out of the store are the client's work (LOCAL-SPEC.md draft 4): the Host stores objects and parses no
+payload, so `StoreFiles` and `Trees` cut files into Chunks, build the Trees, put them with `PutObject`, and write a Tree
+back to disk from `GetObject` or, for a service the Host lets read its store directory, straight from the files. A
+service publishes a folder as a Version whose envelope references the root Tree, then releases its pins (§9.5):
+
+```csharp
+using Axiom.Mesh;
+using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
+
+static class Publishing
+{
+    public static async Task<ObjectHash> PublishAsync(LocalClient service, PackageId archive, string folder, CancellationToken ct)
+    {
+        LocalResult<PublishedTree> published = await Trees.PublishDirectoryAsync(service, folder, progress: null, ct);
+        if (!published.IsOk)
+            throw new IOException($"{published.Status}: {published.Error.Message}");
+
+        // The payload is the service's (PAYLOADS.md); ToBody puts the Tree into the envelope's references.
+        var version = new VersionPayload { Tree = published.Value.Root, Label = "main", Prerelease = "", Notes = "" };
+        Entry entry = (await service.SendAsync(WriteEntry.Of(archive, version.ToBody()), ct)).Value;
+        foreach (ObjectHash[] batch in published.Value.Objects.Chunk(1_024))
+            await service.SendAsync(new Unpin { Hashes = batch }, ct);
+        return entry.Hash;
+    }
+
+    public static async Task<MaterialisedTree> MaterialiseAsync(LocalClient client, ObjectHash version, string folder, CancellationToken ct) =>
+        (await StoreFiles.MaterialiseAsync(client, version, folder, ExistingPath.Replace, progress: null, ct)).Value;
+}
+```
+
 ## What is in it
 
 | Area | Types |
 |---|---|
 | Client | `LocalClient` (`OpenAsync`, `SendAsync`, `SubscribeAsync`, `UnsubscribeAsync`, `ByeAsync`, `Host`, `Draining`, `Closed`), `LocalClientOptions`, `LocalResult<TOk>`, `Subscription<TEvent>`, `Reconnect.Delay`, `IndexCatchUp`, `LocalConnectionException`, `RequestLimitException` |
 | Pipe | `LocalPipe` (`Locate`, `ConnectAsync`: the one place the package touches the OS), `PipeLocation.Resolve`, `PipeEnvironment`, `LocalPlatform`, `PipeKind` |
-| Requests | one sealed record per request of §6 to §10 (58, every id of §14.1), each an `IRequest<TSelf, TOk>` naming its id, roles and OK body; `RequestTable` (id → name, section, roles, body reader) for the Host's dispatcher |
+| Requests | one sealed record per request of §6 to §10 (56, every id of §14.1 but the two reserved since draft 4), each an `IRequest<TSelf, TOk>` naming its id, roles and OK body; `RequestTable` (id → name, section, roles, body reader) for the Host's dispatcher |
 | Events, callbacks | one sealed record per event of §7.3 (`IEvent<TSelf>`, with its `Topic`), `ForwardedCall` (`ICallback<TSelf, TReply>`) |
 | Records | every record of §5 (`Identity`, `User`, `Device`, `Package`, `Grant`, `Entry`, `Peer`, `Session`, `StaticPeer`, `Store`, `Pin`, `PinKey`, `Service`, `Operation`, `Error`, `Pairing`, `Transfer`, `TelemetrySeries`, `TelemetryPoint`, `Filter`) and the OK bodies with several fields (`PackagePage`, `EntryPage`, …) |
 | Frames | `IClientMessage` / `IHostMessage`: `Hello`, `HelloAck`, `Bye`, `Ping`, `Pong`, `Drain`, `RequestFrame`, `Response`, `EventFrame`, `Callback`, `Reply`, and `UnknownRequest` / `UnknownEvent` / `UnknownCallback` for ids a side does not know; `ServiceToken`, `LocalMessageIds`, `MessageClass` |
 | Protocol | `LocalProtocol.HostSide` and `LocalProtocol.ClientSide`, the ProtoStream definitions; the enumerations of §14 (`Status`, `Topic`, `ByeReason`, `PinReason`, …) |
+| Files | `StoreFiles` (`PutFileAsync` → `StoredFile`, `MaterialiseAsync` → `MaterialisedTree` with `MaterialiseProgress`, `MarkerName`, `PartialPrefix`), `Trees.PublishDirectoryAsync` → `PublishedTree`; `ExistingPath` |
 
 ## Rules of use
 

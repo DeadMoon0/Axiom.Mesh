@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 
-namespace Axiom.Mesh;
+namespace Axiom.Mesh.Payloads;
 
 /// <summary>
-/// The payload of an Entry kind this implementation does not interpret (SPEC.md §8.5): carried as bytes, never parsed.
+/// The payload of an Entry kind this implementation does not interpret (PAYLOADS.md §1): carried as bytes, never parsed.
 /// </summary>
 public sealed class OpaquePayload : EntryPayload
 {
@@ -15,7 +15,7 @@ public sealed class OpaquePayload : EntryPayload
     public OpaquePayload(EntryKind kind, ReadOnlyMemory<byte> bytes)
     {
         if (kind is EntryKind.Version or EntryKind.Message or EntryKind.Redaction)
-            throw new ArgumentException($"Kind {kind} has a defined layout (SPEC.md §8.5); use its payload type, not an opaque one.", nameof(kind));
+            throw new ArgumentException($"Kind {kind} has a defined layout (PAYLOADS.md); use its payload type, not an opaque one.", nameof(kind));
 
         Kind = kind;
         Bytes = bytes;

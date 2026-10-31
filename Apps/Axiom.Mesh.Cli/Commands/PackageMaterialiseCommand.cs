@@ -1,14 +1,17 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Cli;
 
 /// <summary>
 /// <c>axiom-mesh package materialise &lt;package&gt; &lt;dir&gt; [--existing fail|replace|merge]</c>: writes the latest
-/// Version of a followed Archive into a folder (LOCAL-SPEC.md §6.4, §8.6), fetching what is missing from the peers that
-/// hold it.
+/// Version of a followed Archive into a folder: what is missing is fetched from the peers that hold it (<c>Fetch</c>,
+/// LOCAL-SPEC.md §6.4), then the Tree is written here, on this side of the pipe
+/// (<see cref="StoreFiles.MaterialiseAsync"/>, SPEC.md §11.4).
 /// </summary>
 /// <param name="Package">The Archive as typed: id, prefix or name.</param>
 /// <param name="Directory">The folder, absolute or relative to the current directory.</param>
@@ -25,15 +28,23 @@ internal sealed record PackageMaterialiseCommand(string Package, string Director
             throw CliFailure.Problem("the Package holds no Version here yet; follow it and wait until 'axiom-mesh history' shows one");
 
         LocalClient user = await context.UserAsync().ConfigureAwait(false);
-        var materialise = new Materialise { PackageId = package, Hash = version.Tree, Path = folder, Existing = Existing };
-        MaterialiseResult result = await OperationRunner.RunAsync<Materialise, MaterialiseResult>(context, user, materialise, "materialising").ConfigureAwait(false);
+        await OperationRunner.RunAsync<Fetch, FetchResult>(context, user, new Fetch { PackageId = package, Hash = version.Tree, Recursive = true, Pin = false }, "fetching").ConfigureAwait(false);
+
+        IProgress<MaterialiseProgress>? progress = context.Environment.ErrorIsTerminal ? new Progress(context) : null;
+        MaterialisedTree result = context.Ok(await StoreFiles.MaterialiseAsync(user, latest.Entries[0].Hash, folder, Existing, progress, context.Cancellation).ConfigureAwait(false));
         var lines = new List<(string, string)>
         {
             ("Materialised", $"{result.Files} files, {Formats.Bytes(result.Bytes)}, version {version.Label}"),
             ("Into", folder),
         };
-        if (result.Conflicts != 0)
-            lines.Add(("Conflicts", $"{result.Conflicts} (names this file system cannot hold, or files that differ from their listing)"));
+        if (result.Conflicts.Count != 0)
+            lines.Add(("Conflicts", $"{result.Conflicts.Count} ({string.Join(", ", result.Conflicts)}): names this file system cannot hold, or files that differ from their listing"));
         return Print(context, TextTable.Pairs(lines));
+    }
+
+    private sealed class Progress(CommandContext context) : IProgress<MaterialiseProgress>
+    {
+        public void Report(MaterialiseProgress value) =>
+            context.Error.Write($"\rmaterialising: {Formats.Bytes(value.Done)}/{Formats.Bytes(value.Total)} {value.File}");
     }
 }

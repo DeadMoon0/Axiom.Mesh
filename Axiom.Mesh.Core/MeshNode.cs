@@ -604,17 +604,17 @@ public sealed class MeshNode : IAsyncDisposable
 
     /// <summary>
     /// Writes an Entry on this device (SPEC.md §9.3; LOCAL-SPEC.md §9.4): clock and parents chosen by the parent rule,
-    /// signed with the device key, stored, and pushed to every peer that may see the Package. Store the objects the payload
-    /// names first; they stay pinned <c>Outbound</c> until a peer fetched each once (SPEC.md §11.2).
+    /// signed with the device key, stored, and pushed to every peer that may see the Package. The payload is opaque; store
+    /// the objects the body references first, they stay pinned <c>Outbound</c> until a peer fetched each once (SPEC.md §11.2).
     /// </summary>
     /// <param name="package">The Package; followed, with its Manifest held, and the device's user its owner or a Write grantee.</param>
-    /// <param name="payload">What the Entry says.</param>
+    /// <param name="body">What the Entry says: kind, opaque payload, references and the Entry it redacts.</param>
     /// <param name="cancellationToken">Cancels waiting for the store.</param>
     /// <returns>The Entry's hash.</returns>
     /// <exception cref="MeshNodeException">The node has no identity, does not follow the Package, may not write to it, or its store is full.</exception>
-    public Task<ObjectHash> WriteEntryAsync(PackageId package, EntryPayload payload, CancellationToken cancellationToken) =>
+    public Task<ObjectHash> WriteEntryAsync(PackageId package, EntryBody body, CancellationToken cancellationToken) =>
         (credentials.Entries ?? throw new MeshNodeException(MeshFault.Caller, "This node has no device key, so it cannot sign an Entry.", "Store a device key in the node's key store before the node starts."))
-            .WriteAsync(package, payload, cancellationToken);
+            .WriteAsync(package, body, cancellationToken);
 
     /// <summary>Whether the node holds an object, as of the last committed batch.</summary>
     /// <param name="hash">The object's hash.</param>

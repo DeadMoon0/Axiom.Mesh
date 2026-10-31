@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Axiom.Mesh.Cli;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Testing;
 
@@ -144,13 +145,24 @@ public sealed class TestNode
     /// <returns>A task that completes when the node follows it.</returns>
     public Task FollowAsync(PackageId package, CancellationToken cancellationToken) => Node.FollowAsync(package, cancellationToken);
 
-    /// <summary>Writes an Entry on this node's device (SPEC.md §9.3).</summary>
+    /// <summary>Writes an Entry on this node's device (SPEC.md §9.3) carrying a payload of PAYLOADS.md.</summary>
     /// <param name="package">The Package.</param>
-    /// <param name="payload">What it says; its kind is the Entry's kind.</param>
+    /// <param name="payload">What it says; its kind is the Entry's kind, its references and <c>redacts</c> fill the envelope.</param>
     /// <param name="cancellationToken">Cancels waiting for the store.</param>
     /// <returns>The Entry's hash.</returns>
-    public Task<ObjectHash> WriteEntryAsync(PackageId package, EntryPayload payload, CancellationToken cancellationToken) =>
-        Node.WriteEntryAsync(package, payload, cancellationToken);
+    public Task<ObjectHash> WriteEntryAsync(PackageId package, EntryPayload payload, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        return Node.WriteEntryAsync(package, payload.ToBody(), cancellationToken);
+    }
+
+    /// <summary>Writes an Entry on this node's device (SPEC.md §9.3) with any body: any kind, an opaque payload.</summary>
+    /// <param name="package">The Package.</param>
+    /// <param name="body">What it says.</param>
+    /// <param name="cancellationToken">Cancels waiting for the store.</param>
+    /// <returns>The Entry's hash.</returns>
+    public Task<ObjectHash> WriteEntryAsync(PackageId package, EntryBody body, CancellationToken cancellationToken) =>
+        Node.WriteEntryAsync(package, body, cancellationToken);
 
     /// <summary>Publishes a folder: stores every object of it, then writes a Version naming its root Tree.</summary>
     /// <param name="package">The Archive.</param>

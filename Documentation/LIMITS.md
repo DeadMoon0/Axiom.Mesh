@@ -2,8 +2,9 @@
 
 Every bound Axiom.Mesh enforces, with the value its specification states, where it is stated, and what happens when
 it is reached. The values are fixed by AMP/1 ([SPEC.md](SPEC.md)) and `axiom-mesh-local/1`
-([LOCAL-SPEC.md](LOCAL-SPEC.md)); they are not configuration. Each is a named constant of `Axiom.Mesh.Limits` with
-the specification's value (ARCHITECTURE.md rule 5); the **Constant** column names it. `LimitsDocumentTests` (in
+([LOCAL-SPEC.md](LOCAL-SPEC.md)); they are not configuration. The payload bounds of [PAYLOADS.md](PAYLOADS.md) are kept by
+the services that parse those payloads, never by a node. Each is a named constant of `Axiom.Mesh.Limits` with the
+specification's value (ARCHITECTURE.md rule 5); the **Constant** column names it. `LimitsDocumentTests` (in
 `Model.Tests`) fails when a row names a constant `Limits` lacks, when `Limits` holds a constant no row names, or when a
 row names none; `LimitsTests` checks every value against the section that states it.
 
@@ -35,13 +36,21 @@ row names none; `LimitsTests` checks every value against the section that states
 | Chunk data | 1 to 1 048 576 bytes; exactly 1 MiB but the last of a file | 8.2 | malformed | `Limits.MinChunkLength`, `Limits.ChunkLength` |
 | ChunkList | 32 768 chunks (32 GiB per file) | 8.3 | malformed | `Limits.MaxChunkListChunks` |
 | Tree | 8 192 entries; names of at most 255 bytes | 8.4 | malformed | `Limits.MaxTreeEntries`, `Limits.MaxTreeNameLength` |
-| Version payload | label 64, prerelease 64, notes 4 096 bytes | 8.5 | malformed | `Limits.MaxVersionLabelLength`, `Limits.MaxVersionPrereleaseLength`, `Limits.MaxVersionNotesLength` |
-| Message payload | text 16 384 bytes; 64 attachments, names of 255 bytes | 8.5 | malformed | `Limits.MaxMessageTextLength`, `Limits.MaxMessageAttachments`, `Limits.MaxAttachmentNameLength` |
-| Entry | 2 parents; payload 1 MiB; clock below 2^63; gap at most 2^32 | 8.6 | malformed, or faulty for the gap | `Limits.MaxEntryParents`, `Limits.MaxPayloadLength`, `Limits.ClockLimit`, `Limits.MaxClockGap` |
+| Entry | 2 parents; 64 references; payload 1 MiB; clock below 2^63; gap at most 2^32 | 8.6 | malformed, or faulty for the gap | `Limits.MaxEntryParents`, `Limits.MaxEntryReferences`, `Limits.MaxPayloadLength`, `Limits.ClockLimit`, `Limits.MaxClockGap` |
 | Manifest | name 255 bytes; 64 branches, names of 64 bytes | 8.7 | malformed | `Limits.MaxManifestNameLength`, `Limits.MaxManifestBranches`, `Limits.MaxBranchNameLength` |
 | Roster | 256 devices; names of 64 bytes | 8.8 | malformed | `Limits.MaxRosterDevices`, `Limits.MaxDeviceNameLength` |
 | held buffer | 8 MiB per session, 64 MiB in all; 10 min after the sender left | 10.6 | oldest dropped | `Limits.MaxHeldBytesPerSession`, `Limits.MaxHeldBytes`, `Limits.HeldAfterDisconnectSeconds` |
 | re-ask a peer | 30 s without an answer | 10.3 | asked again elsewhere | `Limits.ReaskSeconds` |
+
+## Payloads of the registered Entry kinds (PAYLOADS.md)
+
+A node never parses a payload (SPEC.md §8.5): these bounds are kept by the services that own the layouts and by
+`Axiom.Mesh.Payloads`, whose parser refuses a payload beyond them; to a node such an Entry is well-formed and opaque.
+
+| Limit | Value | § | When reached | Constant |
+|---|---|---|---|---|
+| Version payload | label 64, prerelease 64, notes 4 096 bytes | 2 | the service's parser refuses it | `Limits.MaxVersionLabelLength`, `Limits.MaxVersionPrereleaseLength`, `Limits.MaxVersionNotesLength` |
+| Message payload | text 16 384 bytes; 64 attachments, names of 255 bytes | 3 | the service's parser refuses it | `Limits.MaxMessageTextLength`, `Limits.MaxMessageAttachments`, `Limits.MaxAttachmentNameLength` |
 
 ## axiom-mesh-local/1, the pipe (LOCAL-SPEC.md §12)
 

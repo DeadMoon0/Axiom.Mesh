@@ -185,7 +185,7 @@ internal static class LocalRecords
     /// <param name="content">The Entry's decoded fields.</param>
     /// <param name="storeSeq">Its store sequence.</param>
     /// <param name="storedMs">When this Host stored it.</param>
-    /// <param name="redacted">Whether a stored Redaction withdraws it.</param>
+    /// <param name="redacted">Whether a stored redaction withdraws it.</param>
     /// <returns>The record.</returns>
     public static Entry EntryOf(EntryContent content, ulong storeSeq, long storedMs, bool redacted) => new()
     {
@@ -197,7 +197,9 @@ internal static class LocalRecords
         Clock = content.Clock,
         Parents = [.. content.Parents],
         Kind = content.Kind,
-        Payload = content.PayloadBytes,
+        References = [.. content.References],
+        Redacts = content.Redacts,
+        Payload = content.Payload,
         Redacted = redacted,
     };
 

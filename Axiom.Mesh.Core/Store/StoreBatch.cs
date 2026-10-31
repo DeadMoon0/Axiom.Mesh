@@ -301,18 +301,18 @@ internal sealed class StoreBatch
             Clock = content.Clock,
             Parents = [.. content.Parents.SelectMany(p => RowKeys.Of(p.Value))],
             Kind = content.Kind,
-            Target = content.Payload is RedactionPayload named ? RowKeys.Of(named.Target.Value) : null,
+            Target = content.IsRedaction ? RowKeys.Of(content.Redacts.Value) : null,
             StoredMs = now,
             Redacted = await IsRedactedAsync(content.Facts, hashKey).ConfigureAwait(false),
         };
         await tables.Entries.PutAsync(row, CancellationToken.None).ConfigureAwait(false);
-        if (content.Payload is RedactionPayload redaction)
-            await RedactAsync(content, redaction.Target).ConfigureAwait(false);
+        if (content.IsRedaction)
+            await RedactAsync(content, content.Redacts).ConfigureAwait(false);
 
         await UpdateHeadAsync(command, content).ConfigureAwait(false);
         await pins.PinAsync(entry.Hash, PinReason.Head, id.Value).ConfigureAwait(false);
 
-        IReadOnlyList<ObjectHash> references = command.References ?? content.Payload.References;
+        EntryReferences references = content.References;
         foreach (ObjectHash reference in references)
             await PutReferenceAsync(entry.Hash, reference).ConfigureAwait(false);
 
@@ -461,7 +461,7 @@ internal sealed class StoreBatch
         Changes.Package(new PackageChange(content.Package, PackageChangeKind.Head, command.Origin));
     }
 
-    // SPEC.md §9.4: a Redaction applies to its target whenever both are stored, whatever their order.
+    // SPEC.md §9.4: a redaction applies to its target whenever both are stored, whatever their order.
     private async Task<bool> IsRedactedAsync(EntryFacts target, byte[] targetKey)
     {
         List<EntryRow> naming = await tables.Entries.Query()
@@ -494,7 +494,7 @@ internal sealed class StoreBatch
         return true;
     }
 
-    private static EntryFacts FactsOf(EntryRow row) => new(new PackageId(RowKeys.Hash(row.Package)), row.Kind, EntryIndex.KeyOf(row));
+    private static EntryFacts FactsOf(EntryRow row) => EntryIndex.FactsOf(row);
 
     // ---- Pins, Packages, identity, peers ------------------------------------------------------------------------------
 

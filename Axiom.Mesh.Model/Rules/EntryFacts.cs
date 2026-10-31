@@ -5,7 +5,11 @@ namespace Axiom.Mesh;
 /// to an Entry a node holds as an index row as well as to one it holds as an object.
 /// </summary>
 /// <param name="Package">The Entry's Package.</param>
-/// <param name="Kind">The Entry's kind.</param>
+/// <param name="Redacts">The Entry it withdraws, or the zero hash when it is no redaction (SPEC.md §8.6 <c>redacts</c>).</param>
 /// <param name="Key">The Entry's clock, device and hash.</param>
 [ClosedShape("The facts the rules of SPEC.md §8.6 and §9.4 read are fixed by the specification.")]
-public readonly record struct EntryFacts(PackageId Package, EntryKind Kind, EntryKey Key);
+public readonly record struct EntryFacts(PackageId Package, ObjectHash Redacts, EntryKey Key)
+{
+    /// <summary>Whether the Entry is a redaction.</summary>
+    public bool IsRedaction => !Redacts.IsZero;
+}

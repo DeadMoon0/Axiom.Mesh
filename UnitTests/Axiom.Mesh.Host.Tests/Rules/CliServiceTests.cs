@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Host.Tests.Support;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Host.Tests.Rules;
 
@@ -14,7 +15,7 @@ namespace Axiom.Mesh.Host.Tests.Rules;
 /// LOCAL-SPEC.md §4.2 (external services, plan D4) and §9 end to end on a running daemon and its real pipe: the default
 /// configuration lists <c>cli</c> as external with a token the daemon writes into <c>config.json</c> on its first start; a
 /// program that presents that token is the <c>cli</c> service, registers the Channel kind, writes a Message Entry the user
-/// role then reads back, and puts a file.
+/// role then reads back, and puts a file with the client's helper whose ChunkList the Entry's envelope references.
 /// </summary>
 public sealed class CliServiceTests
 {
@@ -53,14 +54,15 @@ public sealed class CliServiceTests
                 token);
             Assert.Equal(Role.Service, cli.Host.Role);
             Assert.True((await cli.SendAsync(new RegisterKind { Kind = PackageKind.Channel, EntryKinds = [EntryKind.Message, EntryKind.Redaction] }, token)).IsOk);
-            Entry written = (await cli.SendAsync(new WriteEntry { PackageId = channel.PackageId, Kind = EntryKind.Message, Payload = PayloadEncoder.Encode(new MessagePayload { Text = "hello from the cli", Attachments = [], ReplyTo = default }) }, token)).Value;
-            uint putting = (await cli.SendAsync(new PutFile { Path = file }, token)).Value;
-            Operation put = await EndedAsync(cli, putting, token);
+            StoredFile stored = (await StoreFiles.PutFileAsync(cli, file, null, token)).Value;
+            var message = new MessagePayload { Text = "hello from the cli", Attachments = [new Attachment("note.txt", stored.ChunkList, stored.Size)], ReplyTo = default };
+            Entry written = (await cli.SendAsync(WriteEntry.Of(channel.PackageId, message.ToBody()), token)).Value;
 
             EntryPage history = (await user.SendAsync(new ListHistory { PackageId = channel.PackageId, Limit = 10 }, token)).Value;
             Assert.Equal(written.Hash, Assert.Single(history.Entries).Hash);
             Assert.Equal((0ul, 1ul), (written.Clock, written.StoreSeq));
-            Assert.Equal(OperationState.Done, put.State);
+            Assert.Equal([stored.ChunkList], written.References);
+            Assert.Equal(6ul, stored.Size);
         }
 
         await stop.CancelAsync();
@@ -74,18 +76,6 @@ public sealed class CliServiceTests
         string hex = document.RootElement.GetProperty("services").GetProperty("cli").GetProperty("token").GetString()!;
         Assert.True(ServiceToken.TryParseHex(hex, out ServiceToken token));
         return token;
-    }
-
-    private static async Task<Operation> EndedAsync(LocalClient client, uint id, CancellationToken token)
-    {
-        var watch = Stopwatch.StartNew();
-        while (true)
-        {
-            Operation now = (await client.SendAsync(new GetOperation { OperationId = id }, token)).Value;
-            if (now.State != OperationState.Running || watch.Elapsed > TimeSpan.FromSeconds(30))
-                return now;
-            await Task.Yield();
-        }
     }
 
     private static async Task UntilAsync(Func<bool> condition, string what)

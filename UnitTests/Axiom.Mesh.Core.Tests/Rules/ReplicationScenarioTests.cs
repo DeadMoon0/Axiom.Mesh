@@ -40,6 +40,35 @@ public sealed class ReplicationScenarioTests
             Assert.True(await bob.Node.ContainsAsync(part.Hash, None), $"Bob lacks {part.GetType().Name} {part.Hash}.");
     }
 
+    // SPEC.md §8.5, §9.2, §10.3 (draft 5): an Entry of a kind no service on either node registered, whose payload no node
+    // can read, replicates like any other, and with it every object its envelope references, through the Tree to the
+    // Chunks under the desktop row.
+    [Fact]
+    public async Task AnEntryOfAKindNoServiceRegisteredReplicatesWithTheObjectsItsEnvelopeReferences()
+    {
+        await using TestMesh mesh = await Meshes.AliceAndBobAsync();
+        TestNode alice = mesh["alice-laptop"];
+        TestNode bob = mesh["bob-desktop"];
+        PackageId channel = await alice.CreatePackageAsync("Family", PackageKind.Channel, Retention.Default, None);
+        await alice.GrantAsync(channel, "bob", GrantRights.Read, None);
+        TreeFixture folder = ObjectFixtures.Folder(("a.bin", ObjectFixtures.Content(1_500_000, 4)), ("b.txt", ObjectFixtures.Content(10, 5)));
+        foreach (StorableObject part in folder.Objects)
+            await alice.Node.PutAsync(part, None);
+        var body = new EntryBody((EntryKind)500, new byte[] { 0xde, 0xad }, EntryReferences.Of([folder.Root.Hash]), default);
+        ObjectHash written = await alice.WriteEntryAsync(channel, body, None);
+
+        await bob.FollowAsync(channel, None);
+        await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
+        await bob.WaitForEntryAsync(written, None);
+        foreach (StorableObject part in folder.Objects)
+            await bob.WaitForObjectAsync(part.Hash, None);
+        await mesh.SettleAsync(None);
+
+        Assert.Equal(3, folder.Chunks.Count);
+        foreach (StorableObject part in folder.Objects)
+            Assert.True(await bob.Node.ContainsAsync(part.Hash, None), $"Bob lacks {part.GetType().Name} {part.Hash}.");
+    }
+
     // Appendix B steps 3–5: the phone writes; the laptop stores it and pushes it to Bob, who has no link to the phone; the
     // laptop sends the phone nothing about the change but its Want for it (§7.3, §10.5).
     [Fact]

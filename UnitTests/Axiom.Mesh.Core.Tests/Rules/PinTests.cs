@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core.Tests.Support;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Core.Tests.Rules;
 
@@ -44,6 +45,31 @@ public sealed class PinTests
         await node.PutAsync(fromPhone);
         await node.PutFromPeerAsync(Samples.Admit(Samples.Message(TestKeys.AlicePhone, id, 0, EntryParents.None, "x", new Attachment("b", fromPhone.Hash, 1000)), node.Trust), TestKeys.AlicePhone);
         Assert.DoesNotContain((PinReason.Outbound, id.Value), await node.PinsOfAsync(fromPhone.Hash));
+    }
+
+    // SPEC.md §8.6, §11.2 (draft 5): the Outbound pins come from the envelope's references, of any kind; an object only the
+    // payload names is not pinned, because the node never reads a payload.
+    [Fact]
+    public async Task WhatTheEnvelopeReferencesIsPinnedOutbound_WhatOnlyThePayloadNamesIsNot()
+    {
+        await using TestStore node = await TestStore.StartAsync(StoreOptions.Default with { DeviceClass = DeviceClass.Phone });
+        await node.IdentifyAsync(TestKeys.Alice, TestKeys.AliceLaptop);
+        await node.PutAsync(Samples.Roster(TestKeys.Alice, 1, (TestKeys.AliceLaptop, false)));
+        VerifiedManifest channel = Samples.Channel(TestKeys.Alice);
+        PackageId id = channel.Content.Package;
+        await node.FollowAsync(id);
+        await node.PutAsync(channel);
+
+        Chunk referenced = Samples.Chunk(4);
+        Chunk named = Samples.Chunk(5);
+        await node.PutAsync(referenced);
+        await node.PutAsync(named);
+        byte[] payload = new byte[Hash32.Length];
+        named.Hash.Value.CopyTo(payload);
+        await node.WriteAsync(Samples.Written(TestKeys.AliceLaptop, id, 0, EntryParents.None, new EntryBody((EntryKind)500, payload, EntryReferences.Of([referenced.Hash]), default)));
+
+        Assert.Contains((PinReason.Outbound, id.Value), await node.PinsOfAsync(referenced.Hash));
+        Assert.Empty(await node.PinsOfAsync(named.Hash));
     }
 
     // SPEC.md §11.2: the Manifest, the Rosters of involved users, the Grants and every Entry of a followed Package carry

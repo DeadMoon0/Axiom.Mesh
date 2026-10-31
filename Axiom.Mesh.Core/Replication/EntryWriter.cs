@@ -13,7 +13,7 @@ namespace Axiom.Mesh.Core;
 /// <see cref="ParentRule"/> from the own Head and the stored Entry highest in the total order, or takes the parents the
 /// writer named; signs with the device key, admits it against the node's trust like any Entry, and stores it. Writes
 /// are taken one at a time, so two never choose the same clock from the same Heads. The objects its payload names should
-/// be stored first: then they are pinned <c>Outbound</c> until sent once (§11.2).
+/// be stored first (the envelope names them): then they are pinned <c>Outbound</c> until sent once (§11.2).
 /// </summary>
 internal sealed class EntryWriter : IDisposable
 {
@@ -32,15 +32,15 @@ internal sealed class EntryWriter : IDisposable
 
     /// <summary>Writes one Entry with the parents of SPEC.md §9.3.</summary>
     /// <param name="package">The Package; followed, with its Manifest held.</param>
-    /// <param name="payload">What the Entry says.</param>
+    /// <param name="body">What the Entry says.</param>
     /// <param name="cancellationToken">Cancels waiting for the previous write or the store.</param>
     /// <returns>The Entry's hash, once it is stored.</returns>
     /// <exception cref="MeshNodeException">No identity, the Package is not followed, the device may not write to it, its
     /// clock is exhausted, or the store is full.</exception>
-    public async Task<ObjectHash> WriteAsync(PackageId package, EntryPayload payload, CancellationToken cancellationToken)
+    public async Task<ObjectHash> WriteAsync(PackageId package, EntryBody body, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(payload);
-        EntryWritten written = await WriteAsync(new EntryWrite(package, payload, EntryParents.None, []), cancellationToken).ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(body);
+        EntryWritten written = await WriteAsync(new EntryWrite(package, body, EntryParents.None), cancellationToken).ConfigureAwait(false);
         return written.Status == Status.Ok
             ? written.Hash
             : throw new MeshNodeException(MeshFault.Caller, written.Message, StepFor(written.Status));
@@ -77,13 +77,13 @@ internal sealed class EntryWriter : IDisposable
             if (chosen is not { } choice)
                 return EntryWritten.Refused(Status.ClockExhausted, $"The next clock of Package {package} would not be well-formed (SPEC.md §9.3): this device can write no more to it.");
 
-            VerifiedEntry signed = new EntryDraft { Package = package, Clock = choice.Clock, Parents = choice.Parents, Payload = write.Payload }.Sign(device);
+            VerifiedEntry signed = new EntryDraft { Package = package, Clock = choice.Clock, Parents = choice.Parents, Body = write.Body }.Sign(device);
             if (named is not null && Lamport.TryFindParentFault(signed.Content, named, out ObjectFault fault))
                 return EntryWritten.Refused(Status.Invalid, $"With the parents named the Entry would be faulty: {fault.Detail}");
             if (EntryAdmission.Decide(signed, trust) is not AdmissionDecision.Admit admit)
                 return EntryWritten.Refused(Status.NotWritable, $"This device may not write to Package {package}: its user is neither the owner nor a Write grantee, or the device is removed (SPEC.md §9.6).");
 
-            AdmitResult stored = await writer.SendAsync(new AdmitCommand(admit.Entry, Origin.Local, package, null) { References = write.Referenced }, cancellationToken).ConfigureAwait(false);
+            AdmitResult stored = await writer.SendAsync(new AdmitCommand(admit.Entry, Origin.Local, package, null), cancellationToken).ConfigureAwait(false);
             return stored.Outcome switch
             {
                 AdmitOutcome.Stored or AdmitOutcome.AlreadyStored => new EntryWritten(Status.Ok, admit.Entry.Hash, stored.StoreSeq, string.Empty),
@@ -126,7 +126,7 @@ internal sealed class EntryWriter : IDisposable
         {
             if (await reading.Set<EntryRow>().FindAsync(RowKeys.Of(parent.Value), cancellationToken).ConfigureAwait(false) is not { } row)
                 return null;
-            facts.Add(new EntryFacts(new PackageId(RowKeys.Hash(row.Package)), row.Kind, EntryIndex.KeyOf(row)));
+            facts.Add(EntryIndex.FactsOf(row));
         }
 
         return facts;

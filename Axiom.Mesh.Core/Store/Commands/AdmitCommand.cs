@@ -1,12 +1,11 @@
 using System;
-using System.Collections.Generic;
 
 namespace Axiom.Mesh.Core;
 
 /// <summary>
 /// Stores an object: the only way into the store, and it takes nothing but a <see cref="StorableObject"/> (ARCHITECTURE.md
 /// rule 4). The object file is written before the batch's transaction; the index rows, the store sequence of an Entry,
-/// the Head rule, references, pins and the redaction flag in it.
+/// the Head rule, references (from the envelope), pins and the redaction flag in it.
 /// </summary>
 internal sealed class AdmitCommand : StoreCommand<AdmitResult>
 {
@@ -34,12 +33,6 @@ internal sealed class AdmitCommand : StoreCommand<AdmitResult>
 
     /// <summary>The Package it was wanted or written for, when known; attribution only.</summary>
     public PackageId? Context { get; }
-
-    /// <summary>
-    /// For an Entry written here: the objects it references as the writer stated them (an extension kind, LOCAL-SPEC.md
-    /// §9.4); <see langword="null"/> to take them from the payload.
-    /// </summary>
-    public IReadOnlyList<ObjectHash>? References { get; init; }
 
     /// <inheritdoc />
     public override long Bytes => Object.Bytes.Length;

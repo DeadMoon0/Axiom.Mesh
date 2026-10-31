@@ -4,13 +4,14 @@ using Axiom.ProtoStream.Codecs;
 namespace Axiom.Mesh;
 
 /// <summary>
-/// What an Entry's bytes say (SPEC.md §8.6), well-formed by construction. It carries no trust of its own: whether it
-/// is believed is said by the object that holds it, <see cref="UnverifiedEntry"/>, <see cref="VerifiedEntry"/> or
-/// <see cref="AdmittedEntry"/>.
+/// What an Entry's bytes say (SPEC.md §8.6), well-formed by construction: its envelope. The payload is opaque here, of
+/// any kind; what the node acts on is in the envelope, <see cref="References"/> and <see cref="Redacts"/>. It carries no
+/// trust of its own: whether it is believed is said by the object that holds it, <see cref="UnverifiedEntry"/>,
+/// <see cref="VerifiedEntry"/> or <see cref="AdmittedEntry"/>.
 /// </summary>
 public sealed class EntryContent
 {
-    private EntryContent(ObjectHash hash, PackageId package, DeviceId device, ulong clock, EntryParents parents, EntryKind kind, ReadOnlyMemory<byte> payloadBytes, EntryPayload payload, Signature64 signature)
+    private EntryContent(ObjectHash hash, PackageId package, DeviceId device, ulong clock, EntryParents parents, EntryKind kind, EntryReferences references, ObjectHash redacts, ReadOnlyMemory<byte> payload, Signature64 signature)
     {
         Hash = hash;
         Package = package;
@@ -18,7 +19,8 @@ public sealed class EntryContent
         Clock = clock;
         Parents = parents;
         Kind = kind;
-        PayloadBytes = payloadBytes;
+        References = references;
+        Redacts = redacts;
         Payload = payload;
         Signature = signature;
     }
@@ -38,14 +40,20 @@ public sealed class EntryContent
     /// <summary>The Entries this one follows; empty only at clock 0.</summary>
     public EntryParents Parents { get; }
 
-    /// <summary>The Entry kind; a kind <see cref="EntryKind"/> does not name is kept as its raw value.</summary>
+    /// <summary>The Entry kind, service-defined (SPEC.md §14.7); a kind <see cref="EntryKind"/> does not name is kept as its raw value.</summary>
     public EntryKind Kind { get; }
 
-    /// <summary>The payload bytes as in the object.</summary>
-    public ReadOnlyMemory<byte> PayloadBytes { get; }
+    /// <summary>The objects the Entry needs, ascending (SPEC.md §8.6).</summary>
+    public EntryReferences References { get; }
 
-    /// <summary>The payload, parsed for kinds 1 to 3 and opaque for any other.</summary>
-    public EntryPayload Payload { get; }
+    /// <summary>The Entry this one withdraws (SPEC.md §9.4), or the zero hash when it withdraws none.</summary>
+    public ObjectHash Redacts { get; }
+
+    /// <summary>Whether the Entry is a redaction (a non-zero <see cref="Redacts"/>), whatever its kind.</summary>
+    public bool IsRedaction => !Redacts.IsZero;
+
+    /// <summary>The payload bytes as in the object, opaque to the node (SPEC.md §8.5).</summary>
+    public ReadOnlyMemory<byte> Payload { get; }
 
     /// <summary>The writing device's signature.</summary>
     public Signature64 Signature { get; }
@@ -54,7 +62,10 @@ public sealed class EntryContent
     public EntryKey Key => new(Clock, Device, Hash);
 
     /// <summary>What the parent and redaction rules read of the Entry.</summary>
-    public EntryFacts Facts => new(Package, Kind, Key);
+    public EntryFacts Facts => new(Package, Redacts, Key);
+
+    /// <summary>What the writer said, apart from where the Entry sits in history.</summary>
+    public EntryBody Body => new(Kind, Payload, References, Redacts);
 
     internal static EntryContent? Parse(HashedObject source, ref WireReader reader, out int signedLength, out ObjectFault fault)
     {
@@ -63,7 +74,9 @@ public sealed class EntryContent
         ulong clock = reader.UInt64BigEndian();
         EntryParents parents = EntryParents.Read(ref reader);
         var kind = (EntryKind)reader.UInt16BigEndian();
-        ReadOnlyMemory<byte> payloadBytes = Wire.ReadBlob(ref reader, Limits.MaxPayloadLength);
+        EntryReferences references = EntryReferences.Read(ref reader);
+        ObjectHash redacts = ObjectHash.Read(ref reader);
+        ReadOnlyMemory<byte> payload = Wire.ReadBlob(ref reader, Limits.MaxPayloadLength);
         signedLength = reader.Position;
         if (!ObjectReading.SignatureAtEnd(ref reader, "Entry", out Signature64 signature, out fault))
             return null;
@@ -74,12 +87,6 @@ public sealed class EntryContent
             return null;
         }
 
-        if (!EntryPayload.TryParse(kind, payloadBytes, out EntryPayload? payload))
-        {
-            ObjectReading.Fail($"The payload of an Entry of kind {kind} does not parse exactly to its end (SPEC.md §8.5).", out fault);
-            return null;
-        }
-
-        return new EntryContent(source.Hash, package, device, clock, parents, kind, payloadBytes, payload, signature);
+        return new EntryContent(source.Hash, package, device, clock, parents, kind, references, redacts, payload, signature);
     }
 }

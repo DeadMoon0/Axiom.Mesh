@@ -34,18 +34,8 @@ public sealed class ObjectBoundsTests
     [InlineData("entry parents", 2)]
     // §8.6: an Entry's payload is at most 1 MiB.
     [InlineData("entry payload", 1_048_576)]
-    // §8.5: a Version's label is at most 64 bytes.
-    [InlineData("version label", 64)]
-    // §8.5: a Version's pre-release tag is at most 64 bytes.
-    [InlineData("version prerelease", 64)]
-    // §8.5: a Version's notes are at most 4 096 bytes.
-    [InlineData("version notes", 4_096)]
-    // §8.5: a Message's text is at most 16 384 bytes.
-    [InlineData("message text", 16_384)]
-    // §8.5: a Message has at most 64 attachments.
-    [InlineData("message attachments", 64)]
-    // §8.5: an attachment's name is at most 255 bytes.
-    [InlineData("attachment name", 255)]
+    // §8.6: an Entry references at most 64 objects.
+    [InlineData("entry references", 64)]
     // §8.7: a Manifest's name is at most 255 bytes.
     [InlineData("manifest name", 255)]
     // §8.7: a Manifest has at most 64 branches.
@@ -80,12 +70,15 @@ public sealed class ObjectBoundsTests
         "tree name" => Tree(1, n),
         "entry parents" => Entry(n, 9, []),
         "entry payload" => Entry(1, 9, new byte[n]),
-        "version label" => Entry(1, 1, Payload((ref WireWriter w) => { RawObjects.Hash(1).Write(ref w); Text(ref w, n); Text(ref w, 0); Text(ref w, 0); })),
-        "version prerelease" => Entry(1, 1, Payload((ref WireWriter w) => { RawObjects.Hash(1).Write(ref w); Text(ref w, 4); Text(ref w, n); Text(ref w, 0); })),
-        "version notes" => Entry(1, 1, Payload((ref WireWriter w) => { RawObjects.Hash(1).Write(ref w); Text(ref w, 4); Text(ref w, 0); Text(ref w, n); })),
-        "message text" => Entry(1, 2, Message(n, 0, 1)),
-        "message attachments" => Entry(1, 2, Message(1, n, 1)),
-        "attachment name" => Entry(1, 2, Message(1, 1, n)),
+        "entry references" => RawObjects.FakeSigned(ObjectTag.Entry, RawObjects.EntryBody(
+            Samples.Channel().Content.Package,
+            TestKeys.AliceLaptop.PublicKey.AsDeviceId(),
+            9,
+            [RawObjects.Hash(1)],
+            9,
+            [.. Enumerable.Range(0, n).Select(Ascending)],
+            default,
+            [])),
         "manifest name" => Manifest(n, 0, 1),
         "manifest branches" => Manifest(1, n, 1),
         "branch name" => Manifest(1, 1, n),
@@ -102,29 +95,17 @@ public sealed class ObjectBoundsTests
         fields(ref writer);
     }
 
-    private static byte[] Payload(Fields fields)
-    {
-        var output = new ArrayBufferWriter<byte>();
-        Write(output, fields);
-        return output.WrittenSpan.ToArray();
-    }
-
     // A string of n bytes of 'a' (ASCII is one byte per character).
     private static void Text(ref WireWriter writer, int n) => RawObjects.String(ref writer, Enumerable.Repeat((byte)'a', n).ToArray());
 
-    private static byte[] Message(int text, int attachments, int nameLength) => Payload((ref WireWriter w) =>
+    // The i-th of a list of distinct hashes in ascending order: i as a big-endian number in the last two bytes.
+    private static ObjectHash Ascending(int i)
     {
-        Text(ref w, text);
-        w.UInt16BigEndian((ushort)attachments);
-        for (int i = 0; i < attachments; i++)
-        {
-            Text(ref w, nameLength);
-            RawObjects.Hash(1).Write(ref w);
-            w.UInt64BigEndian(0);
-        }
-
-        RawObjects.Hash(0).Write(ref w);
-    });
+        byte[] bytes = new byte[Hash32.Length];
+        bytes[^2] = (byte)(i >> 8);
+        bytes[^1] = (byte)i;
+        return new ObjectHash(new Hash32(bytes));
+    }
 
     private static byte[] Entry(int parents, ushort kind, byte[] payload) =>
         RawObjects.FakeSigned(ObjectTag.Entry, RawObjects.EntryBody(

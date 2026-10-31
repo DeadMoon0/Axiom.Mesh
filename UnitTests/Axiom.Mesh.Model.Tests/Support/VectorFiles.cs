@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using Axiom.Mesh.Payloads;
 using Axiom.Mesh.Tests.Shared;
 
 namespace Axiom.Mesh.Tests.Support;
@@ -57,7 +58,7 @@ internal static class VectorFiles
             Package = manifest.Content.Package,
             Clock = 0,
             Parents = EntryParents.None,
-            Payload = new MessagePayload { Text = "Hello, Bob.", Attachments = [new Attachment("hello.txt", list.Hash, 19)], ReplyTo = default },
+            Body = new MessagePayload { Text = "Hello, Bob.", Attachments = [new Attachment("hello.txt", list.Hash, 19)], ReplyTo = default }.ToBody(),
         }.Sign(TestKeys.AliceLaptop);
 
         (string File, ObjectTag Tag, ReadOnlyMemory<byte> Bytes, ObjectHash Hash, string? Signer, string? VerifiedWith)[] vectors =
@@ -79,7 +80,7 @@ internal static class VectorFiles
         using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
             json.WriteStartObject();
-            json.WriteString("specification", "AMP/1, SPEC.md draft 3, §15");
+            json.WriteString("specification", "AMP/1, SPEC.md draft 5, §15");
             json.WriteString("about", "Each .hex file is one object (SPEC.md §8), lowercase hex, 64 characters per line. 'hash' is H(object). Signed vectors verify against the key 'verifiedWith' names (a key below, the object's own key field, or another vector's owner key); their signatures are not deterministic, so compare them by verifying, never byte for byte. The keys are published test keys (PKCS#8 DER, hex): never use them for anything else.");
             json.WriteString("regenerate", $"Set {WriteVariable}=1 and run the Model.Tests suite (VectorTests).");
             json.WriteStartArray("keys");

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core.Tests.Support;
+using Axiom.Mesh.Payloads;
 using Axiom.Mesh.Tests.Support;
 using WireState = Axiom.Mesh.Protocol.PackageState;
 
@@ -77,8 +78,9 @@ public sealed class WantPlanningTests
         Assert.Equal(wanted, plan.Contains(new PlannedWant(Hash("theirs"), WantKind.Head)));
     }
 
-    // §10.3, §11.2: an Entry's parents always; its payload objects, a Tree's entries and a ChunkList's Chunks as far as the
-    // retention row keeps them; under the phone row an Archive keeps only its newest Version's Tree and ChunkLists.
+    // §10.3, §11.2 (draft 5): an Entry's parents always; what its envelope references, a Tree's entries and a ChunkList's
+    // Chunks as far as the retention row keeps them; under the phone row an Archive keeps only what its newest Version
+    // references. The payload is never read: what the envelope does not reference is not wanted, whatever the kind.
     [Theory]
     [InlineData("everything", "archive", "entry", false, "parent,tree")] // the desktop row: the Version's Tree too
     [InlineData("latest", "archive", "entry", false, "parent")] // the phone row, an older Version: its parents only
@@ -89,7 +91,9 @@ public sealed class WantPlanningTests
     [InlineData("latest", "archive", "list", false, "")] // the phone row: Chunks on demand only
     [InlineData("latest", "channel", "message", false, "parent")] // the phone row, a Channel: attachments on demand only
     [InlineData("everything", "channel", "message", false, "parent,tree")] // the desktop row, a Channel: every attachment
-    public void ParentsAreWantedUntilAHeldEntry_ThenPayloadObjectsAsFarAsThePolicyGoes(string row, string kind, string stored, bool newest, string expected)
+    [InlineData("everything", "channel", "opaque", false, "parent,tree")] // the desktop row, a kind no service registered: what its envelope references
+    [InlineData("everything", "archive", "unreferenced", false, "parent")] // a Version whose payload names a Tree its envelope does not reference: parents only
+    public void ParentsAreWantedUntilAHeldEntry_ThenWhatTheEnvelopeReferencesAsFarAsThePolicyGoes(string row, string kind, string stored, bool newest, string expected)
     {
         Chunk link = Samples.Chunk(7);
         Chunk data = Samples.Chunk(8);
@@ -104,6 +108,8 @@ public sealed class WantPlanningTests
         {
             "entry" => (ObjectTag.Entry, Links(Samples.Version(TestKeys.AliceLaptop, Package, 2, EntryParents.Of(parent), tree.Hash), newest)),
             "message" => (ObjectTag.Entry, Links(Samples.Message(TestKeys.AliceLaptop, Package, 2, EntryParents.Of(parent), "photo", new Attachment("a.jpg", tree.Hash, 0)), false)),
+            "opaque" => (ObjectTag.Entry, Links(Samples.Written(TestKeys.AliceLaptop, Package, 2, EntryParents.Of(parent), new EntryBody((EntryKind)500, new byte[] { 1 }, EntryReferences.Of([tree.Hash]), default)), false)),
+            "unreferenced" => (ObjectTag.Entry, Links(Samples.Written(TestKeys.AliceLaptop, Package, 2, EntryParents.Of(parent), new EntryBody(EntryKind.Version, PayloadEncoder.Encode(new VersionPayload { Tree = tree.Hash, Label = "main", Prerelease = string.Empty, Notes = string.Empty }), EntryReferences.None, default)), true)),
             "tree" => (ObjectTag.Tree, ObjectLinks.Of(tree, false)),
             _ => (ObjectTag.ChunkList, ObjectLinks.Of(list, false)),
         };

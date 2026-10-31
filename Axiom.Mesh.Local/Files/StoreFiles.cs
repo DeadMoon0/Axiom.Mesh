@@ -1,0 +1,218 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Axiom.Mesh.Payloads;
+
+namespace Axiom.Mesh.Local;
+
+/// <summary>
+/// Files in and out of the store, for services and the command line, over a <see cref="LocalClient"/>: the Host stores
+/// objects and knows nothing of files (LOCAL-SPEC.md §9.5, decision 5), so cutting a file into Chunks and writing a Tree
+/// back to disk happen here, on the client's side, as the client's own user.
+/// </summary>
+public static class StoreFiles
+{
+    /// <summary>The marker file in every directory <see cref="MaterialiseAsync"/> wrote; <see cref="ExistingPath.Replace"/> requires it before it deletes one.</summary>
+    public const string MarkerName = ".axiom-mesh-materialised";
+
+    /// <summary>The prefix of the temporary name a file is written to before it is renamed into place.</summary>
+    public const string PartialPrefix = ".axiom-mesh-partial-";
+
+    /// <summary>
+    /// Stores a file: reads it once from start to end, cuts it into Chunks of exactly 1 MiB except the last (SPEC.md
+    /// §8.2), puts each with <c>PutObject</c>, then its ChunkList (§8.3). Every object put carries this connection's pin
+    /// (reason <c>Service</c> for a service) until it is released (LOCAL-SPEC.md §9.5). A zero-length file has no Chunks.
+    /// </summary>
+    /// <param name="client">The connection; a service, since <c>PutObject</c> is a service request.</param>
+    /// <param name="path">The file.</param>
+    /// <param name="progress">Bytes read so far, or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancels reading; the Chunks already put stay, pinned, and no ChunkList is put.</param>
+    /// <returns>
+    /// The stored file, or why not: <c>NotFound</c> for no such path, <c>Invalid</c> for a directory or a file larger than
+    /// a ChunkList can name, <c>IoError</c> when the file system refuses or the file changes while it is read, and any
+    /// refusal of <c>PutObject</c> such as <c>StoreFull</c>.
+    /// </returns>
+    public static async Task<LocalResult<StoredFile>> PutFileAsync(LocalClient client, string path, IProgress<long>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        if (Directory.Exists(path))
+            return Refused<StoredFile>(Status.Invalid, $"{path} is a directory, not a regular file.");
+
+        FileStream file;
+        try
+        {
+            file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, bufferSize: 0, useAsync: true);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return Refused<StoredFile>(Status.NotFound, $"{path} does not exist.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Refused<StoredFile>(Status.IoError, $"{path} cannot be read: {ex.Message}");
+        }
+
+        await using (file.ConfigureAwait(false))
+        {
+            try
+            {
+                return await PutAsync(client, file, path, progress, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Refused<StoredFile>(Status.IoError, $"{path} cannot be read: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes a Tree into a directory (SPEC.md §8.4, §11.4): the Tree itself, or the Tree a <c>Version</c> Entry names
+    /// (PAYLOADS.md §2). Objects are read straight from the store directory when this connection is a service the Host
+    /// lets read it (<c>HelloAck</c> capability bit 0, LOCAL-SPEC.md §9.7), else with <c>GetObject</c>; every object must
+    /// be stored here already (fetch it first with <c>Fetch</c>). A file is written to a hidden temporary name and
+    /// renamed into place once complete; the directory gets the marker file <see cref="MarkerName"/>. Names this file
+    /// system cannot hold, case-insensitive collisions and files whose size does not hold are conflicts, not written.
+    /// </summary>
+    /// <param name="client">The connection.</param>
+    /// <param name="versionOrTree">A Tree, or a <c>Version</c> Entry.</param>
+    /// <param name="directory">The directory to write into; relative to the current directory unless absolute.</param>
+    /// <param name="existing">What to do when the directory exists.</param>
+    /// <param name="progress">Bytes written so far, or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancels writing; the files already renamed into place stay, no partial file is left.</param>
+    /// <returns>
+    /// What was written, or why not: <c>NotFound</c> for an object not stored here, <c>Invalid</c> for a hash that is
+    /// neither a Tree nor a Version, or a directory <paramref name="existing"/> does not allow writing to,
+    /// <c>AlreadyExists</c> under <see cref="ExistingPath.Fail"/>, <c>IoError</c> when the file system refuses.
+    /// </returns>
+    public static async Task<LocalResult<MaterialisedTree>> MaterialiseAsync(LocalClient client, ObjectHash versionOrTree, string directory, ExistingPath existing, IProgress<MaterialiseProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentException.ThrowIfNullOrEmpty(directory);
+        ObjectReader reader = await ObjectReader.OpenAsync(client, cancellationToken).ConfigureAwait(false);
+        LocalResult<Tree> root = await RootAsync(reader, versionOrTree, cancellationToken).ConfigureAwait(false);
+        if (!root.IsOk)
+            return LocalResult<MaterialisedTree>.Failure(root.Status, root.Error);
+        var trees = new Dictionary<ObjectHash, Tree>();
+        LocalResult<bool> loaded = await LoadTreesAsync(reader, root.Value, trees, cancellationToken).ConfigureAwait(false);
+        if (!loaded.IsOk)
+            return LocalResult<MaterialisedTree>.Failure(loaded.Status, loaded.Error);
+
+        MaterialisePlan plan = MaterialisePlan.Of(root.Value, trees, OperatingSystem.IsWindows());
+        string target = Path.GetFullPath(directory);
+        ExistingDecision decision = ExistingRule.Decide(existing, StateOf(target));
+        if (decision.Action == ExistingAction.Refuse)
+            return Refused<MaterialisedTree>(decision.Status, $"{target}: {decision.Problem}");
+
+        try
+        {
+            if (decision.Action == ExistingAction.ReplaceDirectory)
+                Directory.Delete(target, recursive: true);
+            else if (decision.Action == ExistingAction.ReplaceFile)
+                File.Delete(target);
+            Directory.CreateDirectory(target);
+            await File.WriteAllTextAsync(Path.Combine(target, MarkerName), root.Value.Hash.ToString(), cancellationToken).ConfigureAwait(false);
+            return await new TreeWriter(reader, plan, progress).WriteAsync(plan, target, root.Value.Hash, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Refused<MaterialisedTree>(Status.IoError, $"{target} cannot be written: {ex.Message}");
+        }
+    }
+
+    private static async Task<LocalResult<StoredFile>> PutAsync(LocalClient client, FileStream file, string path, IProgress<long>? progress, CancellationToken cancellationToken)
+    {
+        long length = file.Length;
+        DateTime changed = File.GetLastWriteTimeUtc(path);
+        byte[] buffer = new byte[Limits.ChunkLength];
+        var chunks = new List<ObjectHash>();
+        long size = 0;
+        while (true)
+        {
+            int read = await file.ReadAtLeastAsync(buffer, Limits.ChunkLength, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+                break;
+            if (chunks.Count == Limits.MaxChunkListChunks)
+                return Refused<StoredFile>(Status.Invalid, $"{path} is larger than a ChunkList can name ({Limits.MaxChunkListChunks} Chunks of {Limits.ChunkLength} bytes, SPEC.md §8.3).");
+
+            Chunk chunk = ObjectBuilders.Chunk(buffer.AsSpan(0, read));
+            LocalResult<StoredObject> put = await client.SendAsync(new PutObject { Object = chunk.Bytes }, cancellationToken).ConfigureAwait(false);
+            if (!put.IsOk)
+                return LocalResult<StoredFile>.Failure(put.Status, put.Error);
+            chunks.Add(chunk.Hash);
+            size += read;
+            progress?.Report(size);
+            if (read < Limits.ChunkLength)
+                break;
+        }
+
+        if (size != length || file.Length != length || File.GetLastWriteTimeUtc(path) != changed)
+            return Refused<StoredFile>(Status.IoError, $"{path} changed while it was read; store it again once it is complete.");
+
+        ChunkList list = ObjectBuilders.ChunkList((ulong)size, chunks);
+        LocalResult<StoredObject> listed = await client.SendAsync(new PutObject { Object = list.Bytes }, cancellationToken).ConfigureAwait(false);
+        return listed.IsOk
+            ? LocalResult<StoredFile>.Ok(new StoredFile { ChunkList = list.Hash, Size = list.Size, Chunks = chunks })
+            : LocalResult<StoredFile>.Failure(listed.Status, listed.Error);
+    }
+
+    // The Tree to write: the hash itself, or the Tree a Version names.
+    private static async Task<LocalResult<Tree>> RootAsync(ObjectReader reader, ObjectHash hash, CancellationToken cancellationToken)
+    {
+        LocalResult<ParsedObject> read = await reader.ReadAsync(hash, cancellationToken).ConfigureAwait(false);
+        if (!read.IsOk)
+            return LocalResult<Tree>.Failure(read.Status, read.Error);
+        if (read.Value is Tree tree)
+            return LocalResult<Tree>.Ok(tree);
+        if (read.Value is UnverifiedEntry entry && EntryPayload.TryParse(entry.Content.Kind, entry.Content.Payload, out EntryPayload? payload) && payload is VersionPayload version)
+        {
+            LocalResult<ParsedObject> named = await reader.ReadAsync(version.Tree, cancellationToken).ConfigureAwait(false);
+            if (!named.IsOk)
+                return LocalResult<Tree>.Failure(named.Status, named.Error);
+            if (named.Value is Tree versionTree)
+                return LocalResult<Tree>.Ok(versionTree);
+        }
+
+        return Refused<Tree>(Status.Invalid, $"{hash} is neither a Tree nor a Version naming one.");
+    }
+
+    // Every Tree below the root, read before anything is written, so a missing one fails the work before it starts.
+    private static async Task<LocalResult<bool>> LoadTreesAsync(ObjectReader reader, Tree root, Dictionary<ObjectHash, Tree> trees, CancellationToken cancellationToken)
+    {
+        var pending = new Stack<Tree>([root]);
+        while (pending.TryPop(out Tree? tree))
+        {
+            foreach (TreeEntry entry in tree.Entries)
+            {
+                if (entry.Mode != TreeEntryMode.Directory || trees.ContainsKey(entry.Hash))
+                    continue;
+                LocalResult<ParsedObject> read = await reader.ReadAsync(entry.Hash, cancellationToken).ConfigureAwait(false);
+                if (!read.IsOk)
+                    return LocalResult<bool>.Failure(read.Status, read.Error);
+                if (read.Value is Tree child)
+                {
+                    trees[entry.Hash] = child;
+                    pending.Push(child);
+                }
+            }
+        }
+
+        return LocalResult<bool>.Ok(true);
+    }
+
+    private static PathState StateOf(string path)
+    {
+        FileSystemInfo? existing = File.Exists(path) ? new FileInfo(path) : Directory.Exists(path) ? new DirectoryInfo(path) : null;
+        return existing switch
+        {
+            null => PathState.Absent,
+            _ when existing.Attributes.HasFlag(FileAttributes.ReparsePoint) => PathState.Link,
+            FileInfo => PathState.File,
+            _ => File.Exists(Path.Combine(path, MarkerName)) ? PathState.MarkedDirectory : PathState.Directory,
+        };
+    }
+
+    private static LocalResult<T> Refused<T>(Status status, string message) => LocalResult<T>.Failure(status, new Error { Message = message });
+}

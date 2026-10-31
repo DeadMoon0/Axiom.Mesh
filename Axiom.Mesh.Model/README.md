@@ -11,6 +11,7 @@ Namespace: `Axiom.Mesh`. Depends on `Axiom.ProtoStream` (`WireReader`/`WireWrite
 ```csharp
 using System.Security.Cryptography;
 using Axiom.Mesh;
+using Axiom.Mesh.Payloads;
 
 // Keys live in the Host's key store; Model only ever sees an ISigner.
 using ECDsa userKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -29,14 +30,15 @@ VerifiedManifest channel = new ManifestDraft
     Created = 0,
 }.Sign(user);
 
-// The laptop writes the first message; the parent rule chooses its clock and parents.
+// The laptop writes the first message; the parent rule chooses its clock and parents. The payload is the service's
+// (PAYLOADS.md); ToBody fills the envelope a node acts on: the references and the Entry it redacts.
 var next = (ParentChoice.Write)ParentRule.Choose(ownHead: null, highest: null);
 VerifiedEntry written = new EntryDraft
 {
     Package = channel.Content.Package,
     Clock = next.Clock,
     Parents = next.Parents,
-    Payload = new MessagePayload { Text = "Hello", Attachments = [], ReplyTo = default },
+    Body = new MessagePayload { Text = "Hello", Attachments = [], ReplyTo = default }.ToBody(),
 }.Sign(laptop);
 
 // A receiving node: hash, parse, verify, admit, in that order. Only a StorableObject may be stored or forwarded.
@@ -95,8 +97,8 @@ public sealed class RosterTrust(VerifiedManifest manifest, VerifiedRoster roster
 | Folder | Types |
 |---|---|
 | `Primitives/` | `Hash32`, `ObjectHash`, `UserId`, `DeviceId`, `PackageId` (`Derive`), `PackageNonce`, `Signature64` (low-s), `PublicKey` (on-curve), `SigningDomain`, `SigningDigest`, `Digests`, `ISigner`, `EcdsaSigner` |
-| `Objects/` | the typestate `HashedObject` → `Objects.TryParse` → `ParsedObject` (`Chunk`, `ChunkList`, `Tree`, `OpaqueObject`, `Unverified{Entry,Manifest,Roster,Grant}`) or `ObjectFault` → `Verified*` → `StorableObject`; their contents and field types |
-| `Payloads/` | `EntryPayload` (`VersionPayload`, `MessagePayload`, `RedactionPayload`, `OpaquePayload`), `EntryKind`, `PayloadEncoder` |
+| `Objects/` | the typestate `HashedObject` → `Objects.TryParse` → `ParsedObject` (`Chunk`, `ChunkList`, `Tree`, `OpaqueObject`, `Unverified{Entry,Manifest,Roster,Grant}`) or `ObjectFault` → `Verified*` → `StorableObject`; their contents and field types, the Entry envelope (`EntryBody`, `EntryReferences`, `EntryKind`) |
+| `Payloads/` | namespace `Axiom.Mesh.Payloads`, for services and the command line, never for a node: the layouts of PAYLOADS.md, `EntryPayload` (`VersionPayload`, `MessagePayload`, `RedactionPayload`, `OpaquePayload`) with `TryParse` and `ToBody`, `PayloadEncoder` |
 | `Producers/` | `EntryDraft`, `ManifestDraft`, `RosterDraft`, `GrantDraft`, `ObjectBuilders`, `Chunker` |
 | `Rules/` | `EntryKey`, `Head`, `Lamport`, `ParentRule`, `HeadRule`, `CurrentObject`, `RosterRules`, `EntryAdmission`, `Visibility`, `Redactions`, `DuplicateSessions`, `ChunkListRule` |
 | root | `Wire` (the §5.2 types over ProtoStream), `Limits` (every bound), the exception family |

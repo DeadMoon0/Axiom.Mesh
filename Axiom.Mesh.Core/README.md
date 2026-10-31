@@ -6,7 +6,7 @@ Namespace: `Axiom.Mesh.Core` (the store's seams in `Axiom.Mesh.Core.Storage`). D
 
 ## Status
 
-Phase 1a, in progress. Built: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction (M5); the transport (M6): `MeshNode.StartAsync`, one LWSE server with the mesh port and the adopt-only outbound and local ports, mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, the duplicate rule, refusals, violations and backoff, the peer table and the dialler; replication (M7): listings, wants and answers, the history walk, push and relay, the Roster push, flow control, faulty-content and violation bookkeeping, counters, and the node's write seams (`FollowAsync`, `PutAsync`, `WriteEntryAsync`). The local port (M8): the `Hello` checks, a data-driven dispatcher, subscriptions with replay and lapse, operations, liveness and `Drain`, and identity creation on a running node. The requests (M9): the phase-1 set of LOCAL-SPEC.md §6 and §9 (known users and devices, Packages, Grants, history and objects, pins and the store, peers and static peers, `Fetch` and `Materialise`, and the service role with `RegisterKind`, `WriteEntry`, `PutObject`, `PutFile` and `GetStorePath`), callbacks to services, and the `transfers` and `service` topics. Pairing (M10): the pairing shell of PAIR-SPEC.md in all four modes (`ShowUser`, `JoinUser`, `ShowDevice`, `AddDevice`) over mutual TLS under `axiom-mesh-pair/1`, driven by `StartPairing`, `ConfirmPairing`, `CancelPairing` and `GetPairing` and reported on topic `pairing`.
+Phase 1a, in progress. Built: the object store and its LDB index, the trust snapshot, the single store writer, intake with the held buffer, pins and eviction (M5); the transport (M6): `MeshNode.StartAsync`, one LWSE server with the mesh port and the adopt-only outbound and local ports, mutual TLS 1.3 pinned to the rosters, the `Hello` exchange, the duplicate rule, refusals, violations and backoff, the peer table and the dialler; replication (M7): listings, wants and answers, the history walk, push and relay, the Roster push, flow control, faulty-content and violation bookkeeping, counters, and the node's write seams (`FollowAsync`, `PutAsync`, `WriteEntryAsync`). The local port (M8): the `Hello` checks, a data-driven dispatcher, subscriptions with replay and lapse, operations, liveness and `Drain`, and identity creation on a running node. The requests (M9): the phase-1 set of LOCAL-SPEC.md §6 and §9 (known users and devices, Packages, Grants, history and objects, pins and the store, peers and static peers, `Fetch` and `Materialise`, and the service role with `RegisterKind`, `WriteEntry`, `PutObject`, `PutFile` and `GetStorePath`), callbacks to services, and the `transfers` and `service` topics. Pairing (M10): the pairing shell of PAIR-SPEC.md in all four modes (`ShowUser`, `JoinUser`, `ShowDevice`, `AddDevice`) over mutual TLS under `axiom-mesh-pair/1`, driven by `StartPairing`, `ConfirmPairing`, `CancelPairing` and `GetPairing` and reported on topic `pairing`. Content-blind (M11b): the node reads an Entry's envelope only (`references`, `redacts`, SPEC.md draft 5) and parses no payload; `Materialise` and `PutFile` left it for the helpers of Axiom.Mesh.Local (LOCAL-SPEC.md draft 4).
 
 ## Quick Start
 
@@ -16,6 +16,7 @@ What a Host or a test hands the engine are its seams: where object files live an
 using Axiom.Mesh;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Core.Storage;
+using Axiom.Mesh.Payloads;
 
 // In memory, reproducible: what a test or an in-memory mesh uses. A real node uses
 // new DirectoryObjectFiles(storePath, new SystemEntropy()) and SystemEntropy.
@@ -124,7 +125,7 @@ What a started node does on its own:
 
 Once two nodes are established, replication runs by itself (SPEC.md §10). Each side lists the Packages the other's user
 may see; a node wants what it follows and lacks (the Manifest first, then Grants, then Heads from devices that may
-write, then parents until it reaches Entries it holds, then payload objects as far as the retention policy goes),
+write, then parents until it reaches Entries it holds, then the objects Entries reference as far as the retention policy goes),
 answers what the peer wants after checking the peer may see it, and pushes every change (`PackageChanged`, `Have`) to
 every established peer but the one it came from, so a change crosses any number of hops without polling. A node's own
 writes go through the same store:
@@ -138,7 +139,7 @@ static class Replicating
         await node.FollowAsync(channel, cancellationToken);
         ObjectHash written = await node.WriteEntryAsync(
             channel,
-            new MessagePayload { Text = "hello", Attachments = [], ReplyTo = default },
+            new MessagePayload { Text = "hello", Attachments = [], ReplyTo = default }.ToBody(),
             cancellationToken);
 
         ReplicationStatus status = node.Replication;
@@ -178,10 +179,11 @@ the user the Host serves, and the drain's grace.
   the user key inside the node, read from the `IKeyStore` for the one request and wiped after it; a device without it
   answers `UserKeyAbsent`.
 - **Operations** (§8.6): `Fetch` wants from the peers that list the Package and fails `NotFound` after 60 s without a
-  source; `Materialise` fetches what it lacks, then writes each file under a hidden name renamed into place; `PutFile`
-  cuts a file into Chunks and a ChunkList pinned for the service. Each can be cancelled.
+  source; it can be cancelled. `Materialise` and `PutFile` left the node in LOCAL-SPEC.md draft 4: cutting files and
+  writing Trees to disk is the client's work (`StoreFiles` and `Trees` in Axiom.Mesh.Local).
 - **Service role** (§9): `RegisterKind` within the service's configured kinds, one holder per kind; `WriteEntry` parses
-  the payloads of kinds 1 to 3, checks references and named parents, and chooses clock and parents as §9.4 says;
+  no payload: it copies `references` and `redacts` into the envelope, checks every reference is stored and the named
+  parents, and chooses clock and parents as §9.4 says;
   `PutObject` stores unsigned objects; `GetStorePath` names the store for direct reads (Host capability bit 0).
 - **Subscriptions** (§7): the response precedes the first event; a replay from a store sequence reads one Entry at a time
   (more than 256 is `GapTooLarge`); a subscription lapses alone at 256 events or 16 MiB; a connection holding 64 MiB its
@@ -226,8 +228,8 @@ the user the Host serves, and the drain's grace.
   bounded ring; take `Facts.LastSequence`, cause something, then `WaitForAsync` the fact after it. Replication adds
   `ListingDone`, `ObjectStored`, `WantAnswered` and `FaultyContent`, with the object's hash in `NodeFact.Subject`.
 - **Write through the node.** `WriteEntryAsync` chooses clock and parents with the parent rule, signs with the device key
-  and admits the Entry like any other; store the objects its payload names first (`PutAsync`), so they are pinned
-  `Outbound` until a peer fetched each once.
+  and admits the Entry like any other; it never reads the payload. Store the objects the body references first
+  (`PutAsync`), so they are pinned `Outbound` until a peer fetched each once.
 - **The node's clock is the only clock.** Handshake deadlines, heartbeats, idle timeouts, backoffs and retries all run on
   `MeshNodeEnvironment.Time`. With a fake clock, a dial a timer starts runs after `Advance` returns: move the clock in
   steps no longer than the step you wait for, or the same move expires the handshake it started.

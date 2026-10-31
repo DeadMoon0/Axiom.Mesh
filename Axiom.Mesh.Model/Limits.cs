@@ -118,26 +118,29 @@ public static class Limits
     /// <summary>Bytes of a Tree entry's name (SPEC.md §8.4).</summary>
     public const int MaxTreeNameLength = 255;
 
-    /// <summary>Bytes of a <c>Version</c>'s label (SPEC.md §8.5).</summary>
+    /// <summary>Bytes of a <c>Version</c>'s label (PAYLOADS.md §2).</summary>
     public const int MaxVersionLabelLength = 64;
 
-    /// <summary>Bytes of a <c>Version</c>'s pre-release tag (SPEC.md §8.5).</summary>
+    /// <summary>Bytes of a <c>Version</c>'s pre-release tag (PAYLOADS.md §2).</summary>
     public const int MaxVersionPrereleaseLength = 64;
 
-    /// <summary>Bytes of a <c>Version</c>'s notes (SPEC.md §8.5).</summary>
+    /// <summary>Bytes of a <c>Version</c>'s notes (PAYLOADS.md §2).</summary>
     public const int MaxVersionNotesLength = 4_096;
 
-    /// <summary>Bytes of a <c>Message</c>'s text (SPEC.md §8.5).</summary>
+    /// <summary>Bytes of a <c>Message</c>'s text (PAYLOADS.md §3).</summary>
     public const int MaxMessageTextLength = 16_384;
 
-    /// <summary>Attachments of one <c>Message</c> (SPEC.md §8.5).</summary>
+    /// <summary>Attachments of one <c>Message</c> (PAYLOADS.md §3).</summary>
     public const int MaxMessageAttachments = 64;
 
-    /// <summary>Bytes of an attachment's name (SPEC.md §8.5).</summary>
+    /// <summary>Bytes of an attachment's name (PAYLOADS.md §3).</summary>
     public const int MaxAttachmentNameLength = 255;
 
     /// <summary>Parents of one Entry (SPEC.md §8.6).</summary>
     public const int MaxEntryParents = 2;
+
+    /// <summary>Objects one Entry references (SPEC.md §8.6 <c>references</c>; LOCAL-SPEC.md §9.4).</summary>
+    public const int MaxEntryReferences = 64;
 
     /// <summary>Bytes of an Entry's payload, 1 MiB (SPEC.md §8.6; LOCAL-SPEC.md §3.2 <c>payload</c>).</summary>
     public const int MaxPayloadLength = 1_048_576;

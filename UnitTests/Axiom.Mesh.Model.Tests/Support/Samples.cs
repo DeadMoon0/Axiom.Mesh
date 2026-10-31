@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Tests.Support;
 
@@ -33,7 +34,7 @@ internal static class Samples
             Package = package,
             Clock = clock,
             Parents = parents,
-            Payload = new MessagePayload { Text = text, Attachments = [], ReplyTo = default },
+            Body = new MessagePayload { Text = text, Attachments = [], ReplyTo = default }.ToBody(),
         }.Sign(device);
 
     /// <summary>Parses bytes that must be well-formed as a <typeparamref name="T"/>.</summary>

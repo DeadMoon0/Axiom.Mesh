@@ -128,8 +128,8 @@ internal static class FieldBounds
     /// <summary><c>QueryTelemetry</c> (§10.3, §12).</summary>
     public const int PointsCount = Limits.MaxTelemetryPoints;
 
-    /// <summary><c>WriteEntry.references</c> (§9.4).</summary>
-    public const int ReferencesCount = 1_024;
+    /// <summary><c>WriteEntry.references</c> and <c>Entry.references</c> (§9.4, §5.6), as in SPEC.md §8.6.</summary>
+    public const int ReferencesCount = Limits.MaxEntryReferences;
 
     /// <summary><c>Peer.addresses</c> (§5.7).</summary>
     public const int AddressesCount = 8;

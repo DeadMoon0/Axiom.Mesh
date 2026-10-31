@@ -10,8 +10,8 @@ namespace Axiom.Mesh.Core;
 
 /// <summary>
 /// The service role's requests of LOCAL-SPEC.md §9: <c>RegisterKind</c> (§9.2), <c>WriteEntry</c> (§9.4),
-/// <c>PutObject</c> (§9.5) and <c>GetStorePath</c> (§9.7). <c>PutFile</c> is an operation (<see cref="OperationStarts"/>);
-/// <c>AddTelemetry</c> and <c>Emit</c> are deferred (plan D7).
+/// <c>PutObject</c> (§9.5) and <c>GetStorePath</c> (§9.7). <c>AddTelemetry</c> and <c>Emit</c> are deferred (plan D7);
+/// <c>PutFile</c> was removed in draft 4 (the client's helpers cut files).
 /// </summary>
 internal static class ServiceRequests
 {
@@ -37,8 +37,9 @@ internal static class ServiceRequests
     }
 
     /// <summary>
-    /// <c>WriteEntry</c> (513): an Entry of a registered kind in a followed Package, parsed (kinds 1 to 3), its references
-    /// stored, its parents named or chosen, signed with the device key and stored (§9.4).
+    /// <c>WriteEntry</c> (513): an Entry of a registered kind in a followed Package, its payload opaque and never parsed, its
+    /// references and <c>redacts</c> copied into the envelope, every reference stored already, its parents named or
+    /// chosen, signed with the device key and stored (§9.4).
     /// </summary>
     /// <param name="context">The connection and the node.</param>
     /// <param name="correlation">The request's correlation.</param>
@@ -53,11 +54,11 @@ internal static class ServiceRequests
             return PackageRequests.Unknown(correlation, request.PackageId);
         if (!context.Port.Kinds.Holds(context.Connection, manifest.Content.Kind, request.Kind))
             return LocalAnswer.Failure(correlation, Status.KindNotRegistered, $"This service did not register Package kind {(ushort)manifest.Content.Kind} with Entry kind {(ushort)request.Kind}.", "kind");
-        if (WriteRule.Check(request, out EntryPayload? payload) is { } refusal)
+        if (WriteRule.Check(request, out EntryBody? body) is { } refusal)
             return refusal.Answer(correlation);
 
-        var write = new EntryWrite(request.PackageId, payload!, WriteRule.ParentsOf(request.Parents), [.. request.References]);
-        foreach (ObjectHash referenced in write.Referenced)
+        var write = new EntryWrite(request.PackageId, body!, WriteRule.ParentsOf(request.Parents));
+        foreach (ObjectHash referenced in body!.References)
         {
             if (!await node.ContainsAsync(referenced, cancellationToken).ConfigureAwait(false))
                 return LocalAnswer.Failure(correlation, Status.NotFound, $"The referenced object {referenced} is not stored; put it first.", "references");

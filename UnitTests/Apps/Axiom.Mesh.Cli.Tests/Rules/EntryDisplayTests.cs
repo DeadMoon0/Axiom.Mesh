@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Cli.Tests.Rules;
 
@@ -30,14 +31,15 @@ public sealed class EntryDisplayTests
     }
 
     [Fact]
-    public void AMessageShowsItsTextOnOneLine_AVersionItsLabelAndTree_ARedactionItsTarget()
+    public void AMessageShowsItsTextOnOneLine_AVersionItsLabelAndTree_ARedactionWhatItsEnvelopeRedacts()
     {
         Assert.Equal("hello mesh", EntrySummary.Of(Message("hello\nmesh")));
         Assert.Equal(EntrySummary.MaxText, EntrySummary.Of(Message(new string('x', 500))).Length);
 
         var version = new VersionPayload { Tree = Hash, Label = "main", Prerelease = "beta.2", Notes = string.Empty };
         Assert.Equal("version main-beta.2, tree abababababab", EntrySummary.Of(Of(EntryKind.Version, PayloadEncoder.Encode(version))));
-        Assert.Equal("withdraws abababababab", EntrySummary.Of(Of(EntryKind.Redaction, PayloadEncoder.Encode(new RedactionPayload { Target = Hash }))));
+        Assert.Equal("withdraws abababababab", EntrySummary.Of(Of(EntryKind.Redaction, PayloadEncoder.Encode(new RedactionPayload { Target = Hash })) with { Redacts = Hash }));
+        Assert.Equal("withdraws abababababab", EntrySummary.Of(Of((EntryKind)70, new byte[3]) with { Redacts = Hash }));
         Assert.Equal("3 bytes", EntrySummary.Of(Of((EntryKind)70, new byte[3])));
     }
 

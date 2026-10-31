@@ -10,9 +10,8 @@ namespace Axiom.Mesh.Core.Tests.Rules;
 
 /// <summary>
 /// LOCAL-SPEC.md §8.6, the operation kinds: <c>Fetch</c> waits for a source and fails <c>NotFound</c> after 60 seconds
-/// without one, completes once a source supplies the object, and a cancelled Fetch cancels its wants; <c>Materialise</c>
-/// writes byte-equal files and leaves no partial file; <c>PutFile</c> stores a file as Chunks and a ChunkList pinned for
-/// the service.
+/// without one, completes once a source supplies the object, and a cancelled Fetch cancels its wants. <c>Materialise</c>
+/// and <c>PutFile</c> left the Host in draft 4; the client's helpers are proven by <c>StoreFilesTests</c>.
 /// </summary>
 public sealed class OperationKindTests
 {
@@ -87,98 +86,6 @@ public sealed class OperationKindTests
 
         Assert.Equal((OperationState.Cancelled, Status.Cancelled), (cancelled.State, cancelled.Status));
         await Waits.UntilAsync(() => !bob.Node.Replicating.Wants.IsWanted(root), "the want to be cancelled");
-    }
-
-    // §6.4, SPEC.md §11.4: Materialise writes the Tree as files byte-equal to what was published, counts files and bytes,
-    // leaves no partial file and a marker; existing 1 on that path is AlreadyExists, and existing 2 replaces it.
-    [Fact]
-    public async Task MaterialiseWritesByteEqualFiles_ExistingFailIsAlreadyExists_ReplaceRewrites()
-    {
-        await using TestMesh mesh = await SharedArchiveAsync(connect: true);
-        TestNode bob = mesh["bob-desktop"];
-        TreeFixture folder = Folder();
-        await mesh.SettleAsync(None);
-        LocalClient client = await bob.ConnectUserAsync("app", None);
-        using var temp = new TempDirectory();
-        string target = Path.Combine(temp.Path, "photos");
-
-        uint id = (await client.SendAsync(new Materialise { PackageId = Archive(mesh), Hash = folder.Root.Hash, Path = target, Existing = ExistingPath.Fail }, None)).Value;
-        Operation done = await UntilAsync(bob, id, o => o.State != OperationState.Running, "Materialise to end");
-
-        Assert.Equal(OperationState.Done, done.State);
-        MaterialiseResult result = ResultOf<MaterialiseResult>(done);
-        Assert.Equal((2u, (ulong)(Small.Length + Large.Length), 0u), (result.Files, result.Bytes, result.Conflicts));
-        Assert.Equal(Small, await File.ReadAllBytesAsync(Path.Combine(target, "a.txt")));
-        Assert.Equal(Large, await File.ReadAllBytesAsync(Path.Combine(target, "b.bin")));
-        Assert.Equal([MaterialiseWork.Marker, "a.txt", "b.bin"], Directory.GetFiles(target).Select(Path.GetFileName).Order(StringComparer.Ordinal));
-        Assert.Equal(done.Total, done.Done);
-
-        uint again = (await client.SendAsync(new Materialise { PackageId = Archive(mesh), Hash = folder.Root.Hash, Path = target, Existing = ExistingPath.Fail }, None)).Value;
-        Assert.Equal(Status.AlreadyExists, (await UntilAsync(bob, again, o => o.State != OperationState.Running, "the second Materialise")).Status);
-        await File.WriteAllTextAsync(Path.Combine(target, "a.txt"), "changed");
-        uint replace = (await client.SendAsync(new Materialise { PackageId = Archive(mesh), Hash = folder.Root.Hash, Path = target, Existing = ExistingPath.Replace }, None)).Value;
-        Assert.Equal(OperationState.Done, (await UntilAsync(bob, replace, o => o.State != OperationState.Running, "the replacing Materialise")).State);
-        Assert.Equal(Small, await File.ReadAllBytesAsync(Path.Combine(target, "a.txt")));
-    }
-
-    // §6.4: existing 2 never deletes a directory this Host did not materialise; a relative path is Invalid; a Materialise
-    // cancelled while it waits for its objects writes nothing.
-    [Fact]
-    public async Task ReplaceRefusesAForeignDirectory_ARelativePathIsInvalid_ACancelledMaterialiseWritesNothing()
-    {
-        await using TestMesh mesh = await SharedArchiveAsync(connect: false);
-        TestNode bob = mesh["bob-desktop"];
-        LocalClient client = await bob.ConnectUserAsync("app", None);
-        ObjectHash root = Folder().Root.Hash;
-        using var temp = new TempDirectory();
-        string foreign = Path.Combine(temp.Path, "mine");
-        Directory.CreateDirectory(foreign);
-        await File.WriteAllTextAsync(Path.Combine(foreign, "keep.txt"), "keep");
-
-        Assert.Equal(Status.Invalid, (await client.SendAsync(new Materialise { PackageId = Archive(mesh), Hash = root, Path = "relative", Existing = ExistingPath.Fail }, None)).Status);
-        uint waiting = (await client.SendAsync(new Materialise { PackageId = Archive(mesh), Hash = root, Path = Path.Combine(temp.Path, "out"), Existing = ExistingPath.Fail }, None)).Value;
-        await UntilAsync(bob, waiting, o => o.Message.StartsWith("waiting for a source", StringComparison.Ordinal), "Materialise to wait for its objects");
-        Assert.Equal(OperationState.Cancelled, (await client.SendAsync(new CancelOperation { OperationId = waiting }, None)).Value.State);
-
-        Assert.False(Directory.Exists(Path.Combine(temp.Path, "out")));
-        await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
-        await mesh.SettleAsync(None);
-        uint refused = (await client.SendAsync(new Materialise { PackageId = Archive(mesh), Hash = root, Path = foreign, Existing = ExistingPath.Replace }, None)).Value;
-        Operation ended = await UntilAsync(bob, refused, o => o.State != OperationState.Running, "the refused Materialise");
-        Assert.Equal((OperationState.Failed, Status.Invalid), (ended.State, ended.Status));
-        Assert.True(File.Exists(Path.Combine(foreign, "keep.txt")));
-    }
-
-    // §9.5, §8.6: PutFile cuts a file into Chunks of 1 MiB and the rest, stores them and the ChunkList, pins every one for
-    // the service, and names the ChunkList; a missing path is NotFound, a directory Invalid.
-    [Fact]
-    public async Task PutFileStoresChunksAndAChunkListPinnedForTheService_AMissingPathIsNotFound()
-    {
-        await using TestMesh mesh = await LocalMeshes.StartAsync();
-        TestNode node = mesh[LocalMeshes.Node];
-        LocalClient cli = await node.ConnectServiceAsync("cli", LocalMeshes.CliToken, None);
-        using var temp = new TempDirectory();
-        string file = Path.Combine(temp.Path, "b.bin");
-        await File.WriteAllBytesAsync(file, Large);
-        ChunkedFile expected = Chunker.Cut(Large);
-
-        uint id = (await cli.SendAsync(new PutFile { Path = file }, None)).Value;
-        Operation done = await UntilAsync(node, id, o => o.State != OperationState.Running, "PutFile to end", "cli");
-        uint missing = (await cli.SendAsync(new PutFile { Path = Path.Combine(temp.Path, "none") }, None)).Value;
-        uint directory = (await cli.SendAsync(new PutFile { Path = temp.Path }, None)).Value;
-
-        Assert.Equal(OperationState.Done, done.State);
-        PutFileResult result = ResultOf<PutFileResult>(done);
-        Assert.Equal((expected.List.Hash, (ulong)Large.Length, 2u), (result.Hash, result.Size, result.Chunks));
-        foreach (ObjectHash hash in expected.Chunks.Select(c => c.Hash).Append(expected.List.Hash))
-        {
-            Pin pin = Assert.Single((await cli.SendAsync(new ListPins { Hash = hash }, None)).Value.Pins);
-            Assert.Equal(Axiom.Mesh.Local.PinReason.Service, pin.Reason);
-        }
-
-        Assert.Equal(Status.NotFound, (await UntilAsync(node, missing, o => o.State != OperationState.Running, "the missing PutFile", "cli")).Status);
-        Assert.Equal(Status.Invalid, (await UntilAsync(node, directory, o => o.State != OperationState.Running, "the directory PutFile", "cli")).Status);
-        Assert.Equal(Status.Invalid, (await cli.SendAsync(new PutFile { Path = "relative.bin" }, None)).Status);
     }
 
     // Alice's laptop owns an Archive granted to Bob, holding one published folder; Bob follows it. With connect, they are

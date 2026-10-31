@@ -1,11 +1,12 @@
 using System.Globalization;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Cli;
 
 /// <summary>
-/// What one line says about an Entry's payload (SPEC.md §8.5): a Message's text, a Version's label and Tree, a
-/// Redaction's target. A redacted Entry is shown as withdrawn and never with its text (SPEC.md §9.4). Pure.
+/// What one line says about an Entry: a Message's text, a Version's label and Tree (PAYLOADS.md), the Entry a redaction
+/// withdraws (its envelope's <c>redacts</c>, whatever its kind). A redacted Entry is shown as withdrawn and never with its text (SPEC.md §9.4). Pure.
 /// </summary>
 internal static class EntrySummary
 {
@@ -22,13 +23,14 @@ internal static class EntrySummary
     {
         if (entry.Redacted)
             return Withdrawn;
+        if (!entry.Redacts.IsZero)
+            return $"withdraws {Formats.Short(entry.Redacts.Value)}";
         if (!EntryPayload.TryParse(entry.Kind, entry.Payload, out EntryPayload? payload))
             return $"{entry.Payload.Length.ToString(CultureInfo.InvariantCulture)} bytes";
         return payload switch
         {
             MessagePayload message => Cut(message.Text) + (message.Attachments.Count == 0 ? string.Empty : $" [{message.Attachments.Count.ToString(CultureInfo.InvariantCulture)} attachments]"),
             VersionPayload version => $"version {version.Label}{(version.Prerelease.Length == 0 ? string.Empty : "-" + version.Prerelease)}, tree {Formats.Short(version.Tree.Value)}",
-            RedactionPayload redaction => $"withdraws {Formats.Short(redaction.Target.Value)}",
             _ => $"{entry.Payload.Length.ToString(CultureInfo.InvariantCulture)} bytes",
         };
     }

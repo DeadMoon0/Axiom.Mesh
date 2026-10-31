@@ -32,6 +32,12 @@ public sealed record Entry : IWireRecord<Entry>
     /// <summary>Its kind (SPEC.md §14.7); unknown kinds are carried.</summary>
     public EntryKind Kind { get; init; }
 
+    /// <summary>The objects the Entry needs, ascending, as in the object (SPEC.md §8.6 <c>references</c>).</summary>
+    public IReadOnlyList<ObjectHash> References { get; init; } = [];
+
+    /// <summary>The Entry it withdraws, or the zero hash, as in the object (SPEC.md §8.6 <c>redacts</c>).</summary>
+    public ObjectHash Redacts { get; init; }
+
     /// <summary>The payload bytes, as in the object.</summary>
     public ReadOnlyMemory<byte> Payload { get; init; }
 
@@ -54,6 +60,8 @@ public sealed record Entry : IWireRecord<Entry>
             Clock = reader.UInt64BigEndian(),
             Parents = LocalWire.ReadHashes(ref reader, FieldBounds.ParentsCount),
             Kind = (EntryKind)reader.UInt16BigEndian(),
+            References = LocalWire.ReadHashes(ref reader, FieldBounds.ReferencesCount),
+            Redacts = ObjectHash.Read(ref reader),
             Payload = LocalWire.ReadBlob(ref reader, FieldBounds.PayloadLength),
             Redacted = reader.Boolean(),
         };
@@ -72,6 +80,8 @@ public sealed record Entry : IWireRecord<Entry>
         writer.UInt64BigEndian(Clock);
         LocalWire.WriteHashes(ref writer, Parents, FieldBounds.ParentsCount);
         writer.UInt16BigEndian((ushort)Kind);
+        LocalWire.WriteHashes(ref writer, References, FieldBounds.ReferencesCount);
+        Redacts.Write(ref writer);
         LocalWire.WriteBlob(ref writer, Payload, FieldBounds.PayloadLength);
         writer.Boolean(Redacted);
     }

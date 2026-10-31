@@ -43,12 +43,12 @@ internal sealed partial class EntryRow
     /// <summary>The Entry kind.</summary>
     public EntryKind Kind { get; set; }
 
-    /// <summary>For a <c>Redaction</c>, the Entry it names; <see langword="null"/> for any other kind.</summary>
+    /// <summary>The Entry its envelope's <c>redacts</c> names (SPEC.md §8.6, §9.4); <see langword="null"/> when it is no redaction.</summary>
     [Index]
     [Column(MaxLength = 32)]
     public byte[]? Target { get; set; }
 
-    /// <summary>A stored Redaction that SPEC.md §9.4 honours names this Entry: its payload is never shown.</summary>
+    /// <summary>A stored redaction that SPEC.md §9.4 honours names this Entry: its payload is never shown.</summary>
     public bool Redacted { get; set; }
 
     /// <summary>When this node stored it, in milliseconds since the Unix epoch.</summary>

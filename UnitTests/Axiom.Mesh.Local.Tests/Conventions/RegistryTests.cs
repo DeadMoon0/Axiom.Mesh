@@ -16,7 +16,7 @@ public sealed class RegistryTests
     public void EveryRequestIdOfLocalSpec14_1HasAMessageAndASample()
     {
         var spec = SpecTables.Rows("### 14.1 ", 0)
-            .Where(r => r[2].StartsWith("Request", StringComparison.Ordinal))
+            .Where(r => r[2].StartsWith("Request", StringComparison.Ordinal) && !r[1].StartsWith('('))
             .Select(r => (Id: ushort.Parse(r[0], CultureInfo.InvariantCulture), Name: r[1]))
             .ToList();
         var code = RequestTable.Default.All.Select(d => (d.Id, d.Name)).ToList();
@@ -86,10 +86,11 @@ public sealed class RegistryTests
     [InlineData("### 11.1 ", 0, typeof(Status))] // status codes, the table §14.9 refers to
     public void EveryRegistryValueOfLocalSpec14IsAMemberOfItsEnumeration_AndNoMemberIsMissingFromTheRegistry(string heading, int table, Type enumeration)
     {
-        // Some tables put the value first, some the name; a row whose value is a range ("21 to 32767") is a reservation.
+        // Some tables put the value first, some the name; a row whose value is a range ("21 to 32767") or whose name is
+        // in parentheses ("(reserved; ...)") is a reservation.
         var spec = SpecTables.Rows(heading, table)
             .Select(r => IsValue(r[0]) ? (Value: r[0], Name: r[1]) : (Value: r[1], Name: r[0]))
-            .Where(e => IsValue(e.Value))
+            .Where(e => IsValue(e.Value) && !e.Name.StartsWith('('))
             .Select(e => (Value: long.Parse(e.Value, CultureInfo.InvariantCulture), Name: Normalise(e.Name)))
             .OrderBy(e => e.Value)
             .ToList();

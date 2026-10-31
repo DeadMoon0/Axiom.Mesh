@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core.Tests.Support;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Core.Tests.Rules;
 

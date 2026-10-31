@@ -104,20 +104,22 @@ public sealed class LimitsTests
     [InlineData(nameof(Limits.MaxTreeEntries), 8192)]
     // SPEC §8.4: "name: string(255)".
     [InlineData(nameof(Limits.MaxTreeNameLength), 255)]
-    // SPEC §8.5: "label: string(64)".
+    // PAYLOADS.md §2: "label: string(64)".
     [InlineData(nameof(Limits.MaxVersionLabelLength), 64)]
-    // SPEC §8.5: "prerelease: string(64)".
+    // PAYLOADS.md §2: "prerelease: string(64)".
     [InlineData(nameof(Limits.MaxVersionPrereleaseLength), 64)]
-    // SPEC §8.5: "notes: string(4096)".
+    // PAYLOADS.md §2: "notes: string(4096)".
     [InlineData(nameof(Limits.MaxVersionNotesLength), 4096)]
-    // SPEC §8.5: "text: string(16384)".
+    // PAYLOADS.md §3: "text: string(16384)".
     [InlineData(nameof(Limits.MaxMessageTextLength), 16_384)]
-    // SPEC §8.5: "attachments: list<Attachment>(64)".
+    // PAYLOADS.md §3: "attachments: list<Attachment>(64)".
     [InlineData(nameof(Limits.MaxMessageAttachments), 64)]
-    // SPEC §8.5: attachment "name: string(255)".
+    // PAYLOADS.md §3: attachment "name: string(255)".
     [InlineData(nameof(Limits.MaxAttachmentNameLength), 255)]
     // SPEC §8.6: "parents: list<hash>(2)".
     [InlineData(nameof(Limits.MaxEntryParents), 2)]
+    // SPEC §8.6: "references: list<hash>(64)".
+    [InlineData(nameof(Limits.MaxEntryReferences), 64)]
     // SPEC §8.6: "payload: blob(1048576)".
     [InlineData(nameof(Limits.MaxPayloadLength), MiB)]
     // SPEC §8.7: "name: string(255)".

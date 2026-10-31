@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core.Tests.Support;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Core.Tests.Rules;
 
@@ -92,7 +93,8 @@ public sealed class ServiceRoleTests
     }
 
     // §9.4: a Package not followed is NotFound; an Entry kind not registered is KindNotRegistered; a referenced object
-    // not stored is NotFound; references stated for kinds 1 to 3 and a named parent of another Package are Invalid.
+    // not stored is NotFound; references that are not strictly ascending and a named parent of another Package are
+    // Invalid. Nothing of a refused request is stored.
     [Fact]
     public async Task WriteEntryRefusesWhatSection9_4Refuses()
     {
@@ -106,19 +108,23 @@ public sealed class ServiceRoleTests
         Assert.Equal(Status.KindNotRegistered, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = message }, None)).Status);
         Assert.True((await cli.SendAsync(new RegisterKind { Kind = PackageKind.Channel, EntryKinds = [EntryKind.Message, EntryKind.Redaction] }, None)).IsOk);
         Chunk absent = Samples.Chunk(7);
-        byte[] attached = PayloadEncoder.Encode(new MessagePayload { Text = "see attached", Attachments = [new Attachment("a.txt", absent.Hash, 1000)], ReplyTo = default });
+        Chunk stored = Samples.Chunk(8);
+        Assert.True((await cli.SendAsync(new PutObject { Object = stored.Bytes }, None)).IsOk);
+        ObjectHash[] descending = [.. new[] { absent.Hash, stored.Hash }.OrderDescending()];
 
         Assert.Equal(Status.NotFound, (await cli.SendAsync(new WriteEntry { PackageId = PackageId.Derive(laptop.User, default), Kind = EntryKind.Message, Payload = message }, None)).Status);
-        Assert.Equal(Status.NotFound, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = attached }, None)).Status);
-        Assert.Equal(Status.Invalid, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = message, References = [absent.Hash] }, None)).Status);
+        Assert.Equal(Status.NotFound, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = message, References = [absent.Hash] }, None)).Status);
+        Assert.Equal(Status.Invalid, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = message, References = descending }, None)).Status);
+        Assert.Equal(Status.Invalid, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = message, References = [stored.Hash, stored.Hash] }, None)).Status);
         Assert.Equal(Status.Invalid, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = message, Parents = [elsewhere] }, None)).Status);
         Assert.Empty((await cli.SendAsync(new ListHistory { PackageId = channel, Limit = 64 }, None)).Value.Entries);
     }
 
-    // §9.4, SPEC.md §8.5: a Version, Message or Redaction payload that does not parse to its end is Invalid here; the
-    // same kind of Entry from a peer is malformed and dropped as faulty content, never stored.
+    // §9.4 and decision 5 (draft 4), SPEC.md §8.5 and §8.6 (draft 5): the Host parses no payload. An envelope that would
+    // be malformed is Invalid here and malformed from a peer, dropped as faulty content; a payload that parses as nothing,
+    // whatever its kind, is stored and ordered like any other, from a service and from a peer alike.
     [Fact]
-    public async Task AVersionMessageOrRedactionPayloadThatDoesNotParseIsInvalidHere_AndDroppedAsFaultyFromAPeer()
+    public async Task AMalformedEnvelopeIsInvalidHereAndMalformedFromAPeer_AnUnparseablePayloadOfAnyKindIsStoredAndOrdered()
     {
         await using TestMesh mesh = await LocalMeshes.StartAsync();
         TestNode laptop = mesh[LocalMeshes.Node];
@@ -127,27 +133,48 @@ public sealed class ServiceRoleTests
         LocalClient cli = await laptop.ConnectServiceAsync("cli", LocalMeshes.CliToken, None);
         Assert.True((await cli.SendAsync(new RegisterKind { Kind = PackageKind.Channel, EntryKinds = [EntryKind.Message, EntryKind.Redaction] }, None)).IsOk);
         Assert.True((await cli.SendAsync(new RegisterKind { Kind = PackageKind.Archive, EntryKinds = [EntryKind.Version] }, None)).IsOk);
+        Chunk one = Samples.Chunk(1);
+        Chunk two = Samples.Chunk(2);
+        foreach (Chunk chunk in new[] { one, two })
+            Assert.True((await cli.SendAsync(new PutObject { Object = chunk.Bytes }, None)).IsOk);
+        ObjectHash[] ascending = [.. new[] { one.Hash, two.Hash }.Order()];
+        ObjectHash[] descending = [.. ascending.Reverse()];
         byte[] trailing = [.. PayloadEncoder.Encode(ObjectFixtures.Message("hello")), 0];
 
-        Assert.Equal(Status.Invalid, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = trailing }, None)).Status);
-        Assert.Equal(Status.Invalid, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Redaction, Payload = new byte[31] }, None)).Status);
-        Assert.Equal(Status.Invalid, (await cli.SendAsync(new WriteEntry { PackageId = archive, Kind = EntryKind.Version, Payload = new byte[5] }, None)).Status);
+        // A malformed envelope is Invalid: references out of order.
+        Assert.Equal(Status.Invalid, (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = trailing, References = descending }, None)).Status);
 
-        byte[] malformed = Samples.RawEntry(TestKeys.AlicePhone, channel, 0, EntryParents.None, EntryKind.Message, trailing);
-        ObjectHash hash = ObjectHash.Of(malformed);
-        long before = laptop.Node.Facts.LastSequence;
+        // An unparseable payload of a Message, a Redaction or a Version is no business of the Host: stored, in order.
+        Entry message = (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = trailing }, None)).Value;
+        Entry redaction = (await cli.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Redaction, Payload = new byte[31] }, None)).Value;
+        Entry version = (await cli.SendAsync(new WriteEntry { PackageId = archive, Kind = EntryKind.Version, Payload = new byte[5], References = ascending }, None)).Value;
+        Assert.Equal([message.Hash, redaction.Hash], (await cli.SendAsync(new ListHistory { PackageId = channel, Limit = 64 }, None)).Value.Entries.Select(e => e.Hash));
+        Assert.Equal(ascending, version.References);
+        Assert.False(message.Redacted);
+
+        // From a peer: an unparseable payload is stored; a malformed envelope is faulty and never stored.
+        Assert.True(laptop.Node.Trust.TryGetManifest(channel, out VerifiedManifest? manifest));
+        DeviceId phoneDevice = TestIdentity.Of("alice-phone").DeviceId;
+        byte[] opaque = Samples.RawEntry(TestKeys.AlicePhone, channel, 2, EntryParents.Of(redaction.Hash), EntryKind.Message, [], default, trailing);
+        byte[] malformed = Samples.RawEntry(TestKeys.AlicePhone, channel, 3, EntryParents.Of(ObjectHash.Of(opaque)), EntryKind.Message, descending, default, trailing);
         await using ScriptedPeer phone = await ScriptedPeer.ConnectAsync(laptop, TestIdentity.Of("alice-phone"), ScriptedPeerOptions.Default, None);
         await phone.SendAsync(phone.Hello(1), None);
         await phone.ExpectAsync<Axiom.Mesh.Protocol.Hello>(None);
         await phone.ExpectAsync<Axiom.Mesh.Protocol.Packages>(None);
-        Assert.True(laptop.Node.Trust.TryGetManifest(channel, out VerifiedManifest? manifest));
-        await phone.SendAsync(new Axiom.Mesh.Protocol.PackageChanged(new Axiom.Mesh.Protocol.PackageState(channel, manifest.Hash, manifest.Content.Seq, [], [new Head(TestIdentity.Of("alice-phone").DeviceId, hash, 0)])), None);
-        Assert.Equal([hash], (await phone.ExpectAsync<Axiom.Mesh.Protocol.Want>(None)).Hashes);
-        await phone.SendAsync(Axiom.Mesh.Protocol.ObjectMessage.FromStored(hash, malformed), None);
+        foreach ((byte[] bytes, ulong clock) in new[] { (opaque, 2UL), (malformed, 3UL) })
+        {
+            ObjectHash hash = ObjectHash.Of(bytes);
+            long before = laptop.Node.Facts.LastSequence;
+            await phone.SendAsync(new Axiom.Mesh.Protocol.PackageChanged(new Axiom.Mesh.Protocol.PackageState(channel, manifest.Hash, manifest.Content.Seq, [], [new Head(phoneDevice, hash, clock)])), None);
+            Assert.Equal([hash], (await phone.ExpectAsync<Axiom.Mesh.Protocol.Want>(None)).Hashes);
+            await phone.SendAsync(Axiom.Mesh.Protocol.ObjectMessage.FromStored(hash, bytes), None);
+            NodeFact outcome = await laptop.Node.Facts.WaitForAsync(f => f.Kind is NodeFactKind.FaultyContent or NodeFactKind.ObjectStored && f.Subject == hash.Value, before, None).WaitAsync(TestMesh.Deadline);
+            Assert.Equal(bytes == opaque ? NodeFactKind.ObjectStored : NodeFactKind.FaultyContent, outcome.Kind);
+        }
 
-        NodeFact faulty = await laptop.Node.Facts.WaitForAsync(f => f.Kind == NodeFactKind.FaultyContent, before, None).WaitAsync(TestMesh.Deadline);
-        Assert.Equal(hash.Value, faulty.Subject);
-        Assert.False(await laptop.Node.ContainsAsync(hash, None));
+        Assert.True(await laptop.Node.ContainsAsync(ObjectHash.Of(opaque), None));
+        Assert.False(await laptop.Node.ContainsAsync(ObjectHash.Of(malformed), None));
+        Assert.Equal(ObjectHash.Of(opaque), (await cli.SendAsync(new ListHistory { PackageId = channel, Reverse = true, Limit = 1 }, None)).Value.Entries[0].Hash);
     }
 
     private static async Task<Entry> WriteAsync(LocalClient cli, PackageId package, string text, IReadOnlyList<ObjectHash>? parents = null)
@@ -173,7 +200,7 @@ public sealed class ServiceRoleTests
         foreach (ObjectHash parent in entry.Parents)
         {
             Entry held = (await cli.SendAsync(new GetEntry { Hash = parent }, None)).Value;
-            parents.Add(new EntryFacts(held.PackageId, held.Kind, new EntryKey(held.Clock, held.DeviceId, held.Hash)));
+            parents.Add(new EntryFacts(held.PackageId, held.Redacts, new EntryKey(held.Clock, held.DeviceId, held.Hash)));
         }
 
         Assert.False(Lamport.TryFindParentFault(verified.Content, parents, out ObjectFault fault), fault.ToString());

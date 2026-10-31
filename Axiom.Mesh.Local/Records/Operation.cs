@@ -41,8 +41,7 @@ public sealed record Operation : IWireRecord<Operation>
     public ReadOnlyMemory<byte> Result { get; init; }
 
     /// <summary>
-    /// Reads <see cref="Result"/> as the result body of the operation's kind (§8.6): <see cref="MaterialiseResult"/>,
-    /// <see cref="FetchResult"/> or <see cref="PutFileResult"/>.
+    /// Reads <see cref="Result"/> as the result body of the operation's kind (§8.6): <see cref="FetchResult"/> for <c>Fetch</c>.
     /// </summary>
     /// <typeparam name="TResult">The result body of the kind.</typeparam>
     /// <param name="result">The result body.</param>

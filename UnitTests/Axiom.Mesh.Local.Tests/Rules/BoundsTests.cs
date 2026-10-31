@@ -38,9 +38,9 @@ public sealed class BoundsTests
     [Fact]
     public void AValueInBoundsButWrongInSubstanceReads_TheHostAnswersItInvalid()
     {
-        // Empty names, a relative path, undefined enumerated values: all in bounds.
+        // Empty names, undefined enumerated values: all in bounds.
         Assert.Equal(DecodeStatus.Message, AtHost(CreateIdentity.Id, (ref WireWriter w) => { Text(ref w, ""); Text(ref w, ""); }));
-        Assert.Equal(DecodeStatus.Message, AtHost(Materialise.Id, (ref WireWriter w) => { Id(ref w); Id(ref w); Text(ref w, "relative/dir"); w.UInt8(200); }));
+        Assert.Equal(DecodeStatus.Message, AtHost(FollowPackage.Id, (ref WireWriter w) => { Id(ref w); w.UInt8(200); }));
         Assert.Equal(DecodeStatus.Message, AtHost(Subscribe.Id, (ref WireWriter w) => { w.UInt32BigEndian(1); w.UInt16BigEndian(999); new Filter().Write(ref w); }));
         Assert.Equal(DecodeStatus.Message, AtHost(StartPairing.Id, (ref WireWriter w) => { w.UInt8(77); Text(ref w, "not a code"); }));
     }

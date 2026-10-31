@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Cli.Tests.Support;
 
@@ -54,7 +55,7 @@ internal static class Samples
     [
         Entry(0x01, 0, Laptop, EntryKind.Message, PayloadEncoder.Encode(new MessagePayload { Text = "hello mesh", Attachments = [], ReplyTo = default }), redacted: false),
         Entry(0x02, 1, Desktop, EntryKind.Message, PayloadEncoder.Encode(new MessagePayload { Text = "a secret", Attachments = [], ReplyTo = default }), redacted: true),
-        Entry(0x03, 2, Laptop, EntryKind.Redaction, PayloadEncoder.Encode(new RedactionPayload { Target = new ObjectHash(Id(0x02)) }), redacted: false),
+        Entry(0x03, 2, Laptop, EntryKind.Redaction, PayloadEncoder.Encode(new RedactionPayload { Target = new ObjectHash(Id(0x02)) }), redacted: false) with { Redacts = new ObjectHash(Id(0x02)) },
     ];
 
     private static Hash32 Id(byte first) => new([first, .. Enumerable.Range(1, 31).Select(i => (byte)(first ^ i))]);

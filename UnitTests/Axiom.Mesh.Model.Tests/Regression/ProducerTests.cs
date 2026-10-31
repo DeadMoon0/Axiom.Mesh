@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Axiom.Mesh.Payloads;
 using Axiom.Mesh.Tests.Support;
 
 namespace Axiom.Mesh.Tests.Regression;
@@ -38,7 +39,8 @@ public sealed class ProducerTests
         VerifiedEntry entry = Samples.Message(TestKeys.AlicePhone, manifest.Content.Package, 12, EntryParents.Of(RawObjects.Hash(8), RawObjects.Hash(3)), "text");
         Assert.Equal(TestKeys.AlicePhone.PublicKey.AsDeviceId(), entry.Content.Device);
         Assert.Equal(new[] { RawObjects.Hash(3), RawObjects.Hash(8) }, entry.Content.Parents);
-        Assert.Equal("text", Assert.IsType<MessagePayload>(entry.Content.Payload).Text);
+        Assert.True(EntryPayload.TryParse(entry.Content.Kind, entry.Content.Payload, out EntryPayload? payload));
+        Assert.Equal("text", Assert.IsType<MessagePayload>(payload).Text);
     }
 
     // Damage: a producer that let a caller's mistake through would sign an object every peer drops as malformed, or one
@@ -57,6 +59,8 @@ public sealed class ProducerTests
         Assert.Throws<ArgumentException>(() => ObjectBuilders.Chunk([]));
         Assert.Throws<ArgumentException>(() => ObjectBuilders.Chunk(new byte[Limits.ChunkLength + 1]));
         Assert.Throws<ArgumentException>(() => ObjectBuilders.ChunkList(0, new ObjectHash[Limits.MaxChunkListChunks + 1]));
+        Assert.Throws<ArgumentException>(() => EntryReferences.Of(Enumerable.Range(0, Limits.MaxEntryReferences + 1).Select(i => RawObjects.Hash((byte)i))));
+        Assert.Throws<ArgumentException>(() => new EntryBody(EntryKind.Message, new byte[Limits.MaxPayloadLength + 1], EntryReferences.None, default));
     }
 
     // Damage: an ISigner whose key does not match its PublicKey would publish objects that never verify; the producer

@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Payloads;
 using LocalEntry = Axiom.Mesh.Local.Entry;
 using LocalPackage = Axiom.Mesh.Local.Package;
 using LocalPackageState = Axiom.Mesh.Local.PackageState;
@@ -226,7 +227,7 @@ public abstract class MeshScenarios
         LocalClient writer = await mesh.ConnectCliServiceAsync("alice-laptop", None);
         await Ok(writer.SendAsync(new RegisterKind { Kind = PackageKind.Channel, EntryKinds = [EntryKind.Message] }, None), "RegisterKind");
         for (int i = 0; i < Messages; i++)
-            await Ok(writer.SendAsync(new WriteEntry { PackageId = channel, Kind = EntryKind.Message, Payload = PayloadEncoder.Encode(Message($"message {i}")) }, None), "WriteEntry");
+            await Ok(writer.SendAsync(WriteEntry.Of(channel, Message($"message {i}").ToBody()), None), "WriteEntry");
         await mesh.SettleAsync(None);
 
         Assert.True((await watcher.SendAsync(new GetIdentity(), None)).IsOk); // answered after every event before it
@@ -272,7 +273,7 @@ public abstract class MeshScenarios
             Package = channel,
             Clock = Limits.MaxClockGap + 1,
             Parents = EntryParents.Of(genuine),
-            Payload = Message("from the far future"),
+            Body = Message("from the far future").ToBody(),
         }.Sign(phone.Device);
 
         await using ScriptedPeer forger = await EstablishAsync(mesh, "alice-laptop", phone);

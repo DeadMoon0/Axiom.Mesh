@@ -2,9 +2,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Axiom.ProtoStream.Codecs;
 
-namespace Axiom.Mesh;
+namespace Axiom.Mesh.Payloads;
 
-/// <summary>A message in a Channel (SPEC.md §8.5, kind 2).</summary>
+/// <summary>A message in a Channel (PAYLOADS.md §3, kind 2).</summary>
 public sealed class MessagePayload : EntryPayload
 {
     /// <summary>The text; at most 16 384 bytes.</summary>

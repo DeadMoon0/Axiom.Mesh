@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -46,11 +45,8 @@ public sealed class CliEnvironment
     /// <summary>How long a request may wait for the Host's answer before the command exits 4. Default 30 seconds.</summary>
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
-    /// <summary>The directory relative paths are resolved against: the Host needs absolute ones.</summary>
+    /// <summary>The directory relative paths are resolved against.</summary>
     public string CurrentDirectory { get; init; } = Directory.GetCurrentDirectory();
-
-    /// <summary>The regular files under a directory, as paths relative to it with <c>/</c> between names; for <c>package publish</c>.</summary>
-    public Func<string, IReadOnlyList<string>> ListFiles { get; init; } = CliFiles.List;
 
     /// <summary>Writes a file, for <c>object --out</c>.</summary>
     public Func<string, ReadOnlyMemory<byte>, CancellationToken, Task> WriteFile { get; init; } = CliFiles.WriteAsync;

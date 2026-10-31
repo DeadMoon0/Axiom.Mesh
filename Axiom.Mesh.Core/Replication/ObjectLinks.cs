@@ -3,8 +3,9 @@ using System.Collections.Generic;
 namespace Axiom.Mesh.Core;
 
 /// <summary>
-/// What a stored object names, read off it while its bytes are at hand (SPEC.md §10.3): an Entry's parents and payload
-/// objects, a Tree's entries, a ChunkList's Chunks. The history walk wants from these, so it never reads an object back.
+/// What a stored object names, read off it while its bytes are at hand (SPEC.md §10.3): an Entry's parents and the
+/// objects its envelope references, a Tree's entries, a ChunkList's Chunks. The history walk wants from these, so it
+/// never reads an object back.
 /// </summary>
 internal sealed class ObjectLinks
 {
@@ -21,7 +22,7 @@ internal sealed class ObjectLinks
     /// <summary>An Entry's parents; empty for every other object.</summary>
     public IReadOnlyList<ObjectHash> Parents { get; }
 
-    /// <summary>The payload objects of an Entry, the entries of a Tree, the Chunks of a ChunkList.</summary>
+    /// <summary>The objects an Entry's envelope references, the entries of a Tree, the Chunks of a ChunkList.</summary>
     public IReadOnlyList<ObjectLink> Children { get; }
 
     /// <summary>Whether this is a Version that became its Package's newest when stored (SPEC.md §11.2, phone row).</summary>
@@ -45,11 +46,11 @@ internal sealed class ObjectLinks
         for (int i = 0; i < parents.Length; i++)
             parents[i] = content.Parents[i];
 
-        ObjectTag tag = content.Payload is VersionPayload ? ObjectTag.Tree : ObjectTag.Unassigned;
-        IReadOnlyList<ObjectHash> references = content.Payload.References;
+        // The envelope names the objects, not what they are: a reference may be a Tree, a ChunkList or anything else.
+        EntryReferences references = content.References;
         var children = new ObjectLink[references.Count];
         for (int i = 0; i < children.Length; i++)
-            children[i] = new ObjectLink(references[i], tag);
+            children[i] = new ObjectLink(references[i], ObjectTag.Unassigned);
         return new ObjectLinks(parents, children, newestVersion && content.Kind == EntryKind.Version);
     }
 

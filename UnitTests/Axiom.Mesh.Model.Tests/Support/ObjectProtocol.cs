@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Generic;
+using Axiom.Mesh.Payloads;
 using Axiom.ProtoStream;
 using Axiom.ProtoStream.Framing;
 
@@ -28,21 +29,21 @@ internal static class ObjectProtocol
             Package = manifest.Content.Package,
             Clock = 3,
             Parents = EntryParents.Of(Hash(1), Hash(2)),
-            Payload = new VersionPayload { Tree = tree.Hash, Label = "main", Prerelease = "beta.2", Notes = "ünïcödé notes" },
+            Body = new VersionPayload { Tree = tree.Hash, Label = "main", Prerelease = "beta.2", Notes = "ünïcödé notes" }.ToBody(),
         }.Sign(TestKeys.AliceLaptop);
         VerifiedEntry message = new EntryDraft
         {
             Package = manifest.Content.Package,
             Clock = 0,
             Parents = EntryParents.None,
-            Payload = new MessagePayload { Text = "hi", Attachments = [new Attachment("a.txt", list.Hash, 19)], ReplyTo = Hash(3) },
+            Body = new MessagePayload { Text = "hi", Attachments = [new Attachment("a.txt", list.Hash, 19)], ReplyTo = Hash(3) }.ToBody(),
         }.Sign(TestKeys.AlicePhone);
         VerifiedEntry redaction = new EntryDraft
         {
             Package = manifest.Content.Package,
             Clock = 4,
             Parents = EntryParents.Of(Hash(4)),
-            Payload = new RedactionPayload { Target = message.Hash },
+            Body = new RedactionPayload { Target = message.Hash }.ToBody(),
         }.Sign(TestKeys.AlicePhone);
 
         return

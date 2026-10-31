@@ -60,7 +60,7 @@ public sealed class ParentChoiceTests
         foreach (EntryKey? key in new[] { own, highest })
         {
             if (key is { } k && write.Parents.Contains(k.Hash) && !held.Exists(f => f.Key.Hash == k.Hash))
-                held.Add(new EntryFacts(package, EntryKind.Message, k));
+                held.Add(new EntryFacts(package, default, k));
         }
 
         EntryContent entry = Samples.Message(TestKeys.AliceLaptop, package, write.Clock, write.Parents).Content;

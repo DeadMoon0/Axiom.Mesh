@@ -3,10 +3,11 @@ using System.Linq;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core.Storage;
 using Axiom.Mesh.Core.Tests.Support;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Core.Tests.Rules;
 
-/// <summary>SPEC.md §9.4 and LOCAL-SPEC.md §5.6: the Host sets <c>redacted</c> from the Redactions it holds.</summary>
+/// <summary>SPEC.md §9.4 and LOCAL-SPEC.md §5.6: the Host sets <c>redacted</c> from the redactions it holds, by their <c>redacts</c>.</summary>
 public sealed class RedactionTests
 {
     // SPEC.md §9.4: a Redaction applies to a target of the same Package whenever both are stored, whatever their order;
@@ -54,5 +55,35 @@ public sealed class RedactionTests
         }
 
         Assert.Equal(new[] { bobs.Hash, bobsSecond.Hash }.OrderBy(h => h), announced.Distinct().OrderBy(h => h));
+    }
+
+    // SPEC.md §8.6, §9.4 (draft 5): the node reads redactions from the envelope. An Entry of any kind whose redacts names
+    // a target withdraws it under the rules of §9.4; an Entry of kind 3 whose payload names a target but whose redacts is
+    // zero withdraws nothing, because the node never reads a payload.
+    [Fact]
+    public async Task ARedactionIsReadFromTheEnvelope_AnyKindWithRedactsWithdraws_APayloadAloneDoesNot()
+    {
+        await using TestStore node = await TestStore.StartAsync();
+        await node.IdentifyAsync(TestKeys.Alice, TestKeys.AliceLaptop);
+        await node.PutAsync(Samples.Roster(TestKeys.Alice, 1, (TestKeys.AliceLaptop, false)));
+        VerifiedManifest channel = Samples.Channel(TestKeys.Alice);
+        PackageId id = channel.Content.Package;
+        await node.FollowAsync(id);
+        await node.PutAsync(channel);
+
+        VerifiedEntry first = Samples.Message(TestKeys.AliceLaptop, id, 0, EntryParents.None, "first");
+        VerifiedEntry second = Samples.Message(TestKeys.AliceLaptop, id, 1, EntryParents.Of(first.Hash), "second");
+        var byEnvelope = new EntryBody((EntryKind)500, new byte[] { 1 }, EntryReferences.None, first.Hash);
+        var byPayloadOnly = new EntryBody(EntryKind.Redaction, PayloadEncoder.Encode(new RedactionPayload { Target = second.Hash }), EntryReferences.None, default);
+        VerifiedEntry withdraws = Samples.Written(TestKeys.AliceLaptop, id, 2, EntryParents.Of(second.Hash), byEnvelope);
+        VerifiedEntry namesOnly = Samples.Written(TestKeys.AliceLaptop, id, 3, EntryParents.Of(withdraws.Hash), byPayloadOnly);
+        foreach (VerifiedEntry entry in new[] { first, second, withdraws, namesOnly })
+            await node.WriteAsync(entry);
+
+        Dictionary<ObjectHash, EntryRow> rows = (await node.RowsAsync<EntryRow>()).ToDictionary(r => new ObjectHash(RowKeys.Hash(r.Hash)));
+        Assert.True(rows[first.Hash].Redacted, "An Entry of kind 500 whose redacts names the target did not withdraw it.");
+        Assert.False(rows[second.Hash].Redacted, "A payload naming a target withdrew it without redacts.");
+        Assert.Equal(RowKeys.Of(first.Hash.Value), rows[withdraws.Hash].Target);
+        Assert.Null(rows[namesOnly.Hash].Target);
     }
 }

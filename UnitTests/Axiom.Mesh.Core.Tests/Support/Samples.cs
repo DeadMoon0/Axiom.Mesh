@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Axiom.Mesh.Payloads;
 
 namespace Axiom.Mesh.Core.Tests.Support;
 
@@ -39,8 +40,12 @@ internal static class Samples
             Package = package,
             Clock = clock,
             Parents = parents,
-            Payload = new MessagePayload { Text = text, Attachments = attachments, ReplyTo = default },
+            Body = new MessagePayload { Text = text, Attachments = attachments, ReplyTo = default }.ToBody(),
         }.Sign(device);
+
+    /// <summary>An Entry with any body, written by <paramref name="device"/>.</summary>
+    public static VerifiedEntry Written(ISigner device, PackageId package, ulong clock, EntryParents parents, EntryBody body) =>
+        new EntryDraft { Package = package, Clock = clock, Parents = parents, Body = body }.Sign(device);
 
     /// <summary>A Version naming <paramref name="tree"/>, written by <paramref name="device"/>.</summary>
     public static VerifiedEntry Version(ISigner device, PackageId package, ulong clock, EntryParents parents, ObjectHash tree) =>
@@ -49,12 +54,12 @@ internal static class Samples
             Package = package,
             Clock = clock,
             Parents = parents,
-            Payload = new VersionPayload { Tree = tree, Label = "main", Prerelease = string.Empty, Notes = string.Empty },
+            Body = new VersionPayload { Tree = tree, Label = "main", Prerelease = string.Empty, Notes = string.Empty }.ToBody(),
         }.Sign(device);
 
     /// <summary>A Redaction of <paramref name="target"/>, written by <paramref name="device"/>.</summary>
     public static VerifiedEntry Redaction(ISigner device, PackageId package, ulong clock, EntryParents parents, ObjectHash target) =>
-        new EntryDraft { Package = package, Clock = clock, Parents = parents, Payload = new RedactionPayload { Target = target } }.Sign(device);
+        new EntryDraft { Package = package, Clock = clock, Parents = parents, Body = new RedactionPayload { Target = target }.ToBody() }.Sign(device);
 
     /// <summary>An Entry of an extension kind whose payload is <paramref name="length"/> bytes of <paramref name="fill"/>.</summary>
     public static VerifiedEntry Opaque(ISigner device, PackageId package, ulong clock, int length, byte fill) =>
@@ -63,14 +68,14 @@ internal static class Samples
             Package = package,
             Clock = clock,
             Parents = clock == 0 ? EntryParents.None : EntryParents.Of(new ObjectHash(Hash32.Of([fill]))),
-            Payload = new OpaquePayload((EntryKind)99, Enumerable.Repeat(fill, length).ToArray()),
+            Body = new EntryBody((EntryKind)99, Enumerable.Repeat(fill, length).ToArray(), EntryReferences.None, default),
         }.Sign(device);
 
     /// <summary>
-    /// The bytes of an Entry of a known kind whose payload is <paramref name="payload"/> as it stands, parse or not, signed
-    /// by <paramref name="device"/>: what a buggy or hostile writer could send (SPEC.md §8.5 calls it malformed).
+    /// The bytes of an Entry whose envelope says what is given, references in the given order (ascending or not), signed by
+    /// <paramref name="device"/>: what a buggy or hostile writer could send.
     /// </summary>
-    public static byte[] RawEntry(ISigner device, PackageId package, ulong clock, EntryParents parents, EntryKind kind, byte[] payload)
+    public static byte[] RawEntry(ISigner device, PackageId package, ulong clock, EntryParents parents, EntryKind kind, ObjectHash[] references, ObjectHash redacts, byte[] payload)
     {
         var output = new System.Buffers.ArrayBufferWriter<byte>();
         var writer = new Axiom.ProtoStream.Codecs.WireWriter(output);
@@ -83,6 +88,10 @@ internal static class Samples
         foreach (ObjectHash parent in parents)
             parent.Write(ref writer);
         writer.UInt16BigEndian((ushort)kind);
+        writer.UInt16BigEndian((ushort)references.Length);
+        foreach (ObjectHash reference in references)
+            reference.Write(ref writer);
+        redacts.Write(ref writer);
         Wire.WriteBlob(ref writer, payload, Limits.MaxPayloadLength);
         Signature64 signature = device.Sign(Digests.Of(SigningDomain.Entry, output.WrittenSpan));
         var signing = new Axiom.ProtoStream.Codecs.WireWriter(output);
