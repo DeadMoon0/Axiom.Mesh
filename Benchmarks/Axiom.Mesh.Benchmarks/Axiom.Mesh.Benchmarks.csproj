@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The benchmark suite of the fundamentals plan §5 (BenchmarkDotNet), and the scenarios that run real nodes over loopback
+    and the real pipe once each (dotnet run -c Release, then "scenario" and a name). Numbers go to Documentation/BENCHMARKS.md
+    with the command that measured them. In the solution, never run by `dotnet test`.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Axiom.Mesh.Benchmarks</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+    <ProjectReference Include="..\..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
+    <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
+    <PackageReference Include="BenchmarkDotNet" />
+    <!-- The codec runner: encodes and decodes one frame of a definition without a connection. -->
+    <PackageReference Include="Axiom.ProtoStream.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Real nodes on loopback with real TLS, disk and pipe: the integration suite's fixture, compiled unchanged. -->
+    <Compile Include="..\..\IntegrationTests\Axiom.Mesh.Integration.Tests\Support\RealMeshFixture.cs" Link="Support\RealMeshFixture.cs" />
+    <Compile Include="..\..\IntegrationTests\Axiom.Mesh.Integration.Tests\Support\RealNode.cs" Link="Support\RealNode.cs" />
+  </ItemGroup>
+
+</Project>

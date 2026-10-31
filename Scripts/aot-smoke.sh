@@ -1,6 +1,6 @@
 #!/bin/sh
 # Publishes the Host and the command line as Native AOT for this machine and runs them together once: the smoke test of
-# fundamentals plan §6 (aot.yml in M12 runs the same steps on linux-x64 and win-x64). Both executables are published with
+# fundamentals plan §6 (aot.yml runs the same steps on linux-x64 and win-x64). Both executables are published with
 # PublishAot and IlcTreatWarningsAsErrors, the Host starts with a temporary home and its own socket, and the command line
 # creates an identity and a Channel, lists Packages, writes a message and reads the history. Any failure exits non-zero.
 #
@@ -29,8 +29,8 @@ publish() {
 
 publish Axiom.Mesh.Host/Axiom.Mesh.Host.csproj "$output/host"
 publish Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj "$output/cli"
-host_exe="$output/host/Axiom.Mesh.Host"
-cli_exe="$output/cli/Axiom.Mesh.Cli"
+host_exe="$output/host/axiom-meshd"
+cli_exe="$output/cli/axiom-mesh"
 
 home=$(mktemp -d "${TMPDIR:-/tmp}/axiom-mesh-smoke.XXXXXX")
 chmod 700 "$home"

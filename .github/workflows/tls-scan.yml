@@ -1,0 +1,90 @@
+name: TLS scan
+
+# SPEC.md §4.2 checked from outside: testssl.sh scans a real node (Conformance/Axiom.Mesh.TlsScan) presenting the
+# certificate of a device the node trusts, one `openssl s_client -alpn axiom-mesh/1` handshake records the ALPN, and
+# Conformance/tls/check.py fails on anything but TLS 1.3, a suite that is not forward-secret AEAD, a session ticket,
+# early data, or a missing ALPN axiom-mesh/1. check.py checks its own rules first.
+
+on:
+  pull_request:
+    paths:
+      - 'Axiom.Mesh.Core/Transport/**'
+      - 'Conformance/**'
+      - '.github/workflows/tls-scan.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'Axiom.Mesh.Core/Transport/**'
+      - 'Conformance/**'
+      - '.github/workflows/tls-scan.yml'
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PORT: '41810'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Self-check of check.py
+        run: python3 -I Conformance/tls/check.py --self-test
+
+      - name: Build the scan target
+        run: dotnet build Conformance/Axiom.Mesh.TlsScan --configuration Release
+
+      - name: Start the scan target
+        run: |
+          dotnet run --project Conformance/Axiom.Mesh.TlsScan --configuration Release --no-build -- \
+            --port "$PORT" --client-pem "$RUNNER_TEMP/client.pem" > "$RUNNER_TEMP/target.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/target.pid"
+          for i in $(seq 1 60); do
+            if grep -q '^listening on' "$RUNNER_TEMP/target.log"; then cat "$RUNNER_TEMP/target.log"; exit 0; fi
+            sleep 1
+          done
+          echo "The scan target did not start:"; cat "$RUNNER_TEMP/target.log"; exit 1
+
+      - name: ALPN handshake
+        run: |
+          echo | timeout 20 openssl s_client -connect "127.0.0.1:$PORT" -tls1_3 -alpn axiom-mesh/1 \
+            -cert "$RUNNER_TEMP/client.pem" -key "$RUNNER_TEMP/client.pem" > "$RUNNER_TEMP/alpn.txt" 2>&1 || true
+          cat "$RUNNER_TEMP/alpn.txt"
+
+      - name: testssl.sh
+        run: |
+          git clone --depth 1 --branch 3.2 https://github.com/testssl/testssl.sh.git "$RUNNER_TEMP/testssl"
+          # testssl.sh exits non-zero when it finds anything noteworthy (a self-signed certificate, for one); check.py judges.
+          "$RUNNER_TEMP/testssl/testssl.sh" --quiet --color 0 --warnings off --mtls "$RUNNER_TEMP/client.pem" \
+            --jsonfile "$RUNNER_TEMP/testssl.json" --protocols --each-cipher --server-defaults "127.0.0.1:$PORT" || true
+
+      - name: Judge the scan
+        run: python3 -I Conformance/tls/check.py --testssl "$RUNNER_TEMP/testssl.json" --alpn "$RUNNER_TEMP/alpn.txt"
+
+      - name: Stop the scan target
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/target.pid")" 2>/dev/null || true
+
+      - name: Upload the scan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tls-scan
+          path: |
+            ${{ runner.temp }}/testssl.json
+            ${{ runner.temp }}/alpn.txt
+            ${{ runner.temp }}/target.log
+          if-no-files-found: warn

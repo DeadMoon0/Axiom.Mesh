@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The target of the TLS scan (tls-scan.yml, Documentation/SECURITY.md): one real node with its real MeshTls on a port
+    given by argument, a fixed published identity (Alice's laptop) that trusts Bob's desktop, so a scanner presenting Bob's
+    desktop's certificate completes its handshakes. Runs until stopped. Ships nothing; never run by dotnet test.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <RootNamespace>Axiom.Mesh.TlsScan</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+  </ItemGroup>
+
+</Project>

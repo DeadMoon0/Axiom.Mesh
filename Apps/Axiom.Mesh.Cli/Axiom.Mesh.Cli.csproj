@@ -21,6 +21,14 @@
     <RootNamespace>Axiom.Mesh.Cli</RootNamespace>
   </PropertyGroup>
 
+  <!--
+    The published executable is named for the user, the assembly for the layering conventions (STRUCTURAL-DEBT.md 13):
+    a Native AOT publish writes axiom-mesh, the tool command is axiom-mesh; every other build keeps Axiom.Mesh.Cli.
+  -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <TargetName>axiom-mesh</TargetName>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- The package's own test project, and nobody else. -->
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">

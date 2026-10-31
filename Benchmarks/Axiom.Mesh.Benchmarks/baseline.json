@@ -1,0 +1,24 @@
+{
+  "unit": "ns (mean)",
+  "benchmarks": {
+    "Axiom.Mesh.Benchmarks.Micro.ChunkerBenchmarks.CutAndSeal64MiB": 29543961.7,
+    "Axiom.Mesh.Benchmarks.Micro.ChunkerBenchmarks.CutInMemory64MiB": 38157150.5,
+    "Axiom.Mesh.Benchmarks.Micro.CodecBenchmarks.Decode(Message: \"ChunkObject1MiB\")": 393915.8,
+    "Axiom.Mesh.Benchmarks.Micro.CodecBenchmarks.Decode(Message: \"EntryObject\")": 274.4,
+    "Axiom.Mesh.Benchmarks.Micro.CodecBenchmarks.Decode(Message: \"Hello\")": 66.7,
+    "Axiom.Mesh.Benchmarks.Micro.CodecBenchmarks.Decode(Message: \"PackageState256Heads\")": 1933.1,
+    "Axiom.Mesh.Benchmarks.Micro.CodecBenchmarks.Encode(Message: \"ChunkObject1MiB\")": 46147.8,
+    "Axiom.Mesh.Benchmarks.Micro.CodecBenchmarks.Encode(Message: \"EntryObject\")": 28.8,
+    "Axiom.Mesh.Benchmarks.Micro.CodecBenchmarks.Encode(Message: \"Hello\")": 66.5,
+    "Axiom.Mesh.Benchmarks.Micro.CodecBenchmarks.Encode(Message: \"PackageState256Heads\")": 4285.3,
+    "Axiom.Mesh.Benchmarks.Micro.EntrySignatureBenchmarks.SignEntry": 158349.3,
+    "Axiom.Mesh.Benchmarks.Micro.EntrySignatureBenchmarks.VerifyEntry": 77673.7,
+    "Axiom.Mesh.Benchmarks.Micro.HashBenchmarks.Sha256Of1MiB": 393380.3,
+    "Axiom.Mesh.Benchmarks.Micro.IndexBenchmarks.EntryRowCommit": 909393.6,
+    "Axiom.Mesh.Benchmarks.Micro.IndexBenchmarks.EntryThroughTheWriter": 3528245.2,
+    "Axiom.Mesh.Benchmarks.Micro.IndexBenchmarks.ThousandEntryRowsInOneTransaction": 88372415.8,
+    "Axiom.Mesh.Benchmarks.Micro.StoreBenchmarks.Get1MiB": 301313.8,
+    "Axiom.Mesh.Benchmarks.Micro.StoreBenchmarks.Put1MiB": 3218990.3,
+    "Axiom.Mesh.Benchmarks.Micro.StoreBenchmarks.PutSmall": 2665646.7
+  }
+}

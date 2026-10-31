@@ -1,0 +1,67 @@
+name: AOT
+
+# Native AOT publish of the daemon and the command line on both desktop platforms, warnings as errors, then the smoke of
+# fundamentals plan §6 (Scripts/aot-smoke.*): the published axiom-meshd starts with a temporary home and its own pipe,
+# and the published axiom-mesh creates an identity and a Channel, lists Packages, writes a message, reads the history
+# and prints status as JSON. The binaries are uploaded as artifacts.
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  aot:
+    name: aot (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      # The Native AOT linker on Linux needs clang and zlib; Windows runners carry MSVC.
+      - name: Native toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - name: Publish and smoke (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sh Scripts/aot-smoke.sh "${{ matrix.rid }}" "$RUNNER_TEMP/aot"
+
+      - name: Publish and smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./Scripts/aot-smoke.ps1 -Runtime "${{ matrix.rid }}" -Output "$env:RUNNER_TEMP\aot"
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: axiom-mesh-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/aot/host/axiom-meshd*
+            ${{ runner.temp }}/aot/cli/axiom-mesh*
+          if-no-files-found: error

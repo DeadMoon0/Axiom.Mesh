@@ -1,0 +1,54 @@
+name: Benchmarks
+
+# A short list of the micro benchmarks of fundamentals plan §5 (Benchmarks/Axiom.Mesh.Benchmarks), on demand and weekly.
+# The results are uploaded; a mean more than twice the committed number (baseline.json, measured on the machine
+# Documentation/BENCHMARKS.md names) is reported as a warning. This workflow never fails the build: a runner is not the
+# reference machine, so it catches an order of magnitude, not a percentage. The release floors in the integration suite
+# and the allocation budgets ([ReleaseFact]) are the deterministic guards.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Build
+        run: dotnet build Benchmarks/Axiom.Mesh.Benchmarks --configuration Release
+
+      - name: Run the short list
+        continue-on-error: true
+        working-directory: Benchmarks/Axiom.Mesh.Benchmarks
+        run: >
+          dotnet run --configuration Release --no-build --
+          --filter '*HashBenchmarks*' '*ChunkerBenchmarks*' '*EntrySignatureBenchmarks*' '*CodecBenchmarks*'
+          --exporters json --artifacts "$GITHUB_WORKSPACE/BenchmarkDotNet.Artifacts"
+
+      - name: Compare with the committed numbers
+        continue-on-error: true
+        shell: pwsh
+        run: ./Scripts/benchmark-compare.ps1 -Results BenchmarkDotNet.Artifacts/results
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: BenchmarkDotNet.Artifacts/results/
+          if-no-files-found: warn

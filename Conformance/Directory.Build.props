@@ -1,0 +1,14 @@
+<Project>
+
+  <!--
+    The conformance hosts are executables that are neither shipped nor test projects: never packed, they make no AOT or
+    trimming promise and need no documentation comments. IsLibrary must be decided before the repository's props read
+    it, so it is set here and the root props are imported after it.
+  -->
+  <PropertyGroup>
+    <IsLibrary>false</IsLibrary>
+  </PropertyGroup>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+</Project>

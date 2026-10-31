@@ -3,7 +3,7 @@
     Publishes the Host and the command line as Native AOT for this machine and runs them together once.
 
 .DESCRIPTION
-    The smoke test of fundamentals plan §6 (aot.yml in M12 runs the same steps on linux-x64 and win-x64): both
+    The smoke test of fundamentals plan §6 (aot.yml runs the same steps on linux-x64 and win-x64): both
     executables are published with PublishAot and IlcTreatWarningsAsErrors, the Host starts with a temporary home and its
     own pipe, and the command line creates an identity and a Channel, lists Packages, writes a message and reads the
     history. Any failure exits non-zero; the temporary home is removed either way.
@@ -44,8 +44,8 @@ function Publish([string] $project, [string] $into) {
 
 Publish "Axiom.Mesh.Host/Axiom.Mesh.Host.csproj" (Join-Path $Output "host")
 Publish "Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj" (Join-Path $Output "cli")
-$hostExe = Join-Path $Output "host/Axiom.Mesh.Host$exe"
-$cliExe = Join-Path $Output "cli/Axiom.Mesh.Cli$exe"
+$hostExe = Join-Path $Output "host/axiom-meshd$exe"
+$cliExe = Join-Path $Output "cli/axiom-mesh$exe"
 
 $meshHome = Join-Path ([System.IO.Path]::GetTempPath()) "axiom-mesh-smoke-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 New-Item -ItemType Directory -Path $meshHome | Out-Null

@@ -8,6 +8,12 @@
     <File Path="README.md" />
     <File Path="STRUCTURAL-DEBT.md" />
   </Folder>
+  <Folder Name="/Benchmarks/">
+    <Project Path="Benchmarks/Axiom.Mesh.Benchmarks/Axiom.Mesh.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/Conformance/">
+    <Project Path="Conformance/Axiom.Mesh.TlsScan/Axiom.Mesh.TlsScan.csproj" />
+  </Folder>
   <Folder Name="/Documentation/">
     <File Path="Documentation/ARCHITECTURE.md" />
     <File Path="Documentation/ARCHITECTURE-MAP.md" />
@@ -17,6 +23,7 @@
     <File Path="Documentation/LIMITS.md" />
     <File Path="Documentation/LOCAL-SPEC.md" />
     <File Path="Documentation/SECURITY.md" />
+    <File Path="Documentation/BENCHMARKS.md" />
     <File Path="Documentation/SPEC.md" />
   </Folder>
   <Project Path="Axiom.Mesh.Model/Axiom.Mesh.Model.csproj" />

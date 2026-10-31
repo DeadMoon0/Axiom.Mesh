@@ -1,0 +1,19 @@
+<Project>
+
+  <!--
+    The benchmark suite is an executable that is neither shipped nor a test project: it is never packed, makes no AOT or
+    trimming promise and needs no documentation comments. IsLibrary must be decided before the repository's props read
+    it, so it is set here and the root props are imported after it.
+  -->
+  <PropertyGroup>
+    <IsLibrary>false</IsLibrary>
+  </PropertyGroup>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- One runtime, the newest: BenchmarkDotNet generates a project per run below this folder, which reads this file too. -->
+  <PropertyGroup>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+  </PropertyGroup>
+
+</Project>
