@@ -1,6 +1,10 @@
 # Axiom Mesh Local Protocol, Version 1 (axiom-mesh-local/1)
 
-**Status:** Draft 3, 2026-10-30. Draft 2 (2026-10-28) followed an adversarial review of draft 1 (43 findings, all
+**Status:** Draft 4, 2026-10-31. Draft 4 follows AMP/1 draft 5: the Host parses no payload. `WriteEntry` copies the
+writer's `references` and `redacts` into the Entry's envelope (§9.4), the `Entry` record carries both (§5.6), and the
+content helpers `Materialise` (317) and `PutFile` (515) left the Host for the client library (their ids stay reserved,
+§14.1, §14.6); `Fetch` stays, because getting an object by hash from peers is routing.
+Draft 3, 2026-10-30. Draft 2 (2026-10-28) followed an adversarial review of draft 1 (43 findings, all
 addressed; the ones that needed AMP/1 to change are in SPEC.md draft 3); draft 3 resolves the questions the first
 implementation raised by stating what it does, and names the request of §6.5 `PinObject`. Normative for the first
 implementation. Where this document and
@@ -119,12 +123,12 @@ brought in line:
 4. **A fourth pin reason, `Service`** (§9.6, §14.8), for objects a service put or asked to keep, and a fifth,
    `Outbound`, held by the Host on the objects an Entry written here references until a peer has fetched them
    (§9.4, decision 22).
-5. **The Host parses the built-in payload layouts itself** (§9.4, §9.8): for Entry kinds 1 to 3 it checks the
-   layout of SPEC.md §8.5 parses exactly to its end and takes the objects the payload references from that
-   parse; a payload that does not parse is faulty content (SPEC.md §8.5, §12.2) and never stored. No service is
-   asked to validate a payload, no Entry waits for a service, and an Entry of an extension kind is stored
-   opaquely with the references its writer named in `WriteEntry`. Draft 1's `ValidatePayload` callback is gone;
-   its id stays reserved (§14.1).
+5. **The Host parses no payload** (§9.4, §9.8; reversed in draft 4): every payload is opaque to it, as SPEC.md §8.5
+   (draft 5) says for every node. What it needs for routing, pins and redactions is in the Entry's envelope:
+   `references` and `redacts`, which `WriteEntry` takes from the writer as stated and a peer's Entry carries signed.
+   No service is asked to validate a payload, no Entry waits for a service, and a payload that parses as nothing
+   is stored and ordered like any other; a service judges the payloads of its own kinds in its own namespace.
+   Draft 1's `ValidatePayload` callback is gone; its id stays reserved (§14.1).
 6. **Parents when the service names none** (§9.4): the rule of SPEC.md §9.3, which this document only restates:
    the device's own Head; when the device has no Head but holds Entries of the Package, the Entry highest in
    the total order; a second parent when the clock gap rule of SPEC.md §8.6 would otherwise be broken.
@@ -141,13 +145,14 @@ brought in line:
     quiet; a client that does not answer within 30 seconds is.
 12. **Telemetry keys** are strings of at most 192 bytes so that a peer and a Package fit in one key; gauges have
     no lifetime total, `GetTotal` returns their last value (§10).
-13. **The Host interprets the built-in layouts and nothing else** (decision 5). It applies `Redaction`s itself
-    and marks a withdrawn `Message` with `Entry.redacted` (§5.6); `GetEntry` and `ListHistory` still return the
+13. **The Host applies redactions by the envelope** (decision 5). An Entry whose `redacts` is not zero is a redaction
+    of that target whatever its kind (SPEC.md §9.4); the Host marks an honoured target with `Entry.redacted` (§5.6); `GetEntry` and `ListHistory` still return the
     payload bytes, and every user client MUST honour the flag, which is how the "MUST NOT show" of SPEC.md §9.4
     is met for the CLI and for any script, not only for the app.
 14. **Topics `users` and `store`** exist because the app shows known users, rosters and the store budget live.
-15. **Objects on demand** (DESIGN.md §7.3) are fetched by the `Fetch` operation (§6.4, §8.6); `Materialise`
-    fetches what it lacks itself.
+15. **Objects on demand** (DESIGN.md §7.3) are fetched by the `Fetch` operation (§6.4, §8.6). Cutting a file into
+    Chunks and writing a Tree to disk are the client's work since draft 4: the client library's helpers do both
+    over `PutObject`, `GetObject` and direct reads (§9.5, §9.7), as the client's own user.
 16. **A Package of any kind may be created**, with or without a service for that kind; the Host carries unknown
     kinds opaquely as SPEC.md §9.2 says.
 17. **`GetStorePath` is a service request** (§9.7); user clients read objects through `GetObject`.
@@ -579,8 +584,10 @@ Entry:
   clock:        u64
   parents:      list<hash>(2)   ascending as byte strings, as in the object
   kind:         u16             SPEC.md §14.7
-  payload:      payload         the Entry's payload bytes, as in the object
-  redacted:     bool            a stored Redaction that SPEC.md §9.4 honours names this Entry
+  references:   list<hash>(64)  the objects the Entry needs, ascending, as in the object (SPEC.md §8.6)
+  redacts:      hash            the Entry it withdraws, all zero when none, as in the object (SPEC.md §8.6)
+  payload:      payload         the Entry's payload bytes, as in the object; the Host never parses them
+  redacted:     bool            a stored redaction that SPEC.md §9.4 honours names this Entry
 EntryKey:
   clock:        u64
   deviceId:     id
@@ -591,7 +598,7 @@ An `EntryKey` is the position of an Entry in the total order of SPEC.md §9.3, `
 ascending. The store sequence is the position in the order this Host stored Entries, across every Package; it
 is unique, increasing, never reused, and the Host MUST persist it with the Entry. An Entry that was evicted
 and is stored again gets a new store sequence, so one hash can appear twice in a store-sequence walk; a client
-that indexes Entries MUST de-duplicate by `hash`. `redacted` is set by the Host from the Redactions it holds
+that indexes Entries MUST de-duplicate by `hash`. `redacted` is set by the Host from the redactions it holds
 (decision 13); a user client MUST NOT display the payload of a redacted Entry.
 
 ### 5.7 `Peer`
@@ -965,13 +972,6 @@ GetObject (316), U S:
   hash:         hash
   OK:   object: object
 
-Materialise (317), U S:
-  packageId:    id              a followed Package whose Entries reference the object
-  hash:         hash            a Tree or a ChunkList
-  path:         path            the directory to write the Tree into, or the file to write the ChunkList to
-  existing:     u8              1 fail when path exists, 2 replace it, 3 write into it, keeping what is not in the Tree
-  OK:   operation: operation            kind Materialise, §8.6
-
 Fetch (318), U S:
   packageId:    id              a followed Package whose Entries reference the object
   hash:         hash
@@ -1015,16 +1015,10 @@ Rules:
   `after` names an Entry that need not be stored any more; paging continues after its key.
 - `GetEntry` and `GetObject` return only what is stored; a held, evicted or never seen object is `NotFound`.
   `GetObject` returns an object of any tag, Rosters included.
-- `Materialise` writes under the rules of SPEC.md §11.4 and §8.4: it fetches what it lacks through the
-  Package's peers as `Fetch` does, writes a file only when every chunk is stored, verifies the ChunkList's
-  `size`, applies executable mode where the file system supports it, and writes symlinks per device policy.
-  The path is opened as the client's user (§13). With `existing` 1 an existing path fails the operation with
-  `AlreadyExists`; with 2 the path is deleted first, but only when it is a directory this Host materialised
-  earlier (it holds a marker file the Host wrote) or a regular file, and never through a symlink or reparse
-  point (`Invalid` otherwise); with 3 files in the Tree replace files of the same name and other files stay.
-  Conflicts of SPEC.md §8.4 are counted in the result and named in the operation's `message`. The operation
-  fails with `Invalid` when `hash` turns out not to be a Tree or a ChunkList, with `IoError` when the file
-  system refuses, and with `NotFound` as `Fetch` does.
+- Id 317 is reserved: `Materialise` until draft 3, removed in draft 4. A client writes a Tree to disk itself, from
+  objects it reads with `GetObject` or directly (§9.7), under the rules of SPEC.md §11.4 and §8.4; the client
+  library's helper does so (it writes each file to a temporary name and renames it into place, and leaves a marker
+  file in a directory it materialised, which its replace mode requires before it deletes one).
 - `Fetch` wants the object and, when `recursive`, everything it references, from peers that may serve it
   (SPEC.md §10.3, §10.4); objects already stored are counted as done at once and, with `pin`, pinned too. The
   operation fails with `NotFound` when, for 60 seconds, no established peer is a possible source for an
@@ -1071,7 +1065,7 @@ sources are not touched. `PinObject` on an object that is not stored is `NotFoun
 to clean up after a service that is gone (§9.6): it removes every pin with that reason and source, and is
 `Invalid` for reasons `Head`, `Policy` and `Outbound`, which the Host alone holds. A budget change may start
 eviction (SPEC.md §11.3) at once; `GetStore` shows the result over time, and topic `store` pushes it. A request
-that would store a new object (`PutObject`, `PutFile`, `WriteEntry`, `Fetch`, `Materialise`) fails with
+that would store a new object (`PutObject`, `WriteEntry`, `Fetch`) fails with
 `StoreFull` when the bytes of pinned objects plus the new object would exceed the budget; eviction cannot
 help, because pinned objects are not evicted. The rule holds for every object the Host stores on a local
 request, whatever the request or the role (the Manifest of `CreatePackage` and the Grant of `SetGrant`
@@ -1252,13 +1246,12 @@ for the global bound.
 
 ### 8.1 Model
 
-An operation is work the Host does for one connection that may take longer than a response should: writing a
-tree to disk, fetching objects from peers, chunking a file. A request that starts one (`Materialise`, `Fetch`,
-`PutFile`) is answered at once with the Host-chosen `operation` id, unique for the connection's lifetime, and
-the `Operation` record (§5.13) then changes until it ends. An operation belongs to the connection that started
-it: no other connection sees it, and it is cancelled when the connection ends. A connection has at most 16
-operations running at once (`Busy`); the Host keeps the records of the last 48 ended operations of a connection
-and drops the oldest beyond that, so that `ListOperations` (§8.5) always fits its list.
+An operation is work the Host does for one connection that may take longer than a response should: fetching objects
+from peers. A request that starts one (`Fetch`) is answered at once with the Host-chosen `operation` id, unique for
+the connection's lifetime, and the `Operation` record (§5.13) then changes until it ends. An operation belongs to the
+connection that started it: no other connection sees it, and it is cancelled when the connection ends. A connection
+has at most 16 operations running at once (`Busy`); the Host keeps the records of the last 48 ended operations of a
+connection and drops the oldest beyond that, so that `ListOperations` (§8.5) always fits its list.
 
 ### 8.2 States
 
@@ -1311,19 +1304,16 @@ CancelOperation (418), U S:
 is `Cancelled` from the moment the Host accepts the cancellation, in the answer and in its final event; work already
 under way may still wind down after that (a chunk being stored, a file being renamed into place), and what it
 finishes stays done, as for any cancelled operation. A
-cancelled `Materialise` leaves the files it wrote; a cancelled `Fetch` cancels its outstanding wants (SPEC.md
-§7.8) and keeps what was stored; a cancelled `PutFile` keeps the chunks already stored, pinned as §9.5 says, and
-no ChunkList.
+cancelled `Fetch` cancels its outstanding wants (SPEC.md §7.8) and keeps what was stored.
 
 ### 8.6 Kinds and results
 
 | Kind | Value | Started by | `unit` | Result body | Fails with |
 |---|---|---|---|---|---|
-| Materialise | 1 | `Materialise` (§6.4) | 1 bytes | `files: u32  bytes: u64  conflicts: u32` | `AlreadyExists`, `Invalid`, `IoError`, `NotFound`, `StoreFull` |
 | Fetch | 2 | `Fetch` (§6.4) | 2 objects | `objects: u32  bytes: u64` | `NotFound`, `StoreFull` |
-| PutFile | 3 | `PutFile` (§9.5) | 1 bytes | `hash: hash  size: u64  chunks: u32` (the ChunkList) | `NotFound` (no such path), `Invalid` (not a regular file), `IoError`, `StoreFull` |
 
-Values 4 to 255 are reserved for extensions. `unit` 3 is reserved.
+Values 1 and 3 are reserved (`Materialise` and `PutFile` until draft 3, removed in draft 4); 4 to 255 are reserved
+for extensions. `unit` 1 (bytes) is kept for extensions; `unit` 3 is reserved.
 
 ## 9. Service role
 
@@ -1383,15 +1373,16 @@ WriteEntry (513), S:
   packageId:    id              a followed Package of a kind this service registered
   kind:         u16             an Entry kind this service registered for that Package kind
   parents:      list<hash>(2)   ascending as byte strings; empty = the Host chooses
-  payload:      payload
-  references:   list<hash>(1024)  ascending; extension kinds only: the objects the payload references (see below)
+  payload:      payload         opaque to the Host
+  references:   list<hash>(64)  strictly ascending as byte strings: the objects the Entry needs (see below)
+  redacts:      hash            the Entry this one withdraws (SPEC.md §9.4); all zero when none
   OK:   entry: Entry
 ```
 
 The Host builds the Entry object of SPEC.md §8.6 as follows and then signs it with the device key under domain
 `axiom-mesh/entry/1`:
 
-1. `packageId`, `kind` and `payload` as given; `deviceId` the own device.
+1. `packageId`, `kind`, `references`, `redacts` and `payload` as given; `deviceId` the own device.
 2. `parents`: as given, when given; the Host checks that each is a stored Entry of the same `packageId`
    (`Invalid` otherwise). When empty, the rule of SPEC.md §9.3: the own device's Head of the Package, if it has
    one; else, when the Host has stored any Entry of the Package, the stored Entry highest in the total order;
@@ -1410,13 +1401,12 @@ grantee, and this device not removed; `NotWritable`), and that the result is wel
 under SPEC.md §8.6 and faultless under §8.6 and §9.3 once its parents are considered; a result that would not
 be is `Invalid`.
 
-**Payloads and references.** The Host parses the payload of kinds 1 to 3 itself, as the layouts of SPEC.md
-§8.5 say (decision 5): a payload that does not parse exactly to its end is `Invalid`, and the objects it
-references (a `Version`'s Tree, a `Message`'s attachments) are taken from the parse; for these kinds
-`references` MUST be empty (`Invalid` otherwise). For every other kind the Host does not parse the payload and
-takes `references` as the writer's statement of what the payload names; it may be empty. In both cases every
-referenced object MUST already be stored (`PutObject`, `PutFile`; `NotFound` names the first that is not),
-because the Host does not fetch what a local writer referenced, and the Host then
+**Payloads and references.** The Host parses no payload, of any kind (decision 5): it copies `references` and
+`redacts` into the envelope as the writer stated them, and the writer fills them from its own payload (for the kinds
+of SPEC.md §14.7, as PAYLOADS.md says). `references` that are not strictly ascending, repeat a hash or exceed 64
+make the Entry malformed and the request `Invalid`. Every referenced object MUST already be stored (`PutObject`;
+`NotFound` names the first that is not), because the Host does not fetch what a local writer referenced, and the Host
+then
 
 1. stores the Entry, assigns its store sequence and updates its Head;
 2. pins the Entry with reason `Head`;
@@ -1428,20 +1418,17 @@ because the Host does not fetch what a local writer referenced, and the Host the
 5. replicates (`PackageChanged` and `Have`, SPEC.md §10.5).
 
 The `OK` body is the stored Entry with its hash and store sequence; the same Entry arrives on the service's
-`entries` subscription. A `Redaction` (kind 3) the Host stores, from this request or from a peer, sets
-`Entry.redacted` on its target under the rules of SPEC.md §9.4. `WriteEntry` is not idempotent (§2.3).
+`entries` subscription. An Entry with a non-zero `redacts` the Host stores, from this request or from a peer, sets
+`Entry.redacted` on its target under the rules of SPEC.md §9.4, whatever its kind. `WriteEntry` is not idempotent
+(§2.3).
 
-### 9.5 `PutObject` (514) and `PutFile` (515)
+### 9.5 `PutObject` (514)
 
 ```
 PutObject (514), S:
   object:       object
   OK:   hash:   hash
         stored: bool            false when the object was already stored
-
-PutFile (515), S:
-  path:         path            a regular file the Host can read
-  OK:   operation: operation    kind PutFile, §8.6
 ```
 
 `PutObject` names the object by `H(object)`, checks it as SPEC.md §8.1 to §8.4 say for its tag (an unknown tag is
@@ -1449,11 +1436,10 @@ opaque and accepted; a malformed object is `Invalid`), stores it atomically (SPE
 reason `Service` for this service. A signed object (tags 4 to 7) MUST NOT be put: that is `Invalid`; Entries are
 written with `WriteEntry` and the rest the Host produces itself.
 
-`PutFile` reads the file at `path` as the client's user (§13), cuts it into Chunks of exactly 1 MiB except the
-last (SPEC.md §8.2), stores each Chunk and the ChunkList (SPEC.md §8.3), pins every one of them with reason
-`Service` for this service, and ends with the ChunkList's hash in the result. A file that changes while it is
-read fails the operation with `IoError`. A zero-length file produces a ChunkList with no chunks. Both requests
-fail with `StoreFull` (§6.5) when the pinned bytes would exceed the budget.
+Id 515 is reserved: `PutFile` until draft 3, removed in draft 4. A service cuts a file into Chunks of exactly 1 MiB
+except the last (SPEC.md §8.2) and puts each Chunk and then the ChunkList (SPEC.md §8.3) with `PutObject`, reading the
+file as its own user; the client library's helper does so and fails when the file changes while it is read.
+`PutObject` fails with `StoreFull` (§6.5) when the pinned bytes would exceed the budget.
 
 The RECOMMENDED pattern for a service is: put the objects, write the Entry that references them, then `Unpin`
 them; from then on the `Outbound` pin holds each object until a peer has fetched it, the Package's `Policy`
@@ -1510,11 +1496,10 @@ ignores a later reply. The service answers with its own payload, or with a statu
 the caller unchanged, `Error` record included. When the caller's connection ended before the reply, the reply
 is read and discarded.
 
-**No payload callback.** The Host does not ask a service about payloads it receives from peers: it parses the
-layouts of kinds 1 to 3 itself (decision 5, §9.4) and stores an Entry of any other kind opaquely, exactly as
-SPEC.md §8.5 and §9.2 say. A service that finds an Entry wrong by its own rules shows or hides it in its
-namespace; it cannot keep the Host from storing or forwarding it. The id 1536 of draft 1's `ValidatePayload`
-is reserved (§14.1).
+**No payload callback.** The Host does not ask a service about payloads it receives from peers: it parses none
+(decision 5, §9.4) and stores an Entry of any kind opaquely, exactly as SPEC.md §8.5 and §9.2 say. A service that
+finds an Entry wrong by its own rules shows or hides it in its namespace; it cannot keep the Host from storing or
+forwarding it. The id 1536 of draft 1's `ValidatePayload` is reserved (§14.1).
 
 When 64 callbacks are outstanding toward a service, the Host answers further `ServiceCall`s with `Busy`.
 
@@ -1720,19 +1705,15 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
   Entry. The user key's backup is the one exception and is specified apart (§6.1). A `Response` never carries a
   private key, and `GetObject` of a Roster returns public keys only. A service token (§4.2) is a proof of
   spawning or of the user's choice, not a key: it opens nothing but the service role of its one name.
-- **Paths are the client's.** `Materialise`, `PutFile` and `GetStorePath` name paths the Host opens as the user
-  of the connection that named them (Windows: `ImpersonateNamedPipeClient` around every open, create, delete
-  and rename; on Unix the Host runs as that user); a Host under another account therefore reads and writes
-  exactly what the client's user may. `Materialise` with `existing` 2 deletes only a directory this Host
-  materialised or a regular file, and never through a symlink or reparse point (§6.4). The Host MUST NOT
-  follow a symlink inside a path it materialises into out of the target directory (SPEC.md §8.4's escape rule
-  applies to the destination as a whole). Host capability bits 0 and 1 (§14.4) are computed per connection
-  from the same identity.
+- **Paths are the client's.** Since draft 4 no request asks the Host to open a path a client names: files are read
+  and Trees written by the client itself, as its own user, and `GetStorePath` only names the store directory, which
+  a service reads read-only. Host capability bits 0 and 1 (§14.4) are computed per connection from the process
+  identity of §2.2.
 - **Everything a client sees is verified.** Records are derived from objects the Host verified under SPEC.md;
   `GetObject` returns stored objects only; direct reads see files that are complete and verified. A client is
   never handed a held object.
-- **Payloads are parsed by the Host, not judged by a service** (§9.4, §9.8). The Host checks the built-in
-  layouts itself and stores everything SPEC.md calls storable; no service can keep this device from storing or
+- **Payloads are opaque to the Host and judged by no service** (§9.4, §9.8). The Host reads the envelope only and
+  stores everything SPEC.md calls storable; no service can keep this device from storing or
   forwarding a peer's Entry, and no Entry waits in the held buffer for a program that may not be running. What
   a service thinks of an Entry's content shows in its namespace only.
 - **Bounded by construction.** Frames, lists, outstanding requests and callbacks, subscriptions, queues (in
@@ -1783,7 +1764,7 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
 | 314 | ListHistory | Request | 6.4 |
 | 315 | GetEntry | Request | 6.4 |
 | 316 | GetObject | Request | 6.4 |
-| 317 | Materialise | Request | 6.4 |
+| 317 | (reserved; `Materialise` until draft 3, removed in draft 4) | Request | 6.4 |
 | 318 | Fetch | Request | 6.4 |
 | 319 | ListStored | Request | 6.4 |
 | 352 | ListPins | Request | 6.5 |
@@ -1813,7 +1794,7 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
 | 512 | RegisterKind | Request (service) | 9.2 |
 | 513 | WriteEntry | Request (service) | 9.4 |
 | 514 | PutObject | Request (service) | 9.5 |
-| 515 | PutFile | Request (service) | 9.5 |
+| 515 | (reserved; `PutFile` until draft 3, removed in draft 4) | Request (service) | 9.5 |
 | 516 | GetStorePath | Request (service) | 9.7 |
 | 517 | AddTelemetry | Request (service) | 9.9 |
 | 518 | Emit | Request (service) | 9.10 |
@@ -1896,9 +1877,9 @@ Host flags, in `HelloAck.capabilities`:
 
 | Value | Kind | § |
 |---|---|---|
-| 1 | Materialise | 8.6 |
+| 1 | (reserved; `Materialise` until draft 3, removed in draft 4) | 8.6 |
 | 2 | Fetch | 8.6 |
-| 3 | PutFile | 8.6 |
+| 3 | (reserved; `PutFile` until draft 3, removed in draft 4) | 8.6 |
 
 4 to 255 reserved.
 
@@ -2026,25 +2007,25 @@ running Host.
 
 ## 15. Conformance
 
-A Host conforms to `axiom-mesh-local/1` if it satisfies every MUST in this document addressed to it; a client,
-every MUST addressed to clients, services or its role. A test suite for conformance covers, at least: every
-message encoded and decoded at every byte split, with ProtoStream's harness; every limit of §12 refused one
-over and accepted at the limit, with the violation-versus-error distinction of §11; every request of §6, §7,
-§8, §9 and §10 answered with the stated OK body and with every listed error against a fixed Host state; the
-class rules of §3.3 against a frame of each class from each side; `Hello` refused for each reason of §4.2,
-`Duplicate` against a live service name, an in-process name claimed on the pipe, and a spawned or external
-name with a wrong token; a `WriteEntry` with no parents producing an Entry that verifies under SPEC.md §8.6, orders under
-§9.3 and is faultless under §8.6 against an in-memory node, for the four parent cases of §9.4, the two-parent
-case against a Package whose highest clock is 2^32 + 1 above the own Head; a `Message`, `Version` and
-`Redaction` payload that does not parse to its end answered `Invalid` and the same Entry from a peer dropped
-as faulty; a `Redaction` setting `Entry.redacted`; the replay rule of §7.2 delivering exactly the Entries with
-`storeSeq` ≥ `fromSeq` once and in order, before and across a lapse of §7.4, in events and in bytes; a client
-discarding its index on a changed `storeEpoch`; the slow-consumer rule leaving other subscriptions and
-requests intact; an operation cancelled by `CancelOperation`, by `Drain` and by a closed connection, with
-`status` `Cancelled`; an `Outbound` pin released after the object was sent once; direct reads of §9.7 against
-an object that is then evicted while a reader holds it open; and the pipe admitted for the Host's OS user and
-refused for another, by access list and by process identity, on each desktop platform. Test vectors are
-published with the reference implementation and are part of this specification once they exist.
+A Host conforms to `axiom-mesh-local/1` if it satisfies every MUST in this document addressed to it; a client, every
+MUST addressed to clients, services or its role. A test suite for conformance covers, at least: every message encoded
+and decoded at every byte split, with ProtoStream's harness; every limit of §12 refused one over and accepted at the
+limit, with the violation-versus-error distinction of §11; every request of §6, §7, §8, §9 and §10 answered with
+the stated OK body and with every listed error against a fixed Host state; the class rules of §3.3 against a frame of
+each class from each side; `Hello` refused for each reason of §4.2, `Duplicate` against a live service name, an
+in-process name claimed on the pipe, and a spawned or external name with a wrong token; a `WriteEntry` with no parents
+producing an Entry that verifies under SPEC.md §8.6, orders under §9.3 and is faultless under §8.6 against an
+in-memory node, for the four parent cases of §9.4, the two-parent case against a Package whose highest clock is 2^32
++ 1 above the own Head; a `WriteEntry` whose `references` are not strictly ascending answered `Invalid` and an Entry
+with such an envelope from a peer dropped as faulty, while a payload that does not parse, of any kind, is stored and
+ordered; an Entry with a non-zero `redacts` setting `Entry.redacted`; the replay rule of §7.2 delivering exactly the
+Entries with `storeSeq` ≥ `fromSeq` once and in order, before and across a lapse of §7.4, in events and in bytes; a
+client discarding its index on a changed `storeEpoch`; the slow-consumer rule leaving other subscriptions and requests
+intact; an operation cancelled by `CancelOperation`, by `Drain` and by a closed connection, with `status` `Cancelled`;
+an `Outbound` pin released after the object was sent once; direct reads of §9.7 against an object that is then
+evicted while a reader holds it open; and the pipe admitted for the Host's OS user and refused for another, by access
+list and by process identity, on each desktop platform. Test vectors are published with the reference implementation
+and are part of this specification once they exist.
 
 ## Appendix A. Layouts at a glance
 
@@ -2063,7 +2044,8 @@ Device         := deviceId:id userId:id name:string addedAt:time removed:bool se
 Package        := packageId:id state:u8 ownerId:id kind:u16 name:string created:time retention:u8 manifestSeq:u64 manifestHash:hash
                   branches:list<Branch> listedBy:u16 policy:u8 rights:u8 heads:list<Head> entries:u64 latestClock:u64
 Grant          := hash:hash packageId:id granteeId:id rights:u8 seq:u64
-Entry          := hash:hash storeSeq:u64 stored:time packageId:id deviceId:id clock:u64 parents:list<hash> kind:u16 payload:blob redacted:bool
+Entry          := hash:hash storeSeq:u64 stored:time packageId:id deviceId:id clock:u64 parents:list<hash> kind:u16
+                  references:list<hash> redacts:hash payload:blob redacted:bool
 EntryKey       := clock:u64 deviceId:id hash:hash
 Peer           := deviceId:id userId:id known:bool addresses:list<string> sources:u8 firstSeen:time lastSeen:time state:u8 backoffUntil:time violations:u32
 Session        := deviceId:id userId:id direction:u8 remote:string local:string since:time lastReceived:time tlsSuite:string state:u8
@@ -2098,7 +2080,6 @@ SetGrant       := packageId:id granteeId:id rights:u8 → grant:Grant;   RevokeG
 ListHistory    := packageId:id after:optional<EntryKey> reverse:bool kinds:list<u16> limit:u16 → entries:list<Entry> more:bool
 GetEntry       := hash:hash                           → entry:Entry
 GetObject      := hash:hash                           → object:blob
-Materialise    := packageId:id hash:hash path:path existing:u8 → operation:u32
 Fetch          := packageId:id hash:hash recursive:bool pin:bool → operation:u32
 ListStored     := packageId:id kinds:list<u16> fromSeq:u64 limit:u16 → entries:list<Entry> more:bool
 ListPins       := hash:optional<hash> packageId:optional<id> after:optional<PinKey> → pins:list<Pin> more:bool
@@ -2121,9 +2102,8 @@ QueryTelemetry := series:name key:string from:time to:time → points:list<Telem
 GetTotal       := series:name key:string              → value:u64 since:time
 
 RegisterKind   := kind:u16 entryKinds:list<u16>       → storeEpoch:id storeSeq:u64 packages:u32
-WriteEntry     := packageId:id kind:u16 parents:list<hash> payload:blob references:list<hash> → entry:Entry
+WriteEntry     := packageId:id kind:u16 parents:list<hash> payload:blob references:list<hash> redacts:hash → entry:Entry
 PutObject      := object:blob                         → hash:hash stored:bool
-PutFile        := path:path                           → operation:u32
 GetStorePath   := -                                   → path:path layout:u8
 AddTelemetry   := series:name key:string delta:u64    → -
 Emit           := event:name packageId:id payload:blob → -
@@ -2165,8 +2145,8 @@ clock 8). The Chat service is in-process; the app is a separate process on the p
    50})`, which reaches Chat as `ForwardedCall(callback 1, client 7, "app", "timeline", …)`; Chat answers from
    its index with `Reply(1, OK, payload)` and the app gets the `Response`.
 3. **Alice types.** The app sends `ServiceCall("chat", "send", {C, "hello"})` (correlation 5). Chat gets
-   `ForwardedCall(2, …)` and sends `WriteEntry(C, kind 2, parents [], payload Message{"hello"}, references [])`
-   (correlation 4). The Host parses the `Message` (it has no attachments), chooses `clock` 9 (the highest it
+   `ForwardedCall(2, …)` and sends `WriteEntry(C, kind 2, parents [], payload Message{"hello"}, references [], redacts 0)`
+   (correlation 4). The Host reads none of the payload, chooses `clock` 9 (the highest it
    has stored is 8), parent `e7` (L's own Head), signs with L's device key, stores `e9` with store sequence
    4 121, moves L's Head to `e9`, pins it with reason `Head`, and sends `PackageChanged` and `Have` to P and to
    Bob's desktop D. It answers Chat `Response(4, OK, Entry e9)`, and delivers `EntryStored(e9)` on Chat's
@@ -2174,10 +2154,10 @@ clock 8). The Chat service is in-process; the app is a separate process on the p
    app's subscription 1. Chat indexes `e9` and replies `Reply(2, OK, {e9})`; the app's `Response(5, OK, …)`
    follows. The app already drew the message from its own `EntryStored`.
 4. **Phone answers.** P writes `e10` (clock 10, parent `e8`) and the Host receives it over AMP/1. It verifies the
-   signature against Alice's Roster, has `e8` stored already, parses the `Message` payload to its end and
-   takes the attachment Tree `t` it names, stores `e10` as 4 122, and both subscribers get `EntryStored(e10)`.
-   Had the payload not parsed, `e10` would have been faulty content: dropped, P recorded for it, and nothing
-   delivered; Chat is never asked.
+   signature against Alice's Roster, has `e8` stored already, takes the attachment Tree `t` from `e10`'s
+   `references` (the payload stays unread), stores `e10` as 4 122, and both subscribers get `EntryStored(e10)`.
+   Had `e10`'s envelope been malformed, it would have been faulty content: dropped, P recorded for it, and nothing
+   delivered; Chat is never asked, and judges the payload only when it indexes `e10`.
 5. **An attachment.** The app opens `t`, which the phone policy did not fetch here; it sends `Fetch(C, t,
    recursive true, pin false)` and gets operation 1. `OperationChanged` events on a subscription to
    `operations` show `done` climbing in objects; the final one is `Done` with `{objects 5, bytes 3 145 728}`.

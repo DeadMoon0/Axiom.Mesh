@@ -1,16 +1,19 @@
 # Axiom Mesh Protocol, Version 1 (AMP/1)
 
-**Status:** Draft 4, 2026-10-31. Draft 4 states what the first implementation settled where draft 3 left a choice
-open: which 256 Heads a state lists and how an omission is compared (§7.2), what a revocation's `PackageChanged`
-carries (§7.3), what a `Cancel` of a hash wanted twice settles (§7.5), what the 8 MiB object queue counts (§7.6), when
-an Entry stored before its parents is checked (§8.6), and where parents and payload objects are wanted from (§10.4).
-Draft 3, 2026-10-28. Draft 2 followed an adversarial review of draft 1 (36 findings, all addressed
-or recorded in §13); draft 3 adds what the review of the local protocol ([LOCAL-SPEC.md](LOCAL-SPEC.md) draft 2)
-needed from AMP/1: a listed Package's Manifest may be held before following (§1.2, §10.6), a node pushes its
-own user's new Roster (§7.6), a Channel append may name two parents to keep the clock gap rule (§8.6, §9.3,
-§9.4), and the `Outbound` pin reason (§11.2). Normative for the first implementation. Where this document and
-[DESIGN.md](DESIGN.md) differ, this document wins; DESIGN.md explains why things are as they are, this document
-says exactly what they are.
+**Status:** Draft 5, 2026-10-31. Draft 5 makes a node content-blind: an Entry's envelope gains two signed fields,
+`references` (the objects it needs) and `redacts` (the Entry it withdraws), which is everything a node reads to route,
+pin, want and redact (§8.6, §9.4, §9.7, §10.3, §10.4, §11.2); every payload is opaque to a node (§8.5), and the
+layouts of the registered kinds moved to [PAYLOADS.md](PAYLOADS.md), owned by the services that parse them. Draft 4,
+2026-10-31. Draft 4 states what the first implementation settled where draft 3 left a choice open: which 256 Heads a
+state lists and how an omission is compared (§7.2), what a revocation's `PackageChanged` carries (§7.3), what a
+`Cancel` of a hash wanted twice settles (§7.5), what the 8 MiB object queue counts (§7.6), when an Entry stored
+before its parents is checked (§8.6), and where parents and payload objects are wanted from (§10.4). Draft 3,
+2026-10-28. Draft 2 followed an adversarial review of draft 1 (36 findings, all addressed or recorded in §13); draft
+3 adds what the review of the local protocol ([LOCAL-SPEC.md](LOCAL-SPEC.md) draft 2) needed from AMP/1: a listed
+Package's Manifest may be held before following (§1.2, §10.6), a node pushes its own user's new Roster (§7.6), a
+Channel append may name two parents to keep the clock gap rule (§8.6, §9.3, §9.4), and the `Outbound` pin reason
+(§11.2). Normative for the first implementation. Where this document and [DESIGN.md](DESIGN.md) differ, this document
+wins; DESIGN.md explains why things are as they are, this document says exactly what they are.
 
 **Abstract.** AMP/1 is the protocol two nodes of an Axiom Mesh speak over one TLS connection: how they
 identify and authenticate each other, how data is named, encoded, signed and verified, how a node learns what
@@ -84,7 +87,7 @@ and capability flags from the reserved ranges of §14. So that a 1.0 node and a 
   an unknown id 0 to 16 is a violation (§12.1);
 - an object whose tag is unknown is **opaque**: it is verified by its hash only, stored, replicated and
   pinned by the rules of whatever references it, and never interpreted;
-- an unknown entry kind or Package kind is carried opaquely (§8.5, §9.2);
+- every entry kind, known or not, is carried opaquely, and an unknown Package kind too (§8.5, §9.2);
 - an unknown capability flag is ignored.
 
 Anything that changes the meaning of an existing byte is version 2.
@@ -431,8 +434,8 @@ hashes:     list<hash>(1024)
 may see, and SHOULD send it for hashes it holds but has deferred answering (§7.6). A node MUST NOT claim an
 object it does not hold or that the peer may not see (§9.7).
 
-A receiver records a `Have` only for hashes it wants or may want (heads, parents and payload objects of
-Packages it follows); every other hash is ignored. A node MUST bound the sources it records to 65 536 hashes
+A receiver records a `Have` only for hashes it wants or may want (heads, parents and the objects Entries reference,
+of Packages it follows); every other hash is ignored. A node MUST bound the sources it records to 65 536 hashes
 per peer, dropping the oldest.
 
 ### 7.5 `Want` (5), Established only
@@ -604,29 +607,14 @@ case-insensitively, and records that as a conflict too.
 
 ### 8.5 Entry payloads
 
-An Entry's `payload` (§8.6) is a blob whose layout depends on `kind` (§14.7):
+An Entry's `payload` (§8.6) is a blob that is **opaque to a node**, of every kind: a node stores, replicates and
+orders an Entry without reading its payload, and never finds an Entry malformed or faulty for what its payload holds.
+What a node acts on is in the envelope: the objects the Entry needs are its `references`, and the Entry it withdraws
+is its `redacts` (§8.6). A payload's layout is the business of the service that owns its `kind`; the layouts of the
+kinds registered in §14.7 are in [PAYLOADS.md](PAYLOADS.md), and a writer fills `references` and `redacts` from them.
 
-```
-Version (kind 1):
-  tree:         hash
-  label:        string(64)       the branch name, "main" by default; MUST NOT be empty
-  prerelease:   string(64)       empty, or a pre-release tag such as "beta.2"
-  notes:        string(4096)
-Message (kind 2):
-  text:         string(16384)
-  attachments:  list<Attachment>(64)
-  replyTo:      hash             all zero when none
-  Attachment:
-    name:       string(255)
-    hash:       hash             a Tree or ChunkList
-    size:       u64              a copy, as in §8.4
-Redaction (kind 3):
-  target:       hash             the entry withdrawn
-```
-
-A payload of a known kind that does not parse exactly to its end makes the Entry malformed. An unknown
-`kind` is not malformed: the Entry is stored, replicated and ordered, and its payload is opaque (a node
-without the service for that kind still carries the Package).
+A node without the service for a kind still carries the Package: its Entries are stored, replicated and ordered,
+and the objects they reference are kept and served by the rules of §9.7 and §11.2.
 
 ### 8.6 `Entry` (tag 4)
 
@@ -635,13 +623,21 @@ packageId:  id
 deviceId:   id                  the writing device
 clock:      u64                 Lamport clock, §9.3
 parents:    list<hash>(2)       entries this one follows, strictly ascending as byte strings (a repeat is malformed)
-kind:       u16                 §14.7
-payload:    blob(1048576)       §8.5
+kind:       u16                 §14.7, service-defined
+references: list<hash>(64)      the objects this Entry needs, strictly ascending as byte strings (a repeat is malformed)
+redacts:    hash                the Entry this one withdraws (§9.4); all zero when none
+payload:    blob(1048576)       opaque to a node, §8.5
 signature:  signature           by the device key, domain "axiom-mesh/entry/1"
 ```
 
 Well-formedness: `clock` MUST be below 2^63; `parents` MAY be empty only when `clock` is 0; otherwise
 malformed.
+
+`references` names every object the Entry needs, whatever its payload says: a Version's Tree, a Message's
+attachments, an object of an unassigned tag. A node reaches the rest through Trees and ChunkLists (§8.3, §8.4),
+which stay protocol objects it parses; it never reads the payload to learn what an Entry needs. A non-zero
+`redacts` makes the Entry a redaction of that target whatever its `kind` (§9.4). Both fields are covered by the
+signature like every byte before it (§2.2).
 
 An Entry is **valid** when, at the time it is first verified, its signature verifies against the public key
 of `deviceId` in the current roster of a user who is the Package's owner or holds a current `Write` Grant,
@@ -744,7 +740,7 @@ owner is the only user who may sign Manifests and Grants for it. Ownership does 
 
 A Package's kind (§14.8) says what its Entries mean. Kind 1 `Archive` holds `Version` entries; kind 2
 `Channel` holds `Message` and `Redaction` entries. A node MUST replicate, store and order Entries of any
-kind; it interprets payloads only for kinds it has a service for.
+kind, and never interprets a payload (§8.5); the services of the node's device do, each for its own kinds.
 
 ### 9.3 Clocks, parents and heads
 
@@ -770,21 +766,22 @@ the same set of Entries computes the same order.
 
 A Channel's visible order is the total order. There is no merge: a device appends with its own head as the
 single parent, or with its own head and the Entry highest in the total order when the clock gap rule of §9.3
-requires the second; the second parent carries no meaning beyond the clock. A `Redaction` applies to a
-`target` of the same `packageId` whenever both are stored,
-whatever their order; a Redaction whose target is in another Package, or is itself a Redaction, is ignored.
+requires the second; the second parent carries no meaning beyond the clock. An Entry whose `redacts` is not zero is
+a **redaction** of that target (§8.6), whatever its `kind`. A redaction applies to a target of the same `packageId`
+whenever both are stored, whatever their order; a redaction whose target is in another Package, or is itself a
+redaction, is ignored.
 It is honoured when its `deviceId` equals the target's `deviceId`, or when its `deviceId` is a device of the
 owner; otherwise ignored. A node MUST keep a redacted Entry's bytes (they are history others verify) and MUST
 NOT show its payload.
 
 ### 9.5 Archives, branches and merges
 
-A `Version` names a branch by `label`. The **leaves** of a branch on a node are the stored `Version`s with
-that label from which no other stored `Version` with that label descends. A branch's head for display is
-the leaf highest in the total order. A node with more than one leaf MUST, when it next writes to that
-branch, merge the two leaves lowest in the total order into one `Version` whose `parents` are both, and
-repeat until one leaf remains, so that a chain of merges resolves any number of concurrent leaves with
-`parents` of at most two.
+A `Version` (PAYLOADS.md §2) names a branch by its `label`; the service that parses Versions applies this section,
+and a node only orders the Entries it is built on. The **leaves** of a branch on a node are the stored `Version`s with
+that label from which no other stored `Version` with that label descends. A branch's head for display is the leaf
+highest in the total order. A node with more than one leaf MUST, when it next writes to that branch, merge the two
+leaves lowest in the total order into one `Version` whose `parents` are both, and repeat until one leaf remains, so
+that a chain of merges resolves any number of concurrent leaves with `parents` of at most two.
 
 The merge tree is derived path by path over the union of the two leaves' trees against the common
 ancestor's tree, the common ancestor being the `Version` highest in the total order among those reachable
@@ -817,7 +814,8 @@ reaches the revoked user. `Packages.grants` lists to the owner's devices every c
 other peer only the Grant whose `granteeId` is that peer's user.
 
 An object held under several Packages is visible if any of them is. Chunks, ChunkLists and Trees are visible
-through the Packages whose Entries reference them; a node answering `Want` for a hash MUST resolve
+through the Packages whose Entries reference them, in their `references` (§8.6) or through the Trees and ChunkLists
+those name; a node answering `Want` for a hash MUST resolve
 visibility through the objects it knows reference that hash, and MUST answer `NotFound` when none that the
 peer may see does.
 
@@ -852,17 +850,16 @@ policy, capability bit 0) MAY start following it by the same steps.
 
 ### 10.3 Walking history
 
-On storing a valid Entry, a node `Want`s every parent it does not hold, until it reaches Entries it holds.
-Then, for each new Entry, it `Want`s the objects the retention policy asks for: the Entry's payload objects
-(a `Version`'s Tree, then the Tree's children, recursively; a `Message`'s attachments) as far as the policy
-goes. A node MUST NOT `Want` an object it holds and SHOULD NOT `Want` the same object from two peers at
-once except when a peer has not answered within 30 seconds.
+On storing a valid Entry, a node `Want`s every parent it does not hold, until it reaches Entries it holds. Then, for
+each new Entry, it `Want`s the objects the retention policy asks for: the objects its `references` names, then what
+those Trees and ChunkLists name, recursively, as far as the policy goes. A node MUST NOT `Want` an object it holds and
+SHOULD NOT `Want` the same object from two peers at once except when a peer has not answered within 30 seconds.
 
 ### 10.4 Choosing a source
 
 Wants are addressed to a peer that announced `Have` for the hash, or, for an Entry named in a Head, to the
-peer that sent that Head, or, for a Manifest or Grant, to the peer that listed it, or, for the parents and payload
-objects an Entry, Tree or ChunkList names (§10.3), to the peer that sent that object. When several peers
+peer that sent that Head, or, for a Manifest or Grant, to the peer that listed it, or, for the parents and references
+an Entry names and the objects a Tree or ChunkList names (§10.3), to the peer that sent that object. When several peers
 qualify, a node SHOULD spread wants by each peer's outstanding count (§7.5). A `NotFound` removes that peer
 as a source for that hash until a later `Have` from it.
 
@@ -875,14 +872,14 @@ network's latency across any number of hops; no node polls.
 
 ### 10.6 Order of verification and the held buffer
 
-A node applies objects in this order, whatever order they arrive: Roster (needs its user to be known) →
-Manifest (self-verifying; needs the Package to be followed or listed) → Grant (needs the Manifest and the
-Package to be followed) → Entry (needs the writer's Roster and, for a grantee, the Grant) → payload objects
-(need nothing but their hash). An object that arrives before what it needs is held as unverifiable (§8.1)
-and re-examined when its prerequisite arrives.
+A node applies objects in this order, whatever order they arrive: Roster (needs its user to be known) → Manifest
+(self-verifying; needs the Package to be followed or listed) → Grant (needs the Manifest and the Package to be
+followed) → Entry (needs the writer's Roster and, for a grantee, the Grant) → content objects, the ones Entries
+reference and what those name (need nothing but their hash). An object that arrives before what it needs is held as
+unverifiable (§8.1) and re-examined when its prerequisite arrives.
 
 A signed object (Roster, Manifest, Grant, Entry) is processed in this order whether or not the node wanted it:
-its signature and the node's trust decide whether it is stored. A payload object (Chunk, ChunkList, Tree, or an
+its signature and the node's trust decide whether it is stored. A content object (Chunk, ChunkList, Tree, or an
 object of an unassigned tag) is vouched for by nothing but its hash, so a node stores it only when it wanted
 it, and MAY drop it otherwise (§7.6).
 
@@ -911,27 +908,29 @@ and verified.
 
 ### 11.2 Pins and retention
 
-A **pin** is a reason to keep an object: `Head` (it is a Head or an ancestor needed to verify one),
-`Policy` (the retention policy of a Package wants it), `User` (the user said keep), `Service` (a local
-service put the object or asked to keep it; see the local protocol), `Outbound` (an Entry written on this
-device references it and no peer has fetched it yet). Pins are held per object and reason. An object with no
+A **pin** is a reason to keep an object: `Head` (it is a Head or an ancestor needed to verify one), `Policy` (the
+retention policy of a Package wants it), `User` (the user said keep), `Service` (a local service put the object or
+asked to keep it; see the local protocol), `Outbound` (an Entry written on this device references it, in its
+`references` or through them, and no peer has fetched it yet). Pins are held per object and reason. An object with no
 pin is a candidate for eviction.
 
-A node MUST pin with reason `Outbound` every object an Entry it writes references, through Trees and
-ChunkLists recursively, whatever its retention policy, and release that pin per object once it has sent the
-object to at least one peer in answer to a `Want`; a device whose policy keeps little must still not be the
-only holder of something it published. Unfollowing a Package releases its `Head` and `Policy` pins but not its
+A node MUST pin with reason `Outbound` every object an Entry it writes names in its `references`, and through Trees
+and ChunkLists recursively everything those name, whatever its retention policy, and release that pin per object once
+it has sent the object to at least one peer in answer to a `Want`; a device whose policy keeps little must still not
+be the only holder of something it published. Unfollowing a Package releases its `Head` and `Policy` pins but not its
 `Outbound` pins, for the same reason. The Manifest of a listed Package (§10.6) carries no pin.
 
 Retention policies, per Package and device class, with these defaults:
 
 | Device class | Archive | Channel |
 |---|---|---|
-| desktop | every Version, every Tree, every ChunkList, every Chunk | every Message, every attachment |
-| phone | every Version, the newest Version's Tree and ChunkLists; Chunks on demand | every Message; attachments on demand |
+| desktop | every Version and every object it references, recursively | every Message and every object it references |
+| phone | every Version; the Trees and ChunkLists the newest Version references, recursively; Chunks on demand | every Message; what it references on demand |
 
-The newest Version is the stored `Version` highest in the total order of its Package (§9.3), whatever its
-`label`: the row keeps one Tree per Package, not one per branch.
+The newest Version is the stored Entry of kind `Version` highest in the total order of its Package (§9.3), whatever
+its `label` (a node reads the kind, never the payload): the row keeps one Version's references per Package, not one
+per branch. For a Package of another kind the phone row keeps every Entry and fetches what Entries reference on
+demand.
 
 "On demand" objects are fetched when the user opens them and are evictable afterwards. The Manifest, the
 Rosters of involved users, the Grants and every Entry of a followed Package are always pinned on every
@@ -966,10 +965,11 @@ violations within an hour SHOULD NOT be dialled for an hour.
 
 ### 12.2 Faulty content
 
-Content that is well-formed on the wire but wrong in substance (a malformed object, an invalid signature
-whose key is known, an Entry whose parents fail §8.6, a Manifest with another kind, a ChunkList whose size
-is wrong) is not a violation: the connection continues, the content is dropped or marked, and the sender is
-recorded as faulty for that object. A node MUST NOT forward faulty content.
+Content that is well-formed on the wire but wrong in substance (a malformed object, an invalid signature whose key is
+known, an Entry whose parents fail §8.6, a Manifest with another kind, a ChunkList reached through an Entry's
+`references` whose size is wrong; never a payload, which a node does not read, §8.5) is not a violation: the
+connection continues, the content is dropped or marked, and the sender is recorded as faulty for that object. A node
+MUST NOT forward faulty content.
 
 ### 12.3 Resource limits
 
@@ -1108,6 +1108,10 @@ Tag 8 is reserved for a sealed (encrypted) object; 9 to 255 for extensions. Unkn
 | 2 | Message | Channel |
 | 3 | Redaction | Channel |
 
+The registry exists so that services do not clash; a node never parses a payload of any kind (§8.5). The layouts
+of these kinds are in [PAYLOADS.md](PAYLOADS.md). Kinds 4 to 65535 are for services; each states its layout in its
+own document.
+
 ### 14.8 Package kinds
 
 | Kind | Name |
@@ -1161,7 +1165,8 @@ object       := tag:u8 version:u8 body
 Chunk        := data
 ChunkList    := size:u64 chunks:biglist<hash>
 Tree         := entries:list<TreeEntry>;  TreeEntry := name:string mode:u8 hash:hash size:u64
-Entry        := packageId:id deviceId:id clock:u64 parents:list<hash> kind:u16 payload:blob signature
+Entry        := packageId:id deviceId:id clock:u64 parents:list<hash> kind:u16 references:list<hash> redacts:hash
+                payload:blob signature
 Manifest     := packageId:id ownerId:id ownerKey:pubkey nonce:bytes<32> kind:u16 seq:u64 name:string
                 created:u64 retention:u8 branches:list<Branch> signature
 Roster       := userId:id userKey:pubkey seq:u64 devices:list<RosterDevice> signature
@@ -1183,7 +1188,7 @@ holds a `Read` grant. Alice and Bob paired in person, which gave each the other'
    Alice's devices.
 4. **Walk.** L sends `Object(e7)`, `Object(e6)`. D verifies both signatures against Alice's Roster, checks
    their clocks against their parents, stores them, sees `e7`'s parent `e5` is held and `e6`'s parent `e4` is
-   held, and `Want`s the attachment Tree named in `e7` because D is a desktop. L answers with the Tree, then D
+   held, and `Want`s the attachment Tree that `e7`'s `references` names, because D is a desktop. L answers with the Tree, then D
    wants its ChunkLists and Chunks.
 5. **Push.** Alice types on P. P writes `e8` (clock 8, parent `e6`) and sends `PackageChanged` to L. L stores
    `e8`, which changes what L would list, so L sends `PackageChanged` to D (not back to P). D wants `e8` from
