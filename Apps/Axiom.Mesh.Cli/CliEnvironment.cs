@@ -50,4 +50,7 @@ public sealed class CliEnvironment
 
     /// <summary>Writes a file, for <c>object --out</c>.</summary>
     public Func<string, ReadOnlyMemory<byte>, CancellationToken, Task> WriteFile { get; init; } = CliFiles.WriteAsync;
+
+    /// <summary>What <c>host install</c> and <c>host uninstall</c> touch: the platform, the daemon, the programs that register a logon start.</summary>
+    public CliMachine Machine { get; init; } = CliMachine.OfThisProcess();
 }

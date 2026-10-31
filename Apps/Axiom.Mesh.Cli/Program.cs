@@ -29,7 +29,8 @@ internal static class Program
     {
         LocalPlatform platform = OperatingSystem.IsWindows() ? LocalPlatform.Windows : OperatingSystem.IsMacOS() ? LocalPlatform.MacOS : LocalPlatform.Linux;
         string? config = CliPaths.ConfigFile(platform, System.Environment.GetEnvironmentVariable);
-        PipeLocation? pipe = Locate();
+        string? text = config is not null && File.Exists(config) ? File.ReadAllText(config) : null;
+        PipeLocation? pipe = Locate(CliConfig.TryReadPipeName(text, out string? name) ? name : null);
         return new CliEnvironment
         {
             Version = InformationalVersion(),
@@ -38,18 +39,19 @@ internal static class Program
                 ? _ => throw new IOException("This platform has no pipe for the Host.")
                 : cancellationToken => LocalPipe.ConnectAsync(pipe, cancellationToken),
             ConfigFile = config ?? "config.json",
-            ReadConfig = () => config is not null && File.Exists(config) ? File.ReadAllText(config) : null,
+            ReadConfig = () => text,
             Variables = System.Environment.GetEnvironmentVariable,
             OutputIsTerminal = !Console.IsOutputRedirected,
             ErrorIsTerminal = !Console.IsErrorRedirected,
         };
     }
 
-    private static PipeLocation? Locate()
+    // AXIOM_MESH_PIPE, else pipe.name of config.json, else the default: the Host's own precedence (STRUCTURAL-DEBT.md 48).
+    private static PipeLocation? Locate(string? configuredName)
     {
         try
         {
-            return LocalPipe.Locate();
+            return LocalPipe.Locate(configuredName);
         }
         catch (MeshException)
         {

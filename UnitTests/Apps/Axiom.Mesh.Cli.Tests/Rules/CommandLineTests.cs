@@ -51,6 +51,9 @@ public sealed class CommandLineTests
     [InlineData("pins", typeof(PinsCommand))] // pins
     [InlineData("pin 3f2a", typeof(PinCommand))] // pin
     [InlineData("unpin 3f2a", typeof(UnpinCommand))] // unpin
+    [InlineData("host install", typeof(HostInstallCommand))] // host install with the daemon next to the tool
+    [InlineData("host install --daemon /opt/axiom-meshd --no-start --json", typeof(HostInstallCommand))] // host install with every option
+    [InlineData("host uninstall --json", typeof(HostUninstallCommand))] // host uninstall
     public void EveryCommandParsesFromItsGoodLine(string line, Type expected)
     {
         ParseResult parsed = CommandLine.Parse(CliWords.Split(line));
@@ -87,7 +90,8 @@ public sealed class CommandLineTests
     [InlineData("users --json --json", "--json is given twice")] // a flag repeated
     [InlineData("package", "'package' is not a command")] // a group word alone
     [InlineData("frobnicate", "'frobnicate' is not a command")] // an unknown command
-    [InlineData("host install", "'host install' is not available yet; start the Host yourself with 'axiom-meshd run'")] // M13's command
+    [InlineData("host install --daemon", "--daemon needs a value <path>")] // host install with the option but no path
+    [InlineData("host uninstall --no-start", "host uninstall has no option --no-start")] // an install option on uninstall
     public async Task AMissingArgumentOrAWrongValueIsAUsageErrorThatExits1(string line, string problem)
     {
         (CliExitCode exit, string output, string error) = await Offline.RunAsync([.. CliWords.Split(line)]);
@@ -111,6 +115,9 @@ public sealed class CommandLineTests
         Assert.Equal(PairingMode.AddDevice, ((PairJoinCommand)Command("pair join amp1:device:10.0.0.1:41810:KEY")).Mode);
         Assert.Equal(PairingMode.JoinUser, ((PairJoinCommand)Command("pair join amp1:user:10.0.0.1:41810:KEY")).Mode);
         Assert.Equal(["package", "create"], ((HelpCommand)Command("package create --help")).Topic);
+        Assert.Equal(new HostInstallCommand(null, false, false), Command("host install"));
+        Assert.Equal(new HostInstallCommand("d", true, true), Command("host install --daemon d --no-start --json"));
+        Assert.Equal(new HostUninstallCommand(null, false), Command("host uninstall"));
     }
 
     private static Command Command(string line) => Assert.IsType<ParsedCommand>(CommandLine.Parse(CliWords.Split(line))).Command;

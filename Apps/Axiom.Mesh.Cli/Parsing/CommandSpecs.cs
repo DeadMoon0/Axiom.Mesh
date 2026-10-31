@@ -11,6 +11,8 @@ internal static class CommandSpecs
 {
     private static readonly OptionSpec JsonOption = OptionSpec.Flag("--json", "print JSON instead of a table");
 
+    private static readonly OptionSpec DaemonOption = OptionSpec.Valued("--daemon", "path", "the axiom-meshd executable (default: the one next to this tool)");
+
     /// <summary>Every command, in the order the help lists them.</summary>
     public static IReadOnlyList<CommandSpec> All { get; } =
     [
@@ -56,8 +58,8 @@ internal static class CommandSpecs
         Spec(["pin"], [ArgumentSpec.Of("hash")], [], "keep a stored object whatever the policies say", a => new PinCommand(a[0])),
         Spec(["unpin"], [ArgumentSpec.Of("hash")], [], "remove your pin on an object", a => new UnpinCommand(a[0])),
 
-        new(["host", "install"], [], [], "register the Host to start at logon (not yet available)", NotYet),
-        new(["host", "uninstall"], [], [], "remove the Host's start at logon (not yet available)", NotYet),
+        Spec(["host", "install"], [], [DaemonOption, OptionSpec.Flag("--no-start", "register only; the Host starts at the next logon"), JsonOption], "start the Host at every logon (a scheduled task on Windows, a systemd user unit on Linux), and now", a => new HostInstallCommand(a.Value("--daemon"), a.Flag("--no-start"), a.Flag("--json"))),
+        Spec(["host", "uninstall"], [], [DaemonOption, JsonOption], "stop the Host and remove its start at logon; binaries and data stay", a => new HostUninstallCommand(a.Value("--daemon"), a.Flag("--json"))),
     ];
 
     /// <summary>The command a command line names: the one with the longest run of matching words.</summary>
@@ -128,6 +130,4 @@ internal static class CommandSpecs
             : a.Problem($"--limit is a number from 1 to {HistoryCommand.MaxLimit}, not '{text}'");
     }
 
-    private static ParseResult NotYet(ParsedArguments a) =>
-        a.Problem($"'{a.Spec.Name}' is not available yet; start the Host yourself with 'axiom-meshd run'");
 }
