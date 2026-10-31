@@ -14,7 +14,6 @@
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>Discovery of SPEC.md §3: the DNS-SD and broadcast codecs, the announcement gate and cache, and the mDNS, broadcast, static-peer and composite shells.</PackageReleaseNotes>
     <RootNamespace>Axiom.Mesh.Discovery</RootNamespace>
   </PropertyGroup>
 

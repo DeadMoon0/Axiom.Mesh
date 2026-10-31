@@ -11,11 +11,12 @@
     <PackageIcon>Icon.png</PackageIcon>
     <Description>Part of the Axiom family. axiom-meshd, the Axiom.Mesh daemon: the one process on a device that holds the keys, the store, the database and every connection, with its configuration and the pipe its clients connect to.</Description>
     <Version>0.1.0</Version>
+    <!-- The daemon ships as a GitHub Release asset (Native AOT, one zip per platform), never as a NuGet package (fundamentals plan §6e). -->
+    <IsPackable>false</IsPackable>
     <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>In progress: axiom-meshd run and version; config.json with a default for every key, unknown keys refused, a cli token generated on first start; the key store (DPAPI on Windows, 0700/0600 on Linux); the pipe (Windows: first instance, remote clients rejected, owner-only access list; Linux: 0600 socket with the stale-file probe) with the process identity of every connection and admission of the served user; the store, database, discovery and logging (console and a rolling file).</PackageReleaseNotes>
     <RootNamespace>Axiom.Mesh.Host</RootNamespace>
   </PropertyGroup>
 

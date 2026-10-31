@@ -14,7 +14,6 @@
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>Skeleton: the name of the local protocol.</PackageReleaseNotes>
     <RootNamespace>Axiom.Mesh.Local</RootNamespace>
   </PropertyGroup>
 

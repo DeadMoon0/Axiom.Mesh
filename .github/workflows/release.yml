@@ -1,42 +1,74 @@
 name: Release
 
-# Push a tag named <package>-v<version> to publish that one package, for example:
-#   git tag Model-v0.1.0 && git push origin Model-v0.1.0
-# The tag is the source of truth: its version must equal <Version> in the project, or the job fails.
-# One workflow for every package, so nuget.org needs one Trusted Publishing policy (this repository, release.yml).
+# One version, one tag (fundamentals plan §6e): pushing a tag v<version>, equal to the <Version> of every project,
+# publishes everything of that version:
 #
-# Publish order, each step once the previous packages show on nuget.org:
-#   1. Model
-#   2. Protocol, Local, Discovery
-#   3. Core            (needs Axiom.LWSE.Core 0.3.0 on nuget.org once Core references it)
-#   4. Host, Cli
-#   5. Testing
-# A dependent package's reference is bumped only once the version it needs is on nuget.org.
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+#   1. version   the tag matches every project's <Version>, and CHANGELOG.md has a section for it, or nothing runs
+#   2. test      the whole suite on Linux and Windows, unit and integration, as unit-tests.yml runs it
+#   3. binaries  per RID (linux-x64, win-x64): Native AOT publish of axiom-meshd and axiom-mesh, the smoke
+#                (Scripts/aot-smoke.*, run by Scripts/package.*), one zip with both executables, LICENSE and README.txt
+#   4. nuget     the six libraries (Model, Protocol, Local, Discovery, Core, Testing) and the dotnet tool axiom-mesh,
+#                pushed to nuget.org with Trusted Publishing: no API key secret, a short-lived key from an OIDC token
+#                (nuget.org needs a Trusted Publishing policy for this repository and this workflow file)
+#   5. release   the GitHub Release v<version>: both zips, SHA256SUMS over them, and CHANGELOG.md's section as notes
+#
+# The daemon is never a NuGet package; it ships in the zips only. Nothing is published unless every earlier step passed.
 
 on:
   push:
     tags:
-      - 'Model-v*'
-      - 'Protocol-v*'
-      - 'Local-v*'
-      - 'Discovery-v*'
-      - 'Core-v*'
-      - 'Host-v*'
-      - 'Testing-v*'
-      - 'Cli-v*'
+      - 'v*'
 
 permissions:
   contents: read
-  id-token: write # NuGet trusted publishing
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  version:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: The tag matches every project and the changelog
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME is not v<major>.<minor>.<patch>[-<suffix>]"
+            exit 1
+          fi
+          wrong=0
+          for project in $(git ls-files '*.csproj' | grep -v -E '^(UnitTests|IntegrationTests|Benchmarks|Conformance|Spikes)/'); do
+            declared=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$project" | head -n 1)
+            if [[ -n "$declared" && "$declared" != "$version" ]]; then
+              echo "::error file=$project::<Version>$declared</Version> differs from the tag $GITHUB_REF_NAME"
+              wrong=1
+            fi
+          done
+          grep -q "^## $version\$" CHANGELOG.md || { echo "::error file=CHANGELOG.md::No section '## $version'"; wrong=1; }
+          [[ $wrong -eq 0 ]] || exit 1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: version
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -51,56 +83,156 @@ jobs:
             8.0.x
             10.0.x
 
-      - name: Resolve package
-        id: package
-        run: |
-          set -euo pipefail
-          prefix="${GITHUB_REF_NAME%%-v*}"
-          version="${GITHUB_REF_NAME#*-v}"
-          case "$prefix" in
-            Model)     project="Axiom.Mesh.Model/Axiom.Mesh.Model.csproj"
-                       tests="UnitTests/Axiom.Mesh.Model.Tests/Axiom.Mesh.Model.Tests.csproj" ;;
-            Protocol)  project="Axiom.Mesh.Protocol/Axiom.Mesh.Protocol.csproj"
-                       tests="UnitTests/Axiom.Mesh.Protocol.Tests/Axiom.Mesh.Protocol.Tests.csproj" ;;
-            Local)     project="Axiom.Mesh.Local/Axiom.Mesh.Local.csproj"
-                       tests="UnitTests/Axiom.Mesh.Local.Tests/Axiom.Mesh.Local.Tests.csproj" ;;
-            Discovery) project="Axiom.Mesh.Discovery/Axiom.Mesh.Discovery.csproj"
-                       tests="UnitTests/Axiom.Mesh.Discovery.Tests/Axiom.Mesh.Discovery.Tests.csproj" ;;
-            Core)      project="Axiom.Mesh.Core/Axiom.Mesh.Core.csproj"
-                       tests="UnitTests/Axiom.Mesh.Core.Tests/Axiom.Mesh.Core.Tests.csproj" ;;
-            Host)      project="Axiom.Mesh.Host/Axiom.Mesh.Host.csproj"
-                       tests="UnitTests/Axiom.Mesh.Host.Tests/Axiom.Mesh.Host.Tests.csproj" ;;
-            Testing)   project="Axiom.Mesh.Testing/Axiom.Mesh.Testing.csproj"
-                       tests="UnitTests/Axiom.Mesh.Testing.Tests/Axiom.Mesh.Testing.Tests.csproj" ;;
-            Cli)       project="Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj"
-                       tests="UnitTests/Apps/Axiom.Mesh.Cli.Tests/Axiom.Mesh.Cli.Tests.csproj" ;;
-            *) echo "::error::Unknown package prefix '$prefix' in tag $GITHUB_REF_NAME"; exit 1 ;;
-          esac
-          declared=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$project")
-          if [[ "$version" != "$declared" ]]; then
-            echo "::error::Tag version $version does not match <Version>$declared</Version> in $project"
-            exit 1
-          fi
-          echo "project=$project" >> "$GITHUB_OUTPUT"
-          echo "tests=$tests UnitTests/Axiom.Mesh.ReadmeSamples.Tests/Axiom.Mesh.ReadmeSamples.Tests.csproj" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: dotnet build Axiom.Mesh.slnx --configuration Release
 
       - name: Test
-        env:
-          TESTS: ${{ steps.package.outputs.tests }}
-        run: |
-          set -euo pipefail
-          for test in $TESTS; do
-            dotnet test "$test" --configuration Release --logger trx
-          done
+        run: dotnet test Axiom.Mesh.slnx --configuration Release --no-build --logger "trx"
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-results-${{ matrix.os }}
+          path: '**/TestResults/*.trx'
+
+  binaries:
+    needs: [ version, test ]
+    name: binaries (${{ matrix.rid }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Native toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev zip
+
+      - name: Publish, smoke and zip (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sh Scripts/package.sh "${{ matrix.rid }}" "$RUNNER_TEMP/dist" "${{ needs.version.outputs.version }}"
+
+      - name: Publish, smoke and zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./Scripts/package.ps1 -Runtime "${{ matrix.rid }}" -Output "$env:RUNNER_TEMP\dist" -Version "${{ needs.version.outputs.version }}"
+
+      - name: Upload the zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: zip-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/dist/axiom-mesh-*.zip
+            ${{ runner.temp }}/dist/SHA256SUMS
+          if-no-files-found: error
+
+  nuget:
+    needs: [ version, test, binaries ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # NuGet Trusted Publishing
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Pack
-        run: dotnet pack "${{ steps.package.outputs.project }}" --configuration Release -p:ContinuousIntegrationBuild=true --output out
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in \
+            Axiom.Mesh.Model/Axiom.Mesh.Model.csproj \
+            Axiom.Mesh.Protocol/Axiom.Mesh.Protocol.csproj \
+            Axiom.Mesh.Local/Axiom.Mesh.Local.csproj \
+            Axiom.Mesh.Discovery/Axiom.Mesh.Discovery.csproj \
+            Axiom.Mesh.Core/Axiom.Mesh.Core.csproj \
+            Axiom.Mesh.Testing/Axiom.Mesh.Testing.csproj \
+            Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj; do
+            dotnet pack "$project" --configuration Release -p:ContinuousIntegrationBuild=true --output out
+          done
+          ls -l out
+          test "$(ls out/*.nupkg | wc -l)" -eq 7
 
-      - name: NuGet login
+      - name: NuGet login (Trusted Publishing)
         uses: NuGet/login@v1
         id: nuget-login
         with:
           user: ${{ vars.NUGET_USER || 'DeadMoon0' }}
 
+      # Dependencies first, so no package is ever on nuget.org before what it needs; a re-run skips what is there.
       - name: Push
-        run: dotnet nuget push "out/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in Model Protocol Local Discovery Core Testing Cli; do
+            dotnet nuget push "out/Axiom.Mesh.$id.${{ needs.version.outputs.version }}.nupkg" \
+              --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
+
+  release:
+    needs: [ version, binaries, nuget ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub Release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download the zips
+        uses: actions/download-artifact@v4
+        with:
+          pattern: zip-*
+          path: zips
+
+      - name: SHA256SUMS and notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir assets
+          find zips -name '*.zip' -exec cp {} assets/ \;
+          (cd assets && sha256sum axiom-mesh-*.zip > SHA256SUMS)
+          for part in zips/*/SHA256SUMS; do
+            while read -r hash name; do
+              grep -q "^$hash  $name\$" assets/SHA256SUMS || { echo "::error::$name changed between its job and this one"; exit 1; }
+            done < "$part"
+          done
+          cat assets/SHA256SUMS
+          version="${{ needs.version.outputs.version }}"
+          awk -v v="## $version" '$0 == v { on = 1; next } on && /^## / { exit } on { print }' CHANGELOG.md > notes.md
+          test -s notes.md
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" assets/* \
+            --title "Axiom.Mesh ${{ needs.version.outputs.version }}" \
+            --notes-file notes.md \
+            --verify-tag

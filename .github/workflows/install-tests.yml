@@ -1,0 +1,199 @@
+name: Install
+
+# The one-line install of fundamentals plan §6e, tested against a local build on both platforms: the release zip is
+# built as release.yml builds it (Scripts/package.*: Native AOT publish, the smoke, zip, SHA256SUMS), the install script
+# installs it with -Source/--source into a temporary home, registers the Host to start at logon and starts it; the job
+# checks that the registration exists, that 'axiom-mesh status' answers, that the published daemon's file key store
+# creates an identity and writes an Entry (STRUCTURAL-DEBT.md 51), and on Linux that the store directory is flushed
+# (STRUCTURAL-DEBT.md 14); then the script uninstalls and the job checks that nothing is left registered. On Windows a
+# second local account is refused by the pipe (STRUCTURAL-DEBT.md 37).
+#
+# This workflow replaces aot.yml (M12): the package step is its Native AOT publish with IlcTreatWarningsAsErrors and its
+# smoke (Scripts/aot-smoke.*), on every pull request and push, and the zips are uploaded as artifacts.
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: install (linux-x64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AXIOM_MESH_HOME: ${{ runner.temp }}/mesh-home
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Native toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev zip unzip
+
+      - name: Package (publish, smoke, zip)
+        run: sh Scripts/package.sh linux-x64 "$RUNNER_TEMP/dist"
+
+      - name: Upload the zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: axiom-mesh-linux-x64
+          path: ${{ runner.temp }}/dist/axiom-mesh-*.zip
+          if-no-files-found: error
+
+      # The runner's user has no systemd user manager until it lingers; with one, 'systemctl --user' works as in a login.
+      - name: Start a systemd user manager
+        run: |
+          sudo loginctl enable-linger "$USER"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do
+            if XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-system-running 2>/dev/null | grep -Eq 'running|degraded'; then exit 0; fi
+            sleep 1
+          done
+          XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-system-running || true
+
+      - name: Install from the local zip
+        run: |
+          mkdir -p "$AXIOM_MESH_HOME" && chmod 700 "$AXIOM_MESH_HOME"
+          printf '{ "mesh": { "port": 0, "mdns": false, "broadcast": false } }\n' > "$AXIOM_MESH_HOME/config.json"
+          sh install.sh --source "$RUNNER_TEMP/dist/axiom-mesh-$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj | head -n 1)-linux-x64.zip"
+
+      - name: The Host runs from its unit and answers
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          systemctl --user is-enabled axiom-meshd.service
+          systemctl --user is-active axiom-meshd.service
+          grep -q -- '--home' "$HOME/.config/systemd/user/axiom-meshd.service"
+          axiom-mesh status --json
+          axiom-mesh identity create --user ci --device runner
+          axiom-mesh package create Install
+          axiom-mesh write Install --text "hello from the install job"
+          axiom-mesh history Install | grep -q "hello from the install job"
+          axiom-mesh status --json | grep -q '"present": true'
+
+      # STRUCTURAL-DEBT.md 14: the daemon logs at start how a rename in its store is made durable; on Linux it must have
+      # fsynced the store directory.
+      - name: The store directory is flushed (debt 14)
+        run: |
+          grep -rh "directory flush" "$AXIOM_MESH_HOME/logs"
+          grep -rqh "directory flush Flushed" "$AXIOM_MESH_HOME/logs"
+
+      - name: Uninstall
+        run: |
+          sh install.sh --uninstall
+          test ! -e "$HOME/.local/bin/axiom-meshd"
+          test ! -e "$HOME/.config/systemd/user/axiom-meshd.service"
+          if systemctl --user is-active axiom-meshd.service; then echo "the Host still runs"; exit 1; fi
+
+      - name: Host log on failure
+        if: failure()
+        run: |
+          journalctl --user -u axiom-meshd.service --no-pager | tail -n 100 || true
+          cat "$AXIOM_MESH_HOME"/logs/* 2>/dev/null | tail -n 100 || true
+
+  windows:
+    name: install (win-x64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      AXIOM_MESH_HOME: ${{ runner.temp }}\mesh-home
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Package (publish, smoke, zip)
+        run: ./Scripts/package.ps1 -Runtime win-x64 -Output "$env:RUNNER_TEMP\dist"
+
+      - name: Upload the zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: axiom-mesh-win-x64
+          path: ${{ runner.temp }}/dist/axiom-mesh-*.zip
+          if-no-files-found: error
+
+      - name: Install from the local zip
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:AXIOM_MESH_HOME | Out-Null
+          Set-Content -Path (Join-Path $env:AXIOM_MESH_HOME "config.json") -Value '{ "mesh": { "port": 0, "mdns": false, "broadcast": false } }'
+          $zip = Get-ChildItem "$env:RUNNER_TEMP\dist\axiom-mesh-*-win-x64.zip" | Select-Object -First 1
+          ./install.ps1 -Source $zip.FullName
+
+      - name: The task is registered and the Host answers
+        run: |
+          $cli = Join-Path $env:LOCALAPPDATA "Programs\Axiom.Mesh\axiom-mesh.exe"
+          schtasks /Query /TN "\Axiom.Mesh\axiom-meshd" /V /FO LIST
+          if ($LASTEXITCODE -ne 0) { throw "the scheduled task is not registered" }
+          & $cli status --json
+          if ($LASTEXITCODE -ne 0) { throw "status did not answer" }
+          & $cli identity create --user ci --device runner
+          & $cli package create Install
+          & $cli write Install --text "hello from the install job"
+          $history = & $cli history Install | Out-String
+          if (-not $history.Contains("hello from the install job")) { throw "history does not show the message" }
+          $status = & $cli status --json | Out-String
+          if (-not $status.Contains('"present": true')) { throw "no identity after identity create" }
+          Get-ChildItem "$env:AXIOM_MESH_HOME\logs" | Get-Content | Select-String "directory flush"
+
+      # STRUCTURAL-DEBT.md 37: a second local account cannot open the pipe the Host's owner-only access list guards. The
+      # runner's user is an administrator, so it can create the account; continue-on-error until a first green run on
+      # the hosted runner proves the step itself (then remove it).
+      - name: Another Windows account is refused by the pipe (debt 37)
+        continue-on-error: true
+        run: |
+          $other = "meshother"
+          # 14 characters at most: a longer one makes net user ask a question no one answers on a runner.
+          $password = "Aa1!" + [guid]::NewGuid().ToString("N").Substring(0, 10)
+          net user $other $password /add | Out-Null
+          try {
+            $shared = "C:\axiom-mesh-other"
+            New-Item -ItemType Directory -Force -Path $shared | Out-Null
+            Copy-Item (Join-Path $env:LOCALAPPDATA "Programs\Axiom.Mesh\axiom-mesh.exe") $shared
+            icacls $shared /grant "${other}:(OI)(CI)F" | Out-Null
+            $credential = New-Object System.Management.Automation.PSCredential($other, (ConvertTo-SecureString $password -AsPlainText -Force))
+            $process = Start-Process -FilePath "$shared\axiom-mesh.exe" -ArgumentList "status" -Credential $credential -WorkingDirectory $shared `
+              -RedirectStandardError "$shared\err.txt" -RedirectStandardOutput "$shared\out.txt" -Wait -PassThru -LoadUserProfile
+            Get-Content "$shared\err.txt", "$shared\out.txt" -ErrorAction SilentlyContinue
+            if ($process.ExitCode -ne 2) { throw "another account's status exited $($process.ExitCode), expected 2 (the Host is not reachable for it)" }
+            Write-Host "another account was refused by the pipe (exit 2), while the owner's status answered"
+          }
+          finally {
+            net user $other /delete | Out-Null
+          }
+
+      - name: Uninstall
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          ./install.ps1 -Uninstall
+          schtasks /Query /TN "\Axiom.Mesh\axiom-meshd" 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "the scheduled task is still registered" }
+          if (Test-Path (Join-Path $env:LOCALAPPDATA "Programs\Axiom.Mesh\axiom-meshd.exe")) { throw "the daemon is still installed" }
+          if (Get-Process axiom-meshd -ErrorAction SilentlyContinue) { throw "the Host still runs" }
+          $global:LASTEXITCODE = 0
+
+      - name: Host log on failure
+        if: failure()
+        run: Get-ChildItem "$env:AXIOM_MESH_HOME\logs" -ErrorAction SilentlyContinue | Get-Content | Select-Object -Last 100

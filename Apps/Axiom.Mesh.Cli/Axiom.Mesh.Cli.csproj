@@ -17,7 +17,6 @@
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>In progress: every command of the fundamentals plan (status, identity, pair, users, devices, peers, sessions, dial, static peers, packages, grants, write, publish, materialise, history, entry, object, watch, store, pins), exit codes 0 to 4 with one line per failure, ids by prefix, --json on every list; Native AOT.</PackageReleaseNotes>
     <RootNamespace>Axiom.Mesh.Cli</RootNamespace>
   </PropertyGroup>
 

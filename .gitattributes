@@ -1,0 +1,2 @@
+# Shell scripts run on Linux runners and are fetched raw by curl | sh: always LF.
+*.sh text eol=lf

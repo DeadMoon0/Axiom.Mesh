@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+    <!-- Testing carries the command line inside its package; a project reference does not pass it on (PrivateAssets). -->
+    <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
   </ItemGroup>
 
 </Project>

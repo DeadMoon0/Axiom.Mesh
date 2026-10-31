@@ -14,7 +14,6 @@
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>In progress: the published test identities, in-memory nodes on one fake clock (TestMesh with trust seeding, connect, stop and start, partition and heal), fake discovery, the in-memory dialler and key store, and scripted peers that speak raw AMP/1 over the node's own mutual TLS; replication helpers: content seams on TestNode (create, grant, follow, write, publish, wait for an object), ObjectFixtures, TestMesh.SettleAsync and severed links; local clients: TestNode.ConnectUserAsync, ConnectServiceAsync, ConnectInProcessAsync, ConnectAsync and ConnectRaw with a TestProcess identity, TestMesh.CreateIdentityAsync over the local port, TestMeshOptions.WithoutIdentity, Local and Loggers; pairing: TestMesh.PairAsync, EnrolAsync, WaitForPairingAsync and ScriptedPeer pairing frames; the command line in-process: TestNode.CliAsync with CliResult.</PackageReleaseNotes>
     <RootNamespace>Axiom.Mesh.Testing</RootNamespace>
   </PropertyGroup>
 
@@ -26,13 +25,27 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
-    <!-- The command line, run in-process against a node (TestNode.CliAsync). -->
-    <ProjectReference Include="..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
+    <ProjectReference Include="..\Axiom.Mesh.Core\Axiom.Mesh.Core.csproj" />
+    <!--
+      The command line, run in-process against a node (TestNode.CliAsync). Its package is a dotnet tool, which no package
+      can depend on, so its assembly travels inside this package (IncludeCliInPackage below); its own dependencies
+      (Axiom.Mesh.Local) are this package's already.
+    -->
+    <ProjectReference Include="..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" PrivateAssets="all" />
     <!-- The in-memory database every node of a mesh runs on. -->
     <PackageReference Include="Axiom.LDB.Core" />
     <!-- One fake clock per mesh, wired into every node's server, sessions and database. -->
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeCliInPackage</TargetsForTfmSpecificBuildOutput>
+  </PropertyGroup>
+
+  <Target Name="IncludeCliInPackage" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <BuildOutputInPackage Include="@(ReferenceCopyLocalPaths)" Condition="'%(ReferenceCopyLocalPaths.Filename)' == 'Axiom.Mesh.Cli' and ('%(ReferenceCopyLocalPaths.Extension)' == '.dll' or '%(ReferenceCopyLocalPaths.Extension)' == '.xml')" />
+    </ItemGroup>
+  </Target>
 
 </Project>

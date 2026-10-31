@@ -13,7 +13,7 @@
   <PropertyGroup>
     <IsTestProject Condition="$(MSBuildProjectName.EndsWith('.Tests'))">true</IsTestProject>
     <IsLibrary Condition="'$(IsLibrary)' == '' and '$(IsTestProject)' == 'true'">false</IsLibrary>
-    <!-- Every other project ships as a package: the libraries, the daemon (Testing depends on it) and the CLI tool. -->
+    <!-- Every other project is shipped: the libraries and the CLI tool as packages, the daemon as a release asset (it sets IsPackable false). -->
     <IsLibrary Condition="'$(IsLibrary)' == ''">true</IsLibrary>
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -30,11 +30,12 @@
 
   <!--
     Shipped projects: trimmable, AOT-safe, documented, packed with symbols and SourceLink. The package metadata itself
-    (title, description, version, icon, readme, urls, release notes, the test project its internals open to) lives in
-    each project's csproj, as in the LWSE, LDB and ProtoStream repositories.
+    (title, description, version, icon, readme, urls, the test project its internals open to) lives in
+    each project's csproj, as in the LWSE, LDB and ProtoStream repositories. Release notes live in one place, CHANGELOG.md.
   -->
   <PropertyGroup Condition="'$(IsLibrary)' == 'true'">
     <IsPackable>true</IsPackable>
+    <PackageReleaseNotes>https://github.com/DeadMoon0/Axiom.Mesh/blob/main/CHANGELOG.md</PackageReleaseNotes>
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>
     <!-- Every public member is documented: a missing comment (CS1591) is a warning, and so an error. -->

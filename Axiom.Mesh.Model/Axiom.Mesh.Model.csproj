@@ -14,7 +14,6 @@
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
-    <PackageReleaseNotes>The object model of AMP/1: ids, keys and low-s signatures; the object typestate from hashed bytes to storable objects; Entry payloads; producers that sign and re-verify; the rules of SPEC.md §4.5, §8 and §9 (order, parents, heads, rosters, admission, visibility, redactions); every protocol limit; the exception family.</PackageReleaseNotes>
     <!-- The package and assembly are Axiom.Mesh.Model; the namespace is Axiom.Mesh, the root every other package builds on. -->
     <RootNamespace>Axiom.Mesh</RootNamespace>
   </PropertyGroup>
