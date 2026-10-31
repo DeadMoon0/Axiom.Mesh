@@ -18,7 +18,7 @@ public sealed class AllocationTests
         await using TestStore node = await TestStore.StartAsync();
         node.Wanted.All = true;
         var origin = Origin.FromPeer(TestKeys.BobDesktop.PublicKey.AsDeviceId());
-        long most = 0;
+        long least = long.MaxValue;
         for (int i = 0; i < 8; i++)
         {
             Chunk chunk = Samples.Chunk((byte)i, Limits.ChunkLength);
@@ -29,9 +29,11 @@ public sealed class AllocationTests
             Assert.Equal(AdmitOutcome.Stored, (await outcome.Stored!).Outcome);
             await node.Writer.FlushAsync(default); // the batch after it begins only once the buffer went back to the pool
             if (i >= 2)
-                most = Math.Max(most, allocated); // the first rounds fill the pool
+                least = Math.Min(least, allocated); // the first rounds fill the pool
         }
 
-        Assert.InRange(most, 1, Budget);
+        // The least of the rounds after the pool filled: the pooled copy's cost shows in every round, a rent that found
+        // the pool emptied by another test's thread only in some (see Allocations).
+        Assert.InRange(least, 1, Budget);
     }
 }

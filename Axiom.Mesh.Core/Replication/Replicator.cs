@@ -129,6 +129,9 @@ internal sealed class Replicator : IDisposable
             wants.Settle(stored.Hash);
         }
 
+        foreach (ObjectHash evicted in set.Evicted)
+            facts.Record(NodeFactKind.ObjectEvicted, 0, null, default, evicted.Value, "evicted");
+
         await WalkAsync(set, cancellationToken).ConfigureAwait(false);
 
         foreach (PackageChange change in set.Packages)

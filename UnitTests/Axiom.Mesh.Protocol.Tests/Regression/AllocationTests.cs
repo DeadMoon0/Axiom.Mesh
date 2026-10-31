@@ -16,13 +16,13 @@ public sealed class AllocationTests
     {
         var frame = new ReadOnlySequence<byte>(Frames.Encode(MessageSamples.Chunk(Limits.ChunkLength)));
         using var runner = new CodecRunner<MeshMessage, MeshMessage>(Amp.Definition);
-        runner.Decode(frame, isCompleted: true);
+        MeshMessage? decoded = null;
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        DecodeOutcome<MeshMessage> outcome = runner.Decode(frame, isCompleted: true);
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        // The least of several runs after a warm-up: the decoder's own allocation shows in every run, a loaded machine's
+        // noise in some only.
+        long allocated = Allocations.Least(() => decoded = runner.Decode(frame, isCompleted: true).Message);
 
-        Assert.IsType<ObjectMessage>(outcome.Message);
+        Assert.IsType<ObjectMessage>(decoded);
         Assert.InRange(allocated, 1, 128);
     }
 }

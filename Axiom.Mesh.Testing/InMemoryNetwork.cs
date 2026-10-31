@@ -24,6 +24,7 @@ public sealed class InMemoryNetwork
     private readonly Dictionary<DeviceId, Announcement> board = [];
     private readonly List<Observer> observers = [];
     private readonly HashSet<(IPAddress, IPAddress)> severed = [];
+    private readonly Dictionary<string, IPAddress> names = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<IPAddress>? isolated;
     private bool held;
 
@@ -58,6 +59,27 @@ public sealed class InMemoryNetwork
             foreach (Observer observer in observers)
                 Replay(observer);
         }
+    }
+
+    /// <summary>Gives an address a host name, as a LAN's DNS would: a pairing code may name a host instead of an address.</summary>
+    /// <param name="host">The name.</param>
+    /// <param name="address">The address it stands for.</param>
+    public void Name(string host, IPAddress address)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        ArgumentNullException.ThrowIfNull(address);
+        lock (gate)
+            names[host] = address;
+    }
+
+    /// <summary>The addresses a host name stands for on this network: the one <see cref="Name"/> gave it, or none.</summary>
+    /// <param name="host">The name.</param>
+    /// <returns>The addresses.</returns>
+    public IReadOnlyList<IPAddress> Resolve(string host)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+        lock (gate)
+            return names.TryGetValue(host, out IPAddress? address) ? [address] : [];
     }
 
     /// <summary>Makes a node reachable at an endpoint.</summary>

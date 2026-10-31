@@ -58,11 +58,7 @@ public sealed class AllocationTests
         Assert.InRange(allocated, 1, 1024);
     }
 
-    private static long Measure(Action action)
-    {
-        action();
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        action();
-        return GC.GetAllocatedBytesForCurrentThread() - before;
-    }
+    // The least of several runs after a warm-up: a budget that the code keeps holds in every run, while a loaded
+    // machine's noise (a pool rent another thread emptied, tier-1 code arriving between runs) holds in some only.
+    private static long Measure(Action action) => Allocations.Least(action);
 }

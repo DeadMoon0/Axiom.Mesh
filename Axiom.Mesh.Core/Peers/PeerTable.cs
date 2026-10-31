@@ -414,6 +414,32 @@ internal sealed class PeerTable : IDisposable
         }
     }
 
+    /// <summary>
+    /// A user was forgotten (LOCAL-SPEC.md §6.2 <c>ForgetUser</c>): the records of its devices leave the table, with their
+    /// retry timers, so the next view no longer holds them and topic <c>peers</c> reports each as <c>Forgotten</c>
+    /// (§14.11). A session of such a device still closing finds no record when it ends.
+    /// </summary>
+    /// <param name="user">The forgotten user.</param>
+    /// <returns>The devices whose records left the table.</returns>
+    public IReadOnlyList<DeviceId> ForgetUser(UserId user)
+    {
+        List<DeviceId> forgotten = [];
+        lock (gate)
+        {
+            foreach (Entry entry in devices.Values.Where(e => e.User == user).ToList())
+            {
+                entry.Retry?.Dispose();
+                devices.Remove(entry.Device);
+                forgotten.Add(entry.Device);
+            }
+
+            if (forgotten.Count != 0)
+                Publish(time.GetUtcNow());
+        }
+
+        return forgotten;
+    }
+
     /// <summary>The established session to a device, if one is.</summary>
     /// <param name="device">The device.</param>
     /// <returns>The session, or <see langword="null"/>.</returns>

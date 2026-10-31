@@ -313,13 +313,17 @@ internal sealed class PairingShell : IDisposable
         {
             if (run.Stopping.IsCancellationRequested || run.EverLinked)
                 break;
-            if (!IPAddress.TryParse(address.Host, out IPAddress? ip))
-                continue;
-
-            var endpoint = new IPEndPoint(ip, address.Port);
-            run.Dialled = endpoint;
-            gate.Set(PairingWindow.Entering(code.DeviceKey, endpoint));
-            await dialler.DialPairingAsync(endpoint, run.Stopping).ConfigureAwait(false);
+            IReadOnlyList<IPAddress> resolved = IPAddress.TryParse(address.Host, out IPAddress? ip) ? [ip]
+                : await ResolveAsync(address.Host, run.Stopping).ConfigureAwait(false);
+            foreach (IPAddress each in resolved)
+            {
+                if (run.Stopping.IsCancellationRequested || run.EverLinked)
+                    break;
+                var endpoint = new IPEndPoint(each, address.Port);
+                run.Dialled = endpoint;
+                gate.Set(PairingWindow.Entering(code.DeviceKey, endpoint));
+                await dialler.DialPairingAsync(endpoint, run.Stopping).ConfigureAwait(false);
+            }
         }
 
         await turn.WaitAsync(CancellationToken.None).ConfigureAwait(false);
@@ -337,6 +341,20 @@ internal sealed class PairingShell : IDisposable
         finally
         {
             turn.Release();
+        }
+    }
+
+    // A host name of the code (PAIR-SPEC.md §2.2) stands for the addresses the dialler resolves it to; a cancelled pairing
+    // resolves nothing more.
+    private async Task<IReadOnlyList<IPAddress>> ResolveAsync(string host, CancellationToken stopping)
+    {
+        try
+        {
+            return await dialler.ResolveAsync(host, stopping).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+        {
+            return [];
         }
     }
 
@@ -435,7 +453,7 @@ internal sealed class PairingShell : IDisposable
         MeshNode running = Node;
         if (!PairingRules.TryAcceptEnrolment(confirm, run.Peer!, running.Credentials.Credential!.Key, out VerifiedRoster? roster, out PairCancel? refusal))
             return run.Machine.OnPeerRefused(refusal, now);
-        await running.AdoptIdentityAsync(roster, run.Peer!.Name, CancellationToken.None).ConfigureAwait(false);
+        await running.AdoptEnrolmentAsync(roster, run.Peer!.Name, CancellationToken.None).ConfigureAwait(false);
         return run.Machine.OnPeerConfirm(now);
     }
 
@@ -454,7 +472,7 @@ internal sealed class PairingShell : IDisposable
         else if (step.Next.State == MeshState.Paired && before.State != MeshState.Paired && run.Peer?.Roster is { } roster
             && run.Machine.Mode is MeshMode.ShowUser or MeshMode.JoinUser)
         {
-            await Node.AcceptUserAsync(roster, CancellationToken.None).ConfigureAwait(false);
+            await Node.AcceptUserAsync(roster, run.Peer!.Name, CancellationToken.None).ConfigureAwait(false);
         }
 
         run.Machine = step.Next;

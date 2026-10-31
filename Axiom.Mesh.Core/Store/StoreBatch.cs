@@ -76,7 +76,7 @@ internal sealed class StoreBatch
                 Defer(identity, await IdentityAsync(identity.Identity).ConfigureAwait(false));
                 break;
             case PairCommand pair:
-                Defer(pair, await PairAsync(pair.UserKey).ConfigureAwait(false));
+                Defer(pair, await PairAsync(pair.UserKey, pair.Name).ConfigureAwait(false));
                 break;
             case ForgetCommand forget:
                 Defer(forget, await ForgetAsync(forget.User).ConfigureAwait(false));
@@ -182,6 +182,7 @@ internal sealed class StoreBatch
             Roster = RowKeys.Of(roster.Hash.Value),
             RosterSeq = roster.Content.Seq,
             SinceMs = row?.SinceMs ?? now,
+            Name = row?.Name ?? string.Empty,
         }, CancellationToken.None).ConfigureAwait(false);
 
         foreach (EffectiveDevice device in application.Devices)
@@ -599,16 +600,17 @@ internal sealed class StoreBatch
         await tables.Meta.PutAsync(new MetaRow { Name = MetaKeys.SelfDevice, Bytes = RowKeys.Of(identity.Device.Value) }, CancellationToken.None).ConfigureAwait(false);
         await tables.Meta.PutAsync(new MetaRow { Name = MetaKeys.SelfName, Bytes = Encoding.UTF8.GetBytes(identity.UserName) }, CancellationToken.None).ConfigureAwait(false);
         await tables.Meta.PutAsync(new MetaRow { Name = MetaKeys.SelfCreated, Number = (ulong)Math.Max(0, identity.CreatedMs) }, CancellationToken.None).ConfigureAwait(false);
-        await PutPairedAsync(identity.UserKey).ConfigureAwait(false);
+        await PutPairedAsync(identity.UserKey, string.Empty).ConfigureAwait(false);
         return true;
     }
 
-    private async Task<bool> PairAsync(PublicKey userKey)
+    // A user paired again keeps its row and takes the name the newer pairing showed.
+    private async Task<bool> PairAsync(PublicKey userKey, string name)
     {
-        if (!state.Trust.Pair(userKey))
-            return false;
-        await PutPairedAsync(userKey).ConfigureAwait(false);
-        return true;
+        bool paired = state.Trust.Pair(userKey);
+        if (paired || name.Length != 0)
+            await PutPairedAsync(userKey, name).ConfigureAwait(false);
+        return paired;
     }
 
     private async Task<bool> ForgetAsync(UserId user)
@@ -635,13 +637,15 @@ internal sealed class StoreBatch
         return bytes;
     }
 
-    private async Task PutPairedAsync(PublicKey userKey)
+    private async Task PutPairedAsync(PublicKey userKey, string name)
     {
         UserId user = userKey.AsUserId();
         byte[] key = RowKeys.Of(user.Value);
         UserRow row = await tables.Users.FindAsync(key, CancellationToken.None).ConfigureAwait(false)
             ?? new UserRow { User = key, UserKey = userKey.Encoded.ToArray(), SinceMs = now };
         row.Paired = true;
+        if (name.Length != 0)
+            row.Name = name;
         await tables.Users.PutAsync(row, CancellationToken.None).ConfigureAwait(false);
         Changes.Users.Add(user);
         Changes.TrustChanged = true;

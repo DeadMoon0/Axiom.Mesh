@@ -8,7 +8,6 @@ using Axiom.Mesh.Core;
 using Axiom.Mesh.Core.Storage;
 using Axiom.Mesh.Discovery;
 using Axiom.Mesh.Local;
-using PeerState = Axiom.Mesh.Core.PeerState;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Axiom.Mesh.Testing;
@@ -24,7 +23,7 @@ namespace Axiom.Mesh.Testing;
 /// seconds of real time with a <see cref="TestMeshException"/>; time on the fake clock only passes when the test
 /// advances <see cref="Clock"/>.
 /// </remarks>
-public sealed class TestMesh : IAsyncDisposable
+public sealed class TestMesh : IMeshFixture
 {
     /// <summary>How long a wait lasts in real time before it fails the test.</summary>
     public static TimeSpan Deadline { get; } = TimeSpan.FromSeconds(15);
@@ -101,7 +100,7 @@ public sealed class TestMesh : IAsyncDisposable
             {
                 await mesh.RunAsync(node, cancellationToken).ConfigureAwait(false);
                 if (!options.WithoutIdentity.Contains(node.Name))
-                    await node.Node.AdoptIdentityAsync(TestIdentity.RosterOf(node.Identity.UserName), cancellationToken).ConfigureAwait(false);
+                    await node.Node.AdoptIdentityAsync(TestIdentity.RosterOf(node.Identity.UserName), node.Identity.UserName, cancellationToken).ConfigureAwait(false);
             }
 
             foreach ((string name, string knows) in options.Trust.Pairs)
@@ -124,10 +123,17 @@ public sealed class TestMesh : IAsyncDisposable
     }
 
     /// <summary>
-    /// Waits until two nodes hold an established session to each other, one each (the duplicate rule has settled). Both
-    /// are announced again at first and after every fact either records, as discovery would repeat them; a backoff still
-    /// holds a dial back until the clock reaches its end.
+    /// Waits until two nodes hold an established session to each other, one each (the duplicate rule has settled), and no
+    /// other connection between them is still opening: every dial either one started toward the other has reached it, and
+    /// every connection either one accepted from the other is that session or closed. Both are announced again at first
+    /// and after every fact either records, as discovery would repeat them; a backoff still holds a dial back until the
+    /// clock reaches its end.
     /// </summary>
+    /// <remarks>
+    /// When both dial at once, the second connection may still be in its handshake while the first is established; a
+    /// test that then advances the clock would expire that handshake (10 seconds) or its first <c>Hello</c> and see a
+    /// session end it did not cause. So this returns only once the second connection has closed.
+    /// </remarks>
     /// <param name="a">One node.</param>
     /// <param name="b">The other.</param>
     /// <param name="cancellationToken">Stops waiting.</param>
@@ -145,7 +151,8 @@ public sealed class TestMesh : IAsyncDisposable
             {
                 long leftSeen = left.Node.Facts.LastSequence;
                 long rightSeen = right.Node.Facts.LastSequence;
-                if (IsEstablishedWith(left.Node, right.Device) && IsEstablishedWith(right.Node, left.Device))
+                if (IsEstablishedWith(left.Node, right.Device) && IsEstablishedWith(right.Node, left.Device)
+                    && NothingOpening(left, right) && NothingOpening(right, left))
                     return;
 
                 // Announce again after every change: an announcement heard while a dial was still ending is passed over.
@@ -376,6 +383,29 @@ public sealed class TestMesh : IAsyncDisposable
         }
     }
 
+    /// <inheritdoc />
+    TimeProvider IMeshFixture.Clock => Clock;
+
+    /// <inheritdoc />
+    MeshNode IMeshFixture.Node(string name) => this[name].Node;
+
+    /// <inheritdoc />
+    Task IMeshFixture.HoldUserKeyAsync(string name, CancellationToken cancellationToken) => this[name].HoldUserKeyAsync(cancellationToken);
+
+    /// <inheritdoc />
+    Task<LocalClient> IMeshFixture.ConnectUserAsync(string name, string client, CancellationToken cancellationToken) => this[name].ConnectUserAsync(client, cancellationToken);
+
+    /// <inheritdoc />
+    Task<LocalClient> IMeshFixture.ConnectCliServiceAsync(string name, CancellationToken cancellationToken) =>
+        this[name].ConnectServiceAsync(TestCliService.Service.Name, TestCliService.Token, cancellationToken);
+
+    /// <inheritdoc />
+    Task<CliResult> IMeshFixture.CliAsync(string name, string commandLine, CancellationToken cancellationToken) => this[name].CliAsync(commandLine, cancellationToken);
+
+    /// <inheritdoc />
+    Task<ScriptedPeer> IMeshFixture.ConnectScriptedPeerAsync(string target, TestIdentity identity, CancellationToken cancellationToken) =>
+        ScriptedPeer.ConnectAsync(this[target], identity, ScriptedPeerOptions.Default, cancellationToken);
+
     /// <summary>Stops every node.</summary>
     /// <returns>A task that completes when all stopped.</returns>
     public async ValueTask DisposeAsync()
@@ -386,37 +416,43 @@ public sealed class TestMesh : IAsyncDisposable
 
     private static TimeSpan SettleRecheck { get; } = TimeSpan.FromMilliseconds(5);
 
-    // Every node idle with one session per peer (the duplicate rule settled), and between every two established sessions
-    // what one sent the other handled, both ways.
-    private static bool IsSettled(TestNode[] running)
-    {
-        var statuses = running.ToDictionary(n => n.Device, n => n.Node.Replication);
-        foreach (TestNode node in running)
-        {
-            ReplicationStatus status = statuses[node.Device];
-            if (!status.IsIdle || status.Sessions.DistinctBy(s => s.Device).Count() != status.Sessions.Count)
-                return false;
-            if (node.Node.Peers.Any(p => p.Sessions > 1 || (p.Sessions == 1 && status.Sessions.All(s => s.Device != p.Device))))
-                return false;
-        }
+    private static bool IsEstablishedWith(MeshNode node, DeviceId peer) => MeshWaits.IsEstablishedWith(node, peer);
 
-        foreach ((DeviceId device, ReplicationStatus status) in statuses)
+    private static bool IsSettled(TestNode[] running) => MeshWaits.IsSettled([.. running.Select(n => n.Node)]);
+
+    // Read from the node's facts: one connection with the other node's address is open (accepted or dialled, not closed),
+    // and every dial to the other's mesh endpoint was followed by its connection or its failure. A fact the ring dropped
+    // counts neither way, so a long test never waits on a lost one.
+    private static bool NothingOpening(TestNode node, TestNode other)
+    {
+        var open = new HashSet<long>();
+        int dials = 0;
+        int reached = 0;
+        foreach (NodeFact fact in node.Node.Facts.Recent())
         {
-            foreach (SessionTraffic session in status.Sessions)
+            if (fact.Remote is not { } remote || !remote.Address.Equals(other.Address.Address))
+                continue;
+            bool toEndpoint = remote.Equals(other.Address);
+            switch (fact.Kind)
             {
-                if (!statuses.TryGetValue(session.Device, out ReplicationStatus? other))
-                    continue;
-                SessionTraffic? back = other.Sessions.FirstOrDefault(s => s.Device == device);
-                if (back is null || back.MessagesHandled != session.MessagesSent || back.MessagesSent != session.MessagesHandled)
-                    return false;
+                case NodeFactKind.Accepted:
+                    open.Add(fact.Connection);
+                    reached += toEndpoint ? 1 : 0;
+                    break;
+                case NodeFactKind.Closed or NodeFactKind.Rejected:
+                    open.Remove(fact.Connection);
+                    break;
+                case NodeFactKind.Dialling:
+                    dials += toEndpoint ? 1 : 0;
+                    break;
+                case NodeFactKind.DialFailed:
+                    reached += toEndpoint ? 1 : 0;
+                    break;
             }
         }
 
-        return true;
+        return open.Count <= 1 && reached >= dials;
     }
-
-    private static bool IsEstablishedWith(MeshNode node, DeviceId peer) =>
-        node.Peers.FirstOrDefault(p => p.Device == peer) is { State: PeerState.Established, Sessions: 1 };
 
     private TestMeshException Timeout(string name, string what) => new(
         $"Waited {Deadline.TotalSeconds:0} s for {what}, in vain. "
@@ -435,26 +471,7 @@ public sealed class TestMesh : IAsyncDisposable
         {
             LocalClient enter = await enterer.ConnectUserAsync("test-mesh pairing", cancellationToken).ConfigureAwait(false);
             await using (enter.ConfigureAwait(false))
-            {
-                Pairing shown = Expect(showing, await show.SendAsync(new StartPairing { Mode = showMode }, cancellationToken).ConfigureAwait(false));
-                Pairing entered = Expect(entering, await enter.SendAsync(new StartPairing { Mode = enterMode, Code = shown.Code }, cancellationToken).ConfigureAwait(false));
-                shown = await WaitForPairingAsync(shower, show, p => p.State != PairingState.Waiting, "the other side to connect", cancellationToken).ConfigureAwait(false);
-                entered = await WaitForPairingAsync(enterer, enter, p => p.State != PairingState.Waiting, "the code's device to answer", cancellationToken).ConfigureAwait(false);
-                if (shown.State != PairingState.Confirm || entered.State != PairingState.Confirm || shown.Sas != entered.Sas)
-                {
-                    throw new TestMeshException(
-                        $"The pairing did not reach Confirm with equal strings: {showing} {shown.State} '{shown.Sas}' {shown.Failure}, {entering} {entered.State} '{entered.Sas}' {entered.Failure}.",
-                        "Read both nodes' PairingChanged facts: a Failed state names the check that refused.");
-                }
-
-                Expect(showing, await show.SendAsync(new ConfirmPairing { PairingId = shown.PairingId }, cancellationToken).ConfigureAwait(false));
-                Expect(entering, await enter.SendAsync(new ConfirmPairing { PairingId = entered.PairingId }, cancellationToken).ConfigureAwait(false));
-                await WaitForPairingAsync(shower, show, p => p.State is not (PairingState.Confirm or PairingState.Confirming), "the pairing to end", cancellationToken).ConfigureAwait(false);
-                Pairing done = await WaitForPairingAsync(enterer, enter, p => p.State is not (PairingState.Confirm or PairingState.Confirming), "the pairing to end", cancellationToken).ConfigureAwait(false);
-                if (done.State != PairingState.Paired)
-                    throw new TestMeshException($"{entering} ended the pairing {done.State}: {done.Failure}", "Read both nodes' PairingChanged facts.");
-                return shown.Sas;
-            }
+                return await MeshPairing.RunAsync((showing, shower.Node, show), showMode, (entering, enterer.Node, enter), enterMode, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -470,35 +487,7 @@ public sealed class TestMesh : IAsyncDisposable
     /// <returns>The pairing once it holds.</returns>
     /// <exception cref="TestMeshException">It did not hold within the deadline.</exception>
     public Task<Pairing> WaitForPairingAsync(string name, LocalClient client, Func<Pairing, bool> condition, string what, CancellationToken cancellationToken) =>
-        WaitForPairingAsync(this[name], client, condition, what, cancellationToken);
-
-    // Re-reads the node's pairing after every PairingChanged fact until the condition holds.
-    private async Task<Pairing> WaitForPairingAsync(TestNode node, LocalClient client, Func<Pairing, bool> condition, string what, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(client);
-        ArgumentNullException.ThrowIfNull(condition);
-        using var deadline = new CancellationTokenSource(Deadline);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
-        try
-        {
-            while (true)
-            {
-                long seen = node.Node.Facts.LastSequence;
-                LocalResult<Pairing> read = await client.SendAsync(new GetPairing(), linked.Token).ConfigureAwait(false);
-                if (read.IsOk && condition(read.Value))
-                    return read.Value;
-                await node.Node.Facts.WaitForAsync(f => f.Kind == NodeFactKind.PairingChanged, seen, linked.Token).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw Timeout(node.Name, what);
-        }
-    }
-
-    private static Pairing Expect(string name, LocalResult<Pairing> result) =>
-        result.IsOk ? result.Value
-        : throw new TestMeshException($"{name} refused a pairing request with {result.Status}: {result.Error?.Message}", "Read the node's PairingChanged facts and the request's status.");
+        MeshPairing.WaitForAsync((name, this[name].Node, client), condition, what, cancellationToken);
 
     private async Task RunAsync(TestNode node, CancellationToken cancellationToken)
     {

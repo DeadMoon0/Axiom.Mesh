@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Threading;
@@ -25,6 +26,15 @@ public sealed class InMemoryDialer : IDialer
     {
         this.network = network ?? throw new ArgumentNullException(nameof(network));
         this.address = address ?? throw new ArgumentNullException(nameof(address));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>The in-memory network has no names: only a name an address was given with <see cref="InMemoryNetwork.Name"/> resolves.</remarks>
+    public ValueTask<IReadOnlyList<IPAddress>> ResolveAsync(string host, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(network.Resolve(host));
     }
 
     /// <inheritdoc />

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -18,6 +20,22 @@ public sealed class TcpDialer : IDialer
     /// <summary>A dialler whose connect deadline runs on <paramref name="time"/>.</summary>
     /// <param name="time">The node's clock.</param>
     public TcpDialer(TimeProvider time) => this.time = time ?? throw new ArgumentNullException(nameof(time));
+
+    /// <inheritdoc />
+    /// <remarks>Through the system's resolver, IPv4 before IPv6; a name the resolver does not know stands for none.</remarks>
+    public async ValueTask<IReadOnlyList<IPAddress>> ResolveAsync(string host, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        try
+        {
+            IPAddress[] addresses = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
+            return [.. addresses.OrderBy(a => a.AddressFamily == AddressFamily.InterNetwork ? 0 : 1)];
+        }
+        catch (SocketException)
+        {
+            return [];
+        }
+    }
 
     /// <inheritdoc />
     public async ValueTask<Stream> DialAsync(IPEndPoint remote, CancellationToken cancellationToken)

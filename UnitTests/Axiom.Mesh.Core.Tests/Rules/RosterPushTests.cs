@@ -28,6 +28,7 @@ public sealed class RosterPushTests
         await mesh.WaitUntilAsync("bob-desktop", _ => HoldsRoster(bob, bob.User, second), "Bob's node takes its own newer Roster from Alice", None);
 
         await mesh.StopNodeAsync("bob-desktop", None);
+        alice.Discovery.Withdraw(); // the restarted node hears nobody until the next connect, so its Hello names seq 3
         await mesh.StartNodeAsync("bob-desktop", None);
         VerifiedRoster third = TestIdentity.RosterOf("bob", 3);
         await bob.Node.AdoptIdentityAsync(third, None);

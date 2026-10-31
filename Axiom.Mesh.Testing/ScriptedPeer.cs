@@ -61,14 +61,32 @@ public sealed class ScriptedPeer : IAsyncDisposable
     /// <param name="options">From where and under which ALPN.</param>
     /// <param name="cancellationToken">Cancels connecting.</param>
     /// <returns>The peer, its handshake done or failed.</returns>
-    public static async Task<ScriptedPeer> ConnectAsync(TestNode target, TestIdentity identity, ScriptedPeerOptions options, CancellationToken cancellationToken)
+    public static Task<ScriptedPeer> ConnectAsync(TestNode target, TestIdentity identity, ScriptedPeerOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
-        ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(options);
-        TimeProvider clock = target.Environment.Clock;
+        return ConnectAsync(target.Node.ConnectInMemory(options.From), identity, target.Environment.Clock, options, cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs the TLS handshake as a node's client side would over a connection the caller opened to a node's mesh
+    /// listener (in memory, or a TCP connection to a node on sockets), and speaks raw AMP/1 over it afterwards. A refused
+    /// handshake is recorded, not thrown.
+    /// </summary>
+    /// <param name="transport">The open connection; the peer owns it from now on.</param>
+    /// <param name="identity">The device the peer presents.</param>
+    /// <param name="clock">The clock of the node's mesh: the certificate's validity and the session's timers run on it.</param>
+    /// <param name="options">The ALPNs offered; <see cref="ScriptedPeerOptions.From"/> is the caller's, who opened the connection.</param>
+    /// <param name="cancellationToken">Cancels the handshake.</param>
+    /// <returns>The peer, its handshake done or failed.</returns>
+    public static async Task<ScriptedPeer> ConnectAsync(Stream transport, TestIdentity identity, TimeProvider clock, ScriptedPeerOptions options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transport);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(options);
         X509Certificate2 certificate = CertificateOf(identity, clock);
-        var peer = new ScriptedPeer(identity, new SslStream(target.Node.ConnectInMemory(options.From), leaveInnerStreamOpen: false), certificate, clock);
+        var peer = new ScriptedPeer(identity, new SslStream(transport, leaveInnerStreamOpen: false), certificate, clock);
         var authentication = new SslClientAuthenticationOptions
         {
             TargetHost = "axiom-mesh",

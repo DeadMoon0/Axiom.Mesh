@@ -16,7 +16,7 @@ public sealed class EntityTests
     /// <summary>The schema of every table, as the generator makes it; a change here is a migration.</summary>
     private static readonly Dictionary<string, string> Schemas = new()
     {
-        ["Users"] = "User Bytes(32) | UserKey Bytes(65) | Paired Bool | Roster Bytes(32)? | RosterSeq UInt64 | SinceMs Int64 || ByUser(User) unique",
+        ["Users"] = "User Bytes(32) | UserKey Bytes(65) | Paired Bool | Roster Bytes(32)? | RosterSeq UInt64 | SinceMs Int64 | Name String(64) || ByUser(User) unique",
         ["Devices"] = "Key Bytes(64) | User Bytes(32) | Device Bytes(32) | DeviceKey Bytes(65) | Name String(64) | Listed Bool | Removal Int32 | RemovedEver Bool || ByKey(Key) unique | ByUser(User) | ByDevice(Device)",
         ["Packages"] = "Package Bytes(32) | State UInt8 | Manifest Bytes(32)? | ManifestSeq UInt64 | Policy UInt8 | FollowedSinceMs Int64 | NewestVersion Bytes(32)? | NewestVersionClock UInt64 | NewestVersionDevice Bytes(32)? || ByPackage(Package) unique",
         ["Grants"] = "Key Bytes(64) | Package Bytes(32) | Grantee Bytes(32) | Grant Bytes(32) | Rights UInt8 | Seq UInt64 || ByKey(Key) unique | ByPackage(Package)",
@@ -54,7 +54,7 @@ public sealed class EntityTests
         await using TestStore node = await TestStore.StartAsync();
         byte[] a = Bytes(1, 32);
         byte[] b = Bytes(2, 32);
-        await RoundTripAsync(node, new UserRow { User = a, UserKey = Bytes(3, 65), Paired = true, Roster = b, RosterSeq = 9, SinceMs = -5 });
+        await RoundTripAsync(node, new UserRow { User = a, UserKey = Bytes(3, 65), Paired = true, Roster = b, RosterSeq = 9, SinceMs = -5, Name = "Bob" });
         await RoundTripAsync(node, new DeviceRow { Key = Bytes(4, 64), User = a, Device = b, DeviceKey = Bytes(5, 65), Name = "laptöp", Listed = true, Removal = DeviceRemoval.HeldByAnotherUser, RemovedEver = true });
         await RoundTripAsync(node, new PackageRow { Package = a, State = PackageState.Followed, Manifest = b, ManifestSeq = ulong.MaxValue, Policy = LocalRetention.LatestOnly, FollowedSinceMs = 7, NewestVersion = a, NewestVersionClock = 8, NewestVersionDevice = b });
         await RoundTripAsync(node, new GrantRow { Key = Bytes(6, 64), Package = a, Grantee = b, Grant = a, Rights = GrantRights.Write, Seq = 3 });

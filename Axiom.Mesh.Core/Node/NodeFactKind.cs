@@ -83,4 +83,7 @@ public enum NodeFactKind
     /// connection, and <see cref="NodeFact.Device"/> the other side once known.
     /// </summary>
     PairingChanged = 24,
+
+    /// <summary>An object was evicted from the store (SPEC.md §11.3); <see cref="NodeFact.Subject"/> is its hash.</summary>
+    ObjectEvicted = 25,
 }

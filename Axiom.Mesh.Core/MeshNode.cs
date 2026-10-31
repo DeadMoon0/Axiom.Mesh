@@ -317,7 +317,7 @@ public sealed class MeshNode : IAsyncDisposable
     /// <param name="userName">The user's display name.</param>
     /// <param name="cancellationToken">Cancels waiting for the store.</param>
     /// <returns><see langword="true"/> when the identity changed.</returns>
-    internal async Task<bool> AdoptIdentityAsync(VerifiedRoster roster, string userName, CancellationToken cancellationToken)
+    internal async Task<bool> AdoptEnrolmentAsync(VerifiedRoster roster, string userName, CancellationToken cancellationToken)
     {
         DeviceCredential own = credentials.Credential ?? throw new InvalidOperationException("An enrolled device has a device key.");
         await identityLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -336,11 +336,17 @@ public sealed class MeshNode : IAsyncDisposable
     /// <returns><see langword="true"/> when it does.</returns>
     internal Task<bool> HoldsUserKeyNowAsync(CancellationToken cancellationToken) => HoldsUserKeyAsync(environment.Keys, cancellationToken);
 
-    /// <summary>Where a pairing code says this node listens (PAIR-SPEC.md §2.2): its network addresses with the mesh port.</summary>
-    /// <returns>The endpoints, as the environment reads them now.</returns>
+    /// <summary>
+    /// Where a pairing code says this node listens (PAIR-SPEC.md §2.2), with the mesh port: the one address the mesh
+    /// listener is bound to when <see cref="MeshNodeOptions.ListenAddress"/> names one, else the network addresses the
+    /// environment reads now.
+    /// </summary>
+    /// <returns>The endpoints.</returns>
     internal IReadOnlyList<IPEndPoint> PairingAddresses()
     {
         int port = MeshEndpoint.Port;
+        if (options.ListenAddress is { } bound && !bound.Equals(IPAddress.Any) && !bound.Equals(IPAddress.IPv6Any))
+            return [new IPEndPoint(bound, port)];
         return [.. environment.Addresses().Select(a => new IPEndPoint(a, port))];
     }
 
@@ -508,9 +514,21 @@ public sealed class MeshNode : IAsyncDisposable
     /// <param name="cancellationToken">Cancels waiting for the store.</param>
     /// <returns><see langword="true"/> when the identity changed.</returns>
     /// <exception cref="MeshNodeException">The node has no device key, or the Roster does not list it.</exception>
-    public async Task<bool> AdoptIdentityAsync(VerifiedRoster roster, CancellationToken cancellationToken)
+    public Task<bool> AdoptIdentityAsync(VerifiedRoster roster, CancellationToken cancellationToken) => AdoptIdentityAsync(roster, string.Empty, cancellationToken);
+
+    /// <summary>
+    /// Makes this device a device of a user, as <see cref="AdoptIdentityAsync(VerifiedRoster, CancellationToken)"/> does,
+    /// keeping the user's display name: what <c>GetIdentity</c> answers and a pairing shows the other side (PAIR-SPEC.md §5.2).
+    /// </summary>
+    /// <param name="roster">The user's current Roster; it must list this device's key, not removed.</param>
+    /// <param name="userName">The user's display name; empty for none.</param>
+    /// <param name="cancellationToken">Cancels waiting for the store.</param>
+    /// <returns><see langword="true"/> when the identity changed.</returns>
+    /// <exception cref="MeshNodeException">The node has no device key, or the Roster does not list it.</exception>
+    public async Task<bool> AdoptIdentityAsync(VerifiedRoster roster, string userName, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(userName);
         DeviceCredential own = credentials.Credential ?? throw new MeshNodeException(
             MeshFault.Caller,
             "This node has no device key, so it cannot become a device of a user.",
@@ -523,7 +541,7 @@ public sealed class MeshNode : IAsyncDisposable
                 "Adopt a Roster that lists this device's key and does not remove it.");
         }
 
-        return await AdoptAsync(roster, own, string.Empty, cancellationToken).ConfigureAwait(false);
+        return await AdoptAsync(roster, own, userName, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -534,10 +552,17 @@ public sealed class MeshNode : IAsyncDisposable
     /// <param name="roster">The user's Roster.</param>
     /// <param name="cancellationToken">Cancels waiting for the store.</param>
     /// <returns>A task that completes when the Roster is stored and the trust swapped in.</returns>
-    public async Task AcceptUserAsync(VerifiedRoster roster, CancellationToken cancellationToken)
+    public Task AcceptUserAsync(VerifiedRoster roster, CancellationToken cancellationToken) => AcceptUserAsync(roster, string.Empty, cancellationToken);
+
+    /// <summary>Knows a user by a Roster a pairing delivered, keeping the display name the pairing showed (PAIR-SPEC.md §9.1).</summary>
+    /// <param name="roster">The user's Roster.</param>
+    /// <param name="name">The user's display name; empty when none was shown.</param>
+    /// <param name="cancellationToken">Cancels waiting for the store.</param>
+    /// <returns>A task that completes when the Roster is stored and the trust swapped in.</returns>
+    internal async Task AcceptUserAsync(VerifiedRoster roster, string name, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(roster);
-        await writer.SendAsync(new PairCommand(roster.Content.UserKey), cancellationToken).ConfigureAwait(false);
+        await writer.SendAsync(new PairCommand(roster.Content.UserKey, name), cancellationToken).ConfigureAwait(false);
         await store.PutAsync(roster, cancellationToken).ConfigureAwait(false);
     }
 

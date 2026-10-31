@@ -27,17 +27,17 @@ internal static class UserRequests
     public static async ValueTask<LocalAnswer> ListKnownUsersAsync(RequestContext context, uint correlation, ListKnownUsers request, CancellationToken cancellationToken)
     {
         TrustSnapshot trust = context.Node.Trust;
-        Dictionary<UserId, long> since = await KnownSinceAsync(context.Node.Writer, cancellationToken).ConfigureAwait(false);
+        Dictionary<UserId, UserRow> rows = await RowsAsync(context.Node.Writer, cancellationToken).ConfigureAwait(false);
         IReadOnlyList<User> users = [.. trust.Known
             .Order()
             .Take(MaxUsers)
-            .Select(u => UserOf(trust, u, since.GetValueOrDefault(u)))];
+            .Select(u => UserOf(trust, u, rows.GetValueOrDefault(u)))];
         return LocalAnswer.Ok<ListKnownUsers, IReadOnlyList<User>>(correlation, users);
     }
 
     /// <summary>
-    /// <c>ForgetUser</c> (277): the user's Roster dropped, its sessions closed, the user no longer listed; refused as
-    /// <see cref="ForgetRule"/> says.
+    /// <c>ForgetUser</c> (277): the user's Roster dropped, its sessions closed, the user no longer listed, and its devices'
+    /// records gone from the peer table (topic <c>peers</c> says <c>Forgotten</c>); refused as <see cref="ForgetRule"/> says.
     /// </summary>
     /// <param name="context">The connection and the node.</param>
     /// <param name="correlation">The request's correlation.</param>
@@ -50,6 +50,7 @@ internal static class UserRequests
             return refusal.Answer(correlation);
 
         await context.Node.Writer.SendAsync(new ForgetCommand(request.UserId), cancellationToken).ConfigureAwait(false);
+        context.Node.Table.ForgetUser(request.UserId);
         return LocalAnswer.Ok<ForgetUser, NoContent>(correlation, default);
     }
 
@@ -119,18 +120,20 @@ internal static class UserRequests
         };
     }
 
-    private static User UserOf(TrustSnapshot trust, UserId user, long sinceMs)
+    // The own user's name is the identity's; another's the one its pairing showed (PAIR-SPEC.md §9.1), else empty.
+    private static User UserOf(TrustSnapshot trust, UserId user, UserRow? row)
     {
-        string name = trust.Self is { } self && self.User == user ? self.UserName : string.Empty;
+        long sinceMs = row?.SinceMs ?? 0;
+        string name = trust.Self is { } self && self.User == user ? self.UserName : row?.Name ?? string.Empty;
         return trust.TryGetUser(user, out UserTrust? held)
             ? LocalRecords.UserOf(held, trust.Self?.User, sinceMs, name)
             : new User { UserId = user, Name = name, Self = trust.Self?.User == user, KnownSince = LocalRecords.Milliseconds(sinceMs) };
     }
 
-    private static async Task<Dictionary<UserId, long>> KnownSinceAsync(StoreWriter writer, CancellationToken cancellationToken)
+    private static async Task<Dictionary<UserId, UserRow>> RowsAsync(StoreWriter writer, CancellationToken cancellationToken)
     {
         await using LdbContext context = await LdbContext.OpenAsync(writer.Database, cancellationToken).ConfigureAwait(false);
         List<UserRow> rows = await context.Set<UserRow>().ReadOnlyQuery().ToListAsync(cancellationToken).ConfigureAwait(false);
-        return rows.ToDictionary(r => new UserId(RowKeys.Hash(r.User)), r => r.SinceMs);
+        return rows.ToDictionary(r => new UserId(RowKeys.Hash(r.User)));
     }
 }

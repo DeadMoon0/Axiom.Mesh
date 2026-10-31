@@ -49,6 +49,23 @@ public sealed class UserRequestTests
         Assert.False(mesh["alice-laptop"].Node.Trust.TryResolveDevice(Bob.Device.PublicKey.Encoded, out _, out _));
     }
 
+    // §6.2, §14.11 (debt 44): forgetting a user removes its devices from the peer table; topic peers says Forgotten for each.
+    [Fact]
+    public async Task ForgettingAUserForgetsItsDevicesAsPeers_TopicPeersSaysForgotten()
+    {
+        await using TestMesh mesh = await Meshes.AliceAndBobAsync();
+        await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
+        LocalClient client = await mesh["alice-laptop"].ConnectUserAsync("app", None);
+        Subscription<PeerChanged> peers = (await client.SubscribeAsync<PeerChanged>(Filter.Any, None)).Value;
+
+        Assert.True((await client.SendAsync(new ForgetUser { UserId = Bob.UserId }, None)).IsOk);
+
+        PeerChanged forgotten = await Events.FirstAsync(peers, e => e.Change == PeerChange.Forgotten);
+        Assert.Equal(Bob.DeviceId, forgotten.Peer.DeviceId);
+        Assert.DoesNotContain(mesh["alice-laptop"].Node.Peers, p => p.Device == Bob.DeviceId);
+        Assert.DoesNotContain((await client.SendAsync(new ListPeers(), None)).Value, p => p.DeviceId == Bob.DeviceId);
+    }
+
     // §6.2: the own user, and a user who holds a current Grant from the own user, cannot be forgotten.
     [Fact]
     public async Task TheOwnUserAndAGranteeOfTheOwnUserCannotBeForgotten()

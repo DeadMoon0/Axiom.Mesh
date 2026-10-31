@@ -21,12 +21,13 @@ public sealed class PeerTableTests
     private static readonly IPEndPoint Address = new(IPAddress.Parse("10.0.0.9"), 41810);
 
     // §3: Eve's device announces itself before Alice's phone does. Alice's laptop dials the phone, a device of its own user,
-    // and never Eve's: Eve gets no entry in the peer table and no dial.
+    // and never Eve's: Eve gets no entry in the peer table and no dial. All three are silent, so neither the phone nor Eve
+    // hears the laptop and dials it first (an inbound session from the phone would leave the laptop nothing to dial).
     [Fact]
     public async Task AnAnnouncementOfADeviceOfNoKnownUserIsNeverDialled()
     {
         await using TestMesh mesh = await TestMesh.StartAsync(
-            TestMeshOptions.Of("alice-laptop", "eve-device", "alice-phone") with { Silent = ["eve-device", "alice-phone"] },
+            TestMeshOptions.Of("alice-laptop", "eve-device", "alice-phone") with { Silent = ["alice-laptop", "eve-device", "alice-phone"] },
             None);
         MeshNode laptop = mesh["alice-laptop"].Node;
 

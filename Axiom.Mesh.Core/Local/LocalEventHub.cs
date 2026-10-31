@@ -326,7 +326,7 @@ internal sealed class LocalEventHub
                 if (change == UserChange.Unassigned)
                     continue;
                 UserRow? row = await context.Set<UserRow>().FindAsync(RowKeys.Of(user.Value), cancellationToken).ConfigureAwait(false);
-                string name = now.Self is { } self && self.User == user ? self.UserName : string.Empty;
+                string name = now.Self is { } self && self.User == user ? self.UserName : row?.Name ?? string.Empty;
                 changed = new UserChanged
                 {
                     Change = change,

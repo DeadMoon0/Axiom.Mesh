@@ -113,6 +113,23 @@ internal sealed class PeerDialler
         }
     }
 
+    /// <summary>The addresses a host name of a pairing code stands for (PAIR-SPEC.md §2.2), through the node's dialler.</summary>
+    /// <param name="host">The name.</param>
+    /// <param name="cancellationToken">Cancels resolving.</param>
+    /// <returns>The addresses, in the order to try them; empty when it stands for none or cannot be resolved now.</returns>
+    public async ValueTask<IReadOnlyList<IPAddress>> ResolveAsync(string host, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await dialer.ResolveAsync(host, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or ArgumentException)
+        {
+            facts.Record(NodeFactKind.DialFailed, 0, null, default, $"pairing: {host} did not resolve: {ex.Message}");
+            return [];
+        }
+    }
+
     private void Track(Task dial)
     {
         lock (running)

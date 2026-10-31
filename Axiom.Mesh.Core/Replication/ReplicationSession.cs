@@ -536,7 +536,9 @@ internal sealed class ReplicationSession : IDisposable
     {
         try
         {
-            SendListing(node.Writer.Trust);
+            TrustSnapshot first = node.Writer.Trust;
+            SendListing(first);
+            OfferOwnRoster(first);
             Volatile.Write(ref started, 1);
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -567,7 +569,9 @@ internal sealed class ReplicationSession : IDisposable
 
                 current.Dispose();
                 listed = [];
-                SendListing(node.Writer.Trust);
+                TrustSnapshot again = node.Writer.Trust;
+                SendListing(again);
+                OfferOwnRoster(again);
             }
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
@@ -657,9 +661,16 @@ internal sealed class ReplicationSession : IDisposable
     // SPEC.md §7.6: the own user's new Roster goes, unsolicited, to every established peer when its seq rises.
     private void PushOwnRoster(ChangeSet set, TrustSnapshot trust)
     {
-        if (trust.Self is not { } self || !set.Users.Contains(self.User))
-            return;
-        if (trust.TryGetUser(self.User, out UserTrust? own) && own.Roster is { } roster && roster.Content.Seq > rosterSeq)
+        if (trust.Self is { } self && set.Users.Contains(self.User))
+            OfferOwnRoster(trust);
+    }
+
+    // The own Roster when it is newer than the one this session's Hello named or last sent. Checked once the loop has
+    // subscribed to the changes too: a Roster stored after the Hello went out but before the subscription began came in no
+    // change set this session sees, and would otherwise never reach the peer.
+    private void OfferOwnRoster(TrustSnapshot trust)
+    {
+        if (trust.Self is { } self && trust.TryGetUser(self.User, out UserTrust? own) && own.Roster is { } roster && roster.Content.Seq > rosterSeq)
         {
             rosterSeq = roster.Content.Seq;
             outbox.Send(ObjectMessage.From(roster));

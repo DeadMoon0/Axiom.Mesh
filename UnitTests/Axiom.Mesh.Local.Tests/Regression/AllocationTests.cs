@@ -37,8 +37,9 @@ public sealed class AllocationTests
             return allocated;
         }
 
-        RoundTrip();
-        long allocated = RoundTrip();
+        // The least of several runs after a warm-up: the codec's own allocation shows in every run, a loaded machine's
+        // noise in some only.
+        long allocated = Allocations.Least(RoundTrip);
 
         Assert.InRange(allocated, 1, GetIdentityRoundTripBudget);
     }

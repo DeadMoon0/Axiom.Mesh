@@ -77,7 +77,7 @@ internal sealed class TestStore : IAsyncDisposable
     public Task<bool> IdentifyAsync(ISigner user, ISigner device) =>
         Writer.SendAsync(new IdentityCommand(new SelfIdentity(user.PublicKey, device.PublicKey.AsDeviceId())), CancellationToken.None);
 
-    public Task<bool> PairAsync(ISigner user) => Writer.SendAsync(new PairCommand(user.PublicKey), CancellationToken.None);
+    public Task<bool> PairAsync(ISigner user) => Writer.SendAsync(new PairCommand(user.PublicKey, string.Empty), CancellationToken.None);
 
     public Task<bool> FollowAsync(PackageId package) => Package(PackageCommandKind.Follow, package);
 

@@ -30,4 +30,11 @@ internal sealed partial class UserRow
 
     /// <summary>When the row was made, in milliseconds since the Unix epoch.</summary>
     public long SinceMs { get; set; }
+
+    /// <summary>
+    /// The user's display name as the pairing showed it (PAIR-SPEC.md §9.1), for the user's interface; empty for a user
+    /// known otherwise. Nothing decides by it. The own user's name is the identity's.
+    /// </summary>
+    [Column(MaxLength = 64)]
+    public string Name { get; set; } = string.Empty;
 }

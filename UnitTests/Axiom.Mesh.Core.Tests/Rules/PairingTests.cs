@@ -215,6 +215,27 @@ public sealed class PairingTests
         Assert.DoesNotContain(mesh["alice-laptop"].Node.Facts.Recent(), f => f.Kind == NodeFactKind.PairingChanged && f.Detail.Contains("Confirm", StringComparison.Ordinal));
     }
 
+    // PAIR-SPEC.md §2.2 (debt 46): a code's address may be a host name; the entering side resolves it through its dialler
+    // and dials the address it stands for, and the pairing reaches Confirm on both sides.
+    [Fact]
+    public async Task ACodeThatNamesAHostIsResolvedAndDialled()
+    {
+        await using TestMesh mesh = await TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop", "bob-desktop"), None);
+        mesh.Network.Name("alice-laptop.lan", mesh["alice-laptop"].Address.Address);
+        LocalClient alice = await mesh["alice-laptop"].ConnectUserAsync("cli", None);
+        LocalClient bob = await mesh["bob-desktop"].ConnectUserAsync("cli", None);
+        Pairing shown = (await alice.SendAsync(new StartPairing { Mode = LocalPairingMode.ShowUser }, None)).Value;
+        Assert.True(PairingCode.TryParse(shown.Code, out PairingCode? code));
+        string named = new PairingCode(Protocol.PairingMode.ShowUser, [new PairingAddress("alice-laptop.lan", (ushort)mesh["alice-laptop"].Address.Port)], code.DeviceKey).Text;
+
+        await bob.SendAsync(new StartPairing { Mode = LocalPairingMode.JoinUser, Code = named }, None);
+
+        Pairing entered = await mesh.WaitForPairingAsync("bob-desktop", bob, p => p.State != LocalPairingState.Waiting, "the name's device to answer", None);
+        Pairing showing = await mesh.WaitForPairingAsync("alice-laptop", alice, p => p.State != LocalPairingState.Waiting, "the other side to connect", None);
+        Assert.Equal((LocalPairingState.Confirm, LocalPairingState.Confirm), (entered.State, showing.State));
+        Assert.Equal(showing.Sas, entered.Sas);
+    }
+
     // PAIR-SPEC.md §4.1, §5.1 (debt 22): the connection switches to the pairing protocol before any AMP/1 frame, says
     // PairHello first, sends nothing after the pairing ended, and a second connection is answered Busy.
     [Fact]
