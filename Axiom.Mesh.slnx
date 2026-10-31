@@ -40,4 +40,7 @@
     <Project Path="UnitTests/Apps/Axiom.Mesh.Cli.Tests/Axiom.Mesh.Cli.Tests.csproj" />
     <Project Path="UnitTests/Axiom.Mesh.ReadmeSamples.Tests/Axiom.Mesh.ReadmeSamples.Tests.csproj" />
   </Folder>
+  <Folder Name="/IntegrationTests/">
+    <Project Path="IntegrationTests/Axiom.Mesh.Integration.Tests/Axiom.Mesh.Integration.Tests.csproj" />
+  </Folder>
 </Solution>

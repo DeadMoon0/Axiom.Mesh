@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The integration suite: real nodes on loopback sockets with real TLS, a store and an index on disk per node, the real
+    pipe in front of each node's local port, and the real command line over it. It runs the scenario suite the in-memory
+    suite runs, from the very same source file, plus what only an operating system can show (pipe access lists, socket
+    modes, peer credentials) and the release floors (AXIOM_MESH_FLOORS=1, Release only).
+  -->
+  <PropertyGroup>
+    <RootNamespace>Axiom.Mesh.Integration.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+    <ProjectReference Include="..\..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
+    <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The scenario suite, unchanged: the same file the in-memory suite compiles (MeshScenarios, plan §5). -->
+    <Compile Include="..\..\UnitTests\Axiom.Mesh.Testing.Tests\Rules\MeshScenarios.cs" Link="Rules\MeshScenarios.cs" />
+  </ItemGroup>
+
+</Project>

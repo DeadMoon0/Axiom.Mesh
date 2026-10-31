@@ -43,8 +43,9 @@ jobs:
       - name: Build
         run: dotnet build Axiom.Mesh.slnx --configuration Release --no-restore
 
+      # The integration suite runs in its own job below, after this one; here it is filtered out of the solution run.
       - name: Test
-        run: dotnet test Axiom.Mesh.slnx --configuration Release --no-build --logger "trx"
+        run: dotnet test Axiom.Mesh.slnx --configuration Release --no-build --logger "trx" --filter "FullyQualifiedName!~Axiom.Mesh.Integration.Tests"
 
       - name: Pack (package validation)
         run: dotnet pack Axiom.Mesh.slnx --configuration Release --no-build --output out
@@ -54,4 +55,42 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.os }}
+          path: '**/TestResults/*.trx'
+
+  integration-tests:
+    name: integration-tests (${{ matrix.os }})
+    needs: unit-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    # Real sockets, TLS, disks and pipes: the suite is budgeted at 3 minutes; a hang must not hold the runner.
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Build
+        run: dotnet build IntegrationTests/Axiom.Mesh.Integration.Tests --configuration Release
+
+      # The release floors (Category=Floor) skip themselves unless AXIOM_MESH_FLOORS=1; this run leaves it unset.
+      - name: Test
+        run: dotnet test IntegrationTests/Axiom.Mesh.Integration.Tests --configuration Release --no-build --logger "trx"
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-results-${{ matrix.os }}
           path: '**/TestResults/*.trx'
