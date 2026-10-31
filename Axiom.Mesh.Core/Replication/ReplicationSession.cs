@@ -33,7 +33,7 @@ internal sealed class ReplicationSession : IDisposable
     private readonly Session<MeshMessage, MeshMessage> session;
     private readonly SessionOutbox outbox = new();
     private readonly ServedObjects served;
-    private readonly CancellationTokenSource violated = new();
+    private readonly TaskCompletionSource violated = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object theirsGate = new();
     private readonly HashSet<PackageId> listedHere = [];
     private readonly HashSet<ObjectHash> revocationsSent = [];
@@ -126,14 +126,7 @@ internal sealed class ReplicationSession : IDisposable
     {
         if (Interlocked.CompareExchange(ref violation, detail, null) is not null)
             return;
-        try
-        {
-            violated.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // The session ended meanwhile.
-        }
+        violated.TrySetResult();
     }
 
     /// <summary>Runs the session until the peer leaves, a rule is broken, or <paramref name="stopping"/> is cancelled.</summary>
@@ -150,7 +143,16 @@ internal sealed class ReplicationSession : IDisposable
         Task pushingLoop = Task.Run(() => PushLoopAsync(loops.Token), CancellationToken.None);
         try
         {
-            return await ReadLoopAsync(stopping).ConfigureAwait(false);
+            // A violation found outside the read (a listing too slow, a frame not completed) does not cancel the pending
+            // read: the session's automatic answers (a Pong) are flushed under the read's token, and cancelling it as one
+            // finishes leaves the writer's cancellation set, so the Bye(Violation) written next would be encrypted and then
+            // refused by the transport, a gap in the TLS record sequence that the peer reads as "decryption failed". The read
+            // is abandoned instead; it ends when the connection closes, and nothing it reads afterwards is acted on.
+            Task<SessionEnd> reads = ReadLoopAsync(stopping);
+            if (await Task.WhenAny(reads, violated.Task).ConfigureAwait(false) == reads)
+                return await reads.ConfigureAwait(false);
+            _ = reads.ContinueWith(static ended => _ = ended.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+            return SessionEnd.Violation(Volatile.Read(ref violation)!);
         }
         finally
         {
@@ -172,7 +174,6 @@ internal sealed class ReplicationSession : IDisposable
     public void Dispose()
     {
         listingTimer.Dispose();
-        violated.Dispose();
         outbox.Dispose();
     }
 
@@ -180,12 +181,13 @@ internal sealed class ReplicationSession : IDisposable
 
     private async Task<SessionEnd> ReadLoopAsync(CancellationToken stopping)
     {
-        using var reading = CancellationTokenSource.CreateLinkedTokenSource(stopping, violated.Token);
         while (true)
         {
             try
             {
-                ProtocolReadResult<MeshMessage> read = await session.ReadAsync(reading.Token).ConfigureAwait(false);
+                ProtocolReadResult<MeshMessage> read = await session.ReadAsync(stopping).ConfigureAwait(false);
+                if (Volatile.Read(ref violation) is { } raised)
+                    return SessionEnd.Violation(raised);
                 if (read.IsCompleted)
                     return new SessionEnd(session.State == Amp.Closed ? SessionEndKind.PeerBye : SessionEndKind.PeerClosed, string.Empty);
                 if (read.Message is Bye)
@@ -194,7 +196,7 @@ internal sealed class ReplicationSession : IDisposable
                 Interlocked.Increment(ref this.reading);
                 try
                 {
-                    if (await HandleAsync(read.Message, reading.Token).ConfigureAwait(false) is { } broken)
+                    if (await HandleAsync(read.Message, stopping).ConfigureAwait(false) is { } broken)
                         return SessionEnd.Violation(broken);
                 }
                 finally
@@ -202,10 +204,6 @@ internal sealed class ReplicationSession : IDisposable
                     Interlocked.Increment(ref handled);
                     Interlocked.Decrement(ref this.reading);
                 }
-            }
-            catch (OperationCanceledException) when (violated.IsCancellationRequested)
-            {
-                return SessionEnd.Violation(Volatile.Read(ref violation) ?? "a rule of SPEC.md was broken");
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
             {
@@ -443,6 +441,10 @@ internal sealed class ReplicationSession : IDisposable
 
     // ---- Write loop -----------------------------------------------------------------------------------------------------
 
+    // Cancellation stops the wait for the next item, never a write in progress. A write cut off midway leaves a TLS record
+    // encrypted but not sent, or sent in part: the record sequence then has a gap, and the Bye(Violation) that follows the
+    // end of this loop reaches the peer as "decryption failed" instead of a Bye. A write the peer does not take ends when
+    // the connection is disposed.
     private async Task WriteLoopAsync(CancellationToken cancellationToken)
     {
         try
@@ -452,7 +454,7 @@ internal sealed class ReplicationSession : IDisposable
                 try
                 {
                     if (item.Message is { } message)
-                        await session.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+                        await session.WriteAsync(message, CancellationToken.None).ConfigureAwait(false);
                     else
                         await SendObjectAsync(item.Hash, cancellationToken).ConfigureAwait(false);
                 }
@@ -482,7 +484,7 @@ internal sealed class ReplicationSession : IDisposable
         {
             if (!node.Store.TryOpen(hash, out ObjectHandle? handle))
             {
-                await session.WriteAsync(new NotFound(hash), cancellationToken).ConfigureAwait(false);
+                await session.WriteAsync(new NotFound(hash), CancellationToken.None).ConfigureAwait(false);
                 node.Facts.Record(NodeFactKind.WantAnswered, Connection, null, Device, hash.Value, "NotFound: gone from the store");
                 node.Transfers.Record(Device, default, hash, TransferDirection.Out, 0, TransferState.NotFound);
                 return;
@@ -494,7 +496,7 @@ internal sealed class ReplicationSession : IDisposable
             {
                 using (handle)
                     await handle.Stream.ReadExactlyAsync(buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
-                await session.WriteAsync(ObjectMessage.FromStored(hash, buffer.AsMemory(0, length)), cancellationToken).ConfigureAwait(false);
+                await session.WriteAsync(ObjectMessage.FromStored(hash, buffer.AsMemory(0, length)), CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {

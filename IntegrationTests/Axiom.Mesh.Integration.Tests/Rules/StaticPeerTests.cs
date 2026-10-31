@@ -21,8 +21,8 @@ public sealed class StaticPeerTests
 
         CliResult added = await mesh.CliAsync("alice-laptop", "peer add " + phone, None);
         await mesh.WaitUntilAsync("alice-laptop", n => MeshWaits.IsEstablishedWith(n, TestIdentity.Of("alice-phone").DeviceId), "the laptop established with the phone it named", None);
+        await mesh.WaitUntilAsync("alice-phone", n => MeshWaits.IsEstablishedWith(n, TestIdentity.Of("alice-laptop").DeviceId), "the phone established with the laptop that dialled it", None);
 
         Assert.True(added.ExitCode == Axiom.Mesh.Cli.CliExitCode.Ok, added.ToString());
-        Assert.True(MeshWaits.IsEstablishedWith(mesh.Node("alice-phone"), TestIdentity.Of("alice-laptop").DeviceId));
     }
 }

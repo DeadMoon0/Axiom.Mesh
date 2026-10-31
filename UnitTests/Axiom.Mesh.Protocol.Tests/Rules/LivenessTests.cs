@@ -24,9 +24,8 @@ public sealed class LivenessTests
 
         peer.Time.Advance(TimeSpan.FromSeconds(Limits.IdleSeconds - Limits.PingAfterSilenceSeconds - 1));
         Assert.False(reading.IsCompleted, "The session closed before 5 minutes without receiving.");
-        peer.Time.Advance(TimeSpan.FromSeconds(1));
 
-        Assert.Equal(ViolationCode.Timeout, (await reading)!.Code);
+        Assert.Equal(ViolationCode.Timeout, (await peer.AdvanceUntilAsync(reading, TimeSpan.FromSeconds(Limits.IdleSeconds)))!.Code);
         Assert.Equal(ByeReason.Idle, Assert.IsType<Bye>(await AfterPings(peer)).Reason);
     }
 
@@ -47,8 +46,7 @@ public sealed class LivenessTests
         // full idle period more rather than at an exact second.
         peer.Time.Advance(TimeSpan.FromSeconds(Limits.IdleSeconds - 1));
         Assert.False(reading.IsCompleted, "The session closed although it received a Ping less than 5 minutes ago.");
-        peer.Time.Advance(TimeSpan.FromSeconds(Limits.IdleSeconds));
-        Assert.Equal(ViolationCode.Timeout, (await reading)!.Code);
+        Assert.Equal(ViolationCode.Timeout, (await peer.AdvanceUntilAsync(reading, TimeSpan.FromSeconds(2 * Limits.IdleSeconds)))!.Code);
     }
 
     // Heartbeats sent while the clock jumped arrive first, as many as the session's checks found it quiet; the next

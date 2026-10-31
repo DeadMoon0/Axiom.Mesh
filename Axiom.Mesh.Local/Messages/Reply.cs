@@ -111,6 +111,13 @@ public sealed class Reply : LocalMessage, IClientMessage
         return error is not null;
     }
 
+    /// <summary>
+    /// The same reply with its body copied, so that it outlives the next message read: for a reply handed to another task
+    /// than the one reading the connection. A reply built to be sent is returned as it is.
+    /// </summary>
+    /// <returns>A reply whose <see cref="Body"/> no read invalidates.</returns>
+    public Reply Detach() => writeValue is not null ? this : new Reply(CallbackId, Status, Body.ToArray(), null, null);
+
     /// <inheritdoc />
     public override string ToString() => $"!{CallbackId} {Status}";
 

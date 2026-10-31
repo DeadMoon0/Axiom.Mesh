@@ -73,7 +73,16 @@ public sealed class ListingTests
             case "61 seconds":
                 await bob.SendAsync(new Packages(0, false, page), None);
                 await Waits.UntilAsync(() => alice.Node.Replication.Sessions.Single().MessagesHandled >= 1, "page 0 handled");
-                mesh.Clock.Advance(TimeSpan.FromSeconds(Limits.ListingSeconds + 1));
+                // A Want answered just before the deadline keeps both sides' heartbeats quiet across it: otherwise the node's
+                // Ping arrives ahead of its Bye, and the scripted peer's automatic Pong can find the connection already
+                // closed (the in-memory transport refuses a write to a closed end; TCP would buffer it).
+                mesh.Clock.Advance(TimeSpan.FromSeconds(Limits.ListingSeconds - 1));
+                await bob.SendAsync(new Want([page[0].ManifestHash]), None);
+                while (await bob.ExpectAsync<MeshMessage>(None) is not NotFound)
+                {
+                    // The node's own Wants for the listed Manifests come first.
+                }
+                mesh.Clock.Advance(TimeSpan.FromSeconds(2));
                 break;
             default:
                 await bob.SendAsync(new Packages(0, false, page), None);

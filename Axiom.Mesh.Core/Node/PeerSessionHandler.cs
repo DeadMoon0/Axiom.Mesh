@@ -86,7 +86,7 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
         try
         {
             Hello own = OwnHello(current, self);
-            await session.WriteAsync(own, stopping).ConfigureAwait(false);
+            await session.WriteAsync(own, CancellationToken.None).ConfigureAwait(false); // a write begun is finished (ReplicationSession)
             ProtocolReadResult<MeshMessage> first;
             try
             {
@@ -190,13 +190,13 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
     {
         if (ok.FollowUp == RosterFollowUp.SendHeldRoster && trust.TryGetUser(user, out UserTrust? held) && held.Roster is { } roster)
         {
-            await session.WriteAsync(ObjectMessage.From(roster), stopping).ConfigureAwait(false);
+            await session.WriteAsync(ObjectMessage.From(roster), CancellationToken.None).ConfigureAwait(false);
             return 1;
         }
 
         if (ok.FollowUp == RosterFollowUp.QueryRoster)
         {
-            await session.WriteAsync(new RosterQuery(user), stopping).ConfigureAwait(false);
+            await session.WriteAsync(new RosterQuery(user), CancellationToken.None).ConfigureAwait(false);
             return 1;
         }
 

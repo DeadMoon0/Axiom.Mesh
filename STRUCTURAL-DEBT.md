@@ -542,3 +542,21 @@ listener is bound to one address (`MeshNodeOptions.ListenAddress`, the Host's `m
 - **Tolerated because:** the floor holds, and a follower catching up on a long Channel is rare in phase 1.
 - **Paid in:** M12, with the benchmark: batch the walk (ask for the parents of every Entry of a stored batch at once) and
   measure against the 10 s target.
+
+## 53. A cancelled read can leave the next write encrypted and refused
+
+- **Rule:** ARCHITECTURE.md rule 6 (every wait a deadline) without corrupting the stream it bounds.
+- **Instead:** ProtoStream 0.2.0 flushes a session's automatic answers (a `Pong`) under the token of the read that
+  received the `Ping`; a read cancelled just as that flush ends leaves `StreamPipeWriter`'s internal cancellation set, and
+  the next write hands an already-cancelled token to `SslStream`, which encrypts the record and then has it refused by
+  the transport: the record sequence has a gap and the peer reports "decryption failed". M11 found this as the flaky
+  `ListingTests("61 seconds")` (about one run in twelve of a 400-iteration stress, none in 1 600 after the fix).
+- **Paid in M11 for the violations a session raises outside the read** (a listing too slow, a frame not completed):
+  `ReplicationSession` no longer cancels its read; it abandons it and writes `Bye(Violation)` beside it. Writes of the
+  write loop and of the Hello exchange are never cancelled once begun.
+- **Still open:** the drain path (`Bye(Shutdown)` after the read is cancelled by the stopping token) and the frame bound
+  before `Hello` keep the pattern; a lost `Bye` there costs nothing but the reason.
+- **Evidence:** `Axiom.Mesh.Core/Replication/ReplicationSession.cs` (`RunAsync`); ProtoStream `Session.cs` (automatic reply
+  under the read's token), `StreamPipeWriter` (cancellation kept for the next flush).
+- **Paid in:** M12, upstream: ProtoStream flushes automatic answers without the read's token (or resets the writer's
+  cancellation before a write), after which the drain path needs no change.

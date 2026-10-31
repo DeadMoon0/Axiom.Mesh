@@ -104,6 +104,35 @@ internal sealed class RawPeer : IAsyncDisposable
         Assert.Equal(Amp.Established, Session.State);
     }
 
+    /// <summary>
+    /// Moves the clock a second at a time until <paramref name="ending"/> completes, at most <paramref name="cap"/> in all
+    /// and within the real-time deadline. The session arms its idle timer when it next waits for input, which on a loaded
+    /// machine may be after a single large advance of the clock: then that advance arms nothing, and a test that awaited
+    /// the close after it would wait for ever. Stepping lets a late timer fire on a later step.
+    /// </summary>
+    /// <typeparam name="T">The task's result.</typeparam>
+    /// <param name="ending">What completes once enough time passed.</param>
+    /// <param name="cap">How far the clock may move.</param>
+    /// <returns>The task's result.</returns>
+    public async Task<T> AdvanceUntilAsync<T>(Task<T> ending, TimeSpan cap)
+    {
+        using var deadline = new CancellationTokenSource(Deadline);
+        var moved = TimeSpan.Zero;
+        while (!ending.IsCompleted)
+        {
+            Assert.False(deadline.IsCancellationRequested, $"Nothing completed within {Deadline.TotalSeconds:0} s of real time.");
+            Assert.True(moved < cap, $"Nothing completed within {cap.TotalSeconds:0} s on the clock.");
+            Time.Advance(TimeSpan.FromSeconds(1));
+            moved += TimeSpan.FromSeconds(1);
+            var pause = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var timer = new CancellationTokenSource(TimeSpan.FromMilliseconds(2)); // fires once and is released
+            timer.Token.UnsafeRegister(static state => ((TaskCompletionSource)state!).TrySetResult(), pause);
+            await Task.WhenAny(ending, pause.Task);
+        }
+
+        return await ending;
+    }
+
     /// <summary>Reads the session until it fails; the violation it reported, or <see langword="null"/> when it ended without one.</summary>
     public async Task<Violation?> ReadUntilViolationAsync()
     {

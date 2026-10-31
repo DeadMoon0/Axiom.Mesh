@@ -265,7 +265,8 @@ internal sealed class LocalConnection
                     case Pong pong:
                         Ponged(pong.Nonce);
                         break;
-                    case Reply reply when !Callbacks.Route(reply):
+                    // The caller reads the body on its own task, after this loop has read on: it gets a copy (LOCAL-SPEC.md §3.6).
+                    case Reply reply when !Callbacks.Route(reply.Detach()):
                         CloseWith(Bye.Of(ByeReason.Violation, $"a Reply for callback {reply.CallbackId}, which this Host never issued"), "a Reply for a callback never issued (LOCAL-SPEC.md §3.6)");
                         return;
                     case Reply:

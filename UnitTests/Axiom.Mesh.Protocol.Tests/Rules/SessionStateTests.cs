@@ -47,8 +47,7 @@ public sealed class SessionStateTests
             peer.Time.Advance(TimeSpan.FromSeconds(Limits.FirstHelloSeconds) - TimeSpan.FromMilliseconds(1));
             Assert.False(reading.IsCompleted);
 
-            peer.Time.Advance(TimeSpan.FromMilliseconds(1));
-            Assert.Equal(ViolationCode.Timeout, (await reading)!.Code);
+            Assert.Equal(ViolationCode.Timeout, (await peer.AdvanceUntilAsync(reading, TimeSpan.FromSeconds(Limits.FirstHelloSeconds)))!.Code);
             Assert.Equal(ByeReason.Idle, Assert.IsType<Bye>(await peer.ReceiveAsync()).Reason);
         }
     }
