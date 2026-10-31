@@ -60,5 +60,17 @@ public sealed class AllocationTests
 
     // The least of several runs after a warm-up: a budget that the code keeps holds in every run, while a loaded
     // machine's noise (a pool rent another thread emptied, tier-1 code arriving between runs) holds in some only.
+    // Damage: a file helper that built a Chunk object per part (a buffer grown to 2 MiB, a copy, a parse) would allocate
+    // megabytes per mebibyte stored; sealing a reused buffer in place allocates nothing, whatever the file's size.
+    [ReleaseFact]
+    public void SealingAChunkInAReusedBufferAllocatesNothing()
+    {
+        byte[] buffer = new byte[Chunker.MaxChunkObjectLength];
+
+        long allocated = Measure(() => Chunker.Seal(buffer));
+
+        Assert.Equal(0, allocated);
+    }
+
     private static long Measure(Action action) => Allocations.Least(action);
 }

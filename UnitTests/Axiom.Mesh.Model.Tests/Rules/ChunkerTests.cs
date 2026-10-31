@@ -3,7 +3,7 @@ using System.Linq;
 
 namespace Axiom.Mesh.Tests.Rules;
 
-/// <summary>SPEC.md §8.2 and §8.3: files as Chunks and ChunkLists.</summary>
+/// <summary>SPEC.md §8.2 and §8.3: files as Chunks and ChunkLists, cut in memory or sealed in place.</summary>
 public sealed class ChunkerTests
 {
     private const int MiB = 1_048_576;
@@ -31,6 +31,30 @@ public sealed class ChunkerTests
         Assert.Equal(file.Chunks.Select(c => c.Hash), file.List.Chunks);
         Assert.Equal(content, file.Chunks.SelectMany(c => c.Data.ToArray()));
         Assert.False(ChunkListRule.TryFindSizeFault(file.List, file.Chunks, out _));
+    }
+
+    // §8.1, §8.2: a Chunk sealed in place is the same object, with the same hash, as the Chunk built from the same data;
+    // empty data or more than 1 MiB is refused like it.
+    [Theory]
+    // One byte.
+    [InlineData(1)]
+    // A remainder.
+    [InlineData(5_000)]
+    // Exactly one MiB.
+    [InlineData(MiB)]
+    public void AChunkSealedInPlaceIsTheChunkBuiltFromTheSameData(int length)
+    {
+        byte[] data = [.. Enumerable.Range(0, length).Select(i => (byte)(i * 7))];
+        byte[] buffer = new byte[Chunker.MaxChunkObjectLength];
+        data.CopyTo(buffer, Chunker.HeaderLength);
+
+        ObjectHash sealedHash = Chunker.Seal(buffer.AsSpan(0, Chunker.HeaderLength + length));
+        Chunk built = ObjectBuilders.Chunk(data);
+
+        Assert.Equal(built.Hash, sealedHash);
+        Assert.Equal(built.Bytes.ToArray(), buffer[..(Chunker.HeaderLength + length)]);
+        Assert.Throws<ArgumentException>(() => Chunker.Seal(buffer.AsSpan(0, Chunker.HeaderLength)));
+        Assert.Throws<ArgumentException>(() => Chunker.Seal(new byte[Chunker.MaxChunkObjectLength + 1]));
     }
 
     // §8.3: "a receiver that holds the chunks and finds otherwise records the ChunkList as faulty content".

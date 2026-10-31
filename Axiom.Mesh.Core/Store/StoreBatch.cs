@@ -27,6 +27,8 @@ internal sealed class StoreBatch
     private readonly Promises promises;
     private readonly long now;
     private readonly PinBook pins;
+    private readonly FileWrites ahead;
+    private readonly HashSet<ObjectHash> kept = [];
     private readonly HashSet<ObjectHash> touched = [];
     private readonly List<Action> completions = [];
 
@@ -37,8 +39,10 @@ internal sealed class StoreBatch
     /// <param name="options">The device class and budget.</param>
     /// <param name="promises">The objects a peer's outstanding <c>Want</c> protects from eviction.</param>
     /// <param name="now">The batch's time, in milliseconds since the Unix epoch.</param>
-    public StoreBatch(BatchTables tables, WriterState state, IObjectFiles files, StoreOptions options, Promises promises, long now)
+    /// <param name="ahead">The object files written before the transaction began.</param>
+    public StoreBatch(BatchTables tables, WriterState state, IObjectFiles files, StoreOptions options, Promises promises, long now, FileWrites ahead)
     {
+        this.ahead = ahead;
         this.tables = tables;
         this.state = state;
         this.files = files;
@@ -119,6 +123,13 @@ internal sealed class StoreBatch
             }
         }
 
+        // A file written ahead for an object the batch did not store (refused, superseded, faulty, not wanted) goes again.
+        foreach (ObjectHash created in ahead.Created)
+        {
+            if (!kept.Contains(created))
+                files.TryDelete(created);
+        }
+
         await PutNumberAsync(MetaKeys.StoreSeq, state.StoreSeq).ConfigureAwait(false);
         await PutNumberAsync(MetaKeys.StoreObjects, (ulong)state.Objects).ConfigureAwait(false);
         await PutNumberAsync(MetaKeys.StoreBytes, (ulong)state.Bytes).ConfigureAwait(false);
@@ -145,6 +156,7 @@ internal sealed class StoreBatch
         {
             existing.LastUsedMs = now;
             existing.EvictPending = false; // wanted again while a reader held it: it stays
+            kept.Add(storable.Hash); // stored already: a file written ahead for it is its file
             await tables.Objects.PutAsync(existing, CancellationToken.None).ConfigureAwait(false);
             return new AdmitResult(AdmitOutcome.AlreadyStored, 0);
         }
@@ -281,7 +293,8 @@ internal sealed class StoreBatch
         PackageId id = content.Package;
         if (!state.Trust.TryGetPackage(id, out PackageTrust? package) || !package.IsFollowed || package.Manifest is null)
             return new AdmitResult(AdmitOutcome.NotWanted, 0);
-        if (await HasParentFaultAsync(content).ConfigureAwait(false))
+        (bool faulty, List<ObjectHash> missing) = await CheckParentsAsync(content).ConfigureAwait(false);
+        if (faulty)
             return new AdmitResult(AdmitOutcome.Faulty, 0);
         if (Overflows(command))
             return new AdmitResult(AdmitOutcome.StoreFull, 0);
@@ -306,6 +319,8 @@ internal sealed class StoreBatch
             Redacted = await IsRedactedAsync(content.Facts, hashKey).ConfigureAwait(false),
         };
         await tables.Entries.PutAsync(row, CancellationToken.None).ConfigureAwait(false);
+        foreach (ObjectHash parent in missing)
+            await tables.Parents.PutAsync(new ParentRow { Key = RowKeys.Of(entry.Hash.Value, parent.Value), Child = hashKey, Parent = RowKeys.Of(parent.Value) }, CancellationToken.None).ConfigureAwait(false);
         if (content.IsRedaction)
             await RedactAsync(content, content.Redacts).ConfigureAwait(false);
 
@@ -324,6 +339,7 @@ internal sealed class StoreBatch
         }
 
         Changes.Entries.Add(new StoredEntry(entry.Hash, storeSeq, id, content.Key, content.Kind, row.Redacted, now, command.Origin));
+        await CheckChildrenAsync(entry.Hash).ConfigureAwait(false);
         return new AdmitResult(AdmitOutcome.Stored, storeSeq);
     }
 
@@ -352,41 +368,113 @@ internal sealed class StoreBatch
     private bool Overflows(AdmitCommand command) =>
         command.Origin.Kind == OriginKind.Local && state.PinnedBytes + command.Object.Bytes.Length > state.BudgetBytes;
 
+    // The object's file, written ahead of the transaction (FileWrites) or now; a failure fails this command only.
     private async Task<bool> WriteAsync(AdmitCommand command)
     {
-        try
+        ObjectHash hash = command.Object.Hash;
+        Exception? error = null;
+        if (!ahead.TryGet(hash, out error))
         {
-            await files.WriteAtomicAsync(command.Object.Hash, command.Object.Bytes, CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                await files.WriteAtomicAsync(hash, command.Object.Bytes, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                error = e;
+            }
+        }
+
+        if (error is null)
+        {
+            kept.Add(hash);
             return true;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            command.Fail(new MeshStoreException(
-                $"The object {command.Object.Hash} could not be written to the store: {e.Message}",
-                e,
-                "Check that the store directory exists, is writable by the node's user and has free space.",
-                "Then repeat the request; nothing was stored."));
-            return false;
-        }
+
+        command.Fail(new MeshStoreException(
+            $"The object {hash} could not be written to the store: {error.Message}",
+            error,
+            "Check that the store directory exists, is writable by the node's user and has free space.",
+            "Then repeat the request; nothing was stored."));
+        return false;
     }
 
     // SPEC.md §8.6: once its parents are held, an Entry naming a parent of another Package, a clock not above a parent's,
-    // or a clock more than 2^32 above the greatest is faulty. An Entry stored before its parents (a history walk) is not
-    // checked again when they arrive (STRUCTURAL-DEBT.md 28).
-    private async Task<bool> HasParentFaultAsync(EntryContent content)
+    // or a clock more than 2^32 above the greatest is faulty. The parents not stored yet are returned: a row for each is
+    // written with the Entry, and the Entry is checked when the last of them is stored (CheckChildrenAsync).
+    private async Task<(bool Faulty, List<ObjectHash> Missing)> CheckParentsAsync(EntryContent content)
     {
+        var missing = new List<ObjectHash>();
         if (content.Parents.IsEmpty)
-            return false;
-        var parents = new EntryFacts[content.Parents.Count];
-        for (int i = 0; i < parents.Length; i++)
+            return (false, missing);
+        var parents = new List<EntryFacts>(content.Parents.Count);
+        foreach (ObjectHash hash in content.Parents)
         {
-            EntryRow? parent = await tables.Entries.FindAsync(RowKeys.Of(content.Parents[i].Value), CancellationToken.None).ConfigureAwait(false);
-            if (parent is null)
-                return false;
-            parents[i] = FactsOf(parent);
+            if (await tables.Entries.FindAsync(RowKeys.Of(hash.Value), CancellationToken.None).ConfigureAwait(false) is { } parent)
+                parents.Add(FactsOf(parent));
+            else
+                missing.Add(hash);
         }
 
-        return Lamport.TryFindParentFault(content, parents, out _);
+        return (missing.Count == 0 && Lamport.TryFindParentFault(content, parents, out _), missing);
+    }
+
+    // SPEC.md §8.6: the Entries stored before this one that named it as a parent; each whose last missing parent this was
+    // is checked now, and one found faulty is retired: no longer listed as a Head, served or forwarded (STRUCTURAL-DEBT.md
+    // 28).
+    private async Task CheckChildrenAsync(ObjectHash stored)
+    {
+        List<ParentRow> waiting = await tables.Parents.Query()
+            .Where(ParentRow.Columns.Parent == RowKeys.Of(stored.Value))
+            .ToListAsync(CancellationToken.None).ConfigureAwait(false);
+        foreach (ParentRow waits in waiting)
+        {
+            await tables.Parents.DeleteAsync(waits.Key, CancellationToken.None).ConfigureAwait(false);
+            List<ParentRow> still = await tables.Parents.Query()
+                .Where(ParentRow.Columns.Child == waits.Child)
+                .ToListAsync(CancellationToken.None).ConfigureAwait(false);
+            if (still.Count > 0 || await tables.Entries.FindAsync(waits.Child, CancellationToken.None).ConfigureAwait(false) is not { } child)
+                continue;
+            if (await IsFaultyAgainstStoredParentsAsync(child).ConfigureAwait(false))
+                await RetireAsync(new ObjectHash(RowKeys.Hash(waits.Child))).ConfigureAwait(false);
+        }
+    }
+
+    // The parent rule for a stored Entry, from the index alone: its facts, the parents it names, and theirs.
+    private async Task<bool> IsFaultyAgainstStoredParentsAsync(EntryRow child)
+    {
+        EntryParents named = ParentsOf(child);
+        var parents = new List<EntryFacts>(named.Count);
+        foreach (ObjectHash hash in named)
+        {
+            if (await tables.Entries.FindAsync(RowKeys.Of(hash.Value), CancellationToken.None).ConfigureAwait(false) is not { } parent)
+                return false; // evicted meanwhile: nothing to check against
+            parents.Add(FactsOf(parent));
+        }
+
+        return Lamport.TryFindParentFault(FactsOf(child), named, parents, out _);
+    }
+
+    private static EntryParents ParentsOf(EntryRow row) => (row.Parents.Length / Hash32.Length) switch
+    {
+        0 => EntryParents.None,
+        1 => EntryParents.Of(new ObjectHash(new Hash32(row.Parents))),
+        _ => EntryParents.Of(new ObjectHash(new Hash32(row.Parents.AsSpan(0, Hash32.Length))), new ObjectHash(new Hash32(row.Parents.AsSpan(Hash32.Length, Hash32.Length)))),
+    };
+
+    // A faulty Entry found after it was stored leaves the store as an eviction does, whatever pinned it: its file, rows and
+    // references go, and its device's next stored Entry becomes the Head (SPEC.md §8.6, §9.3).
+    private async Task RetireAsync(ObjectHash entry)
+    {
+        if (await tables.Objects.FindAsync(RowKeys.Of(entry.Value), CancellationToken.None).ConfigureAwait(false) is not { } row)
+            return;
+        List<PinRow> held = await tables.Pins.Query()
+            .Where(PinRow.Columns.Hash == row.Hash)
+            .ToListAsync(CancellationToken.None).ConfigureAwait(false);
+        foreach (PinRow pin in held)
+            await pins.UnpinAsync(entry, pin.Reason, RowKeys.Hash(pin.Source)).ConfigureAwait(false);
+        row = await tables.Objects.FindAsync(row.Hash, CancellationToken.None).ConfigureAwait(false) ?? row;
+        await UnlinkAsync(row, entry).ConfigureAwait(false);
     }
 
     private bool Withdraw(WithdrawGrantCommand command)
@@ -461,6 +549,37 @@ internal sealed class StoreBatch
         Changes.Package(new PackageChange(content.Package, PackageChangeKind.Head, command.Origin));
     }
 
+    // SPEC.md §9.3: a node keeps, per Package and device, the stored Entry with the highest clock; when the Head leaves the
+    // store, the device's next stored Entry takes its place, or none (STRUCTURAL-DEBT.md 18).
+    private async Task ElectHeadAsync(PackageId package, byte[] device)
+    {
+        List<EntryRow> stored = await tables.Entries.Query()
+            .Where(EntryRow.Columns.Package == RowKeys.Of(package.Value))
+            .ToListAsync(CancellationToken.None).ConfigureAwait(false);
+        Head? elected = null;
+        foreach (EntryRow candidate in stored)
+        {
+            if (!candidate.Device.AsSpan().SequenceEqual(device))
+                continue;
+            var head = new Head(new DeviceId(RowKeys.Hash(candidate.Device)), new ObjectHash(RowKeys.Hash(candidate.Hash)), candidate.Clock);
+            if (elected is not { } best || HeadRule.Supersedes(head, best))
+                elected = head;
+        }
+
+        if (elected is not { } next)
+            return;
+        await tables.Heads.PutAsync(new HeadRow
+        {
+            Key = RowKeys.Of(package.Value, next.Device.Value),
+            Package = RowKeys.Of(package.Value),
+            Device = RowKeys.Of(next.Device.Value),
+            Entry = RowKeys.Of(next.Entry.Value),
+            Clock = next.Clock,
+        }, CancellationToken.None).ConfigureAwait(false);
+        state.Heads = state.Heads.With(package, next);
+        Changes.Package(new PackageChange(package, PackageChangeKind.Head, Origin.Local));
+    }
+
     // SPEC.md §9.4: a redaction applies to its target whenever both are stored, whatever their order.
     private async Task<bool> IsRedactedAsync(EntryFacts target, byte[] targetKey)
     {
@@ -528,6 +647,8 @@ internal sealed class StoreBatch
         PackageId id = command.Package;
         state.Trust.TryGetPackage(id, out PackageTrust? package);
         PackageState current = package?.State ?? PackageState.None;
+        if (command.Kind == PackageCommandKind.Drop)
+            return current == PackageState.Listed && await DropAsync(package!).ConfigureAwait(false);
         (PackageState next, LocalRetention policy, PackageChangeKind change) = command.Kind switch
         {
             PackageCommandKind.List when current == PackageState.None => (PackageState.Listed, LocalRetention.Default, PackageChangeKind.Listed),
@@ -558,6 +679,38 @@ internal sealed class StoreBatch
             await ApplyPolicyToStoredAsync(package, row).ConfigureAwait(false);
 
         Changes.Package(new PackageChange(id, change, Origin.Local));
+        Changes.TrustChanged = true;
+        return true;
+    }
+
+    // LOCAL-SPEC.md §6.4: a Listed Package no peer lists any more is forgotten, unless something of it is still pinned (a
+    // user or service pin): its Entries, Manifest and Grants are evicted, its rows and its trust go (STRUCTURAL-DEBT.md 41).
+    private async Task<bool> DropAsync(PackageTrust package)
+    {
+        byte[] key = RowKeys.Of(package.Id.Value);
+        List<EntryRow> entries = await EntriesOfAsync(package.Id).ConfigureAwait(false);
+        var objects = new List<ObjectRow>(entries.Count + 1 + package.Grants.Count);
+        IEnumerable<byte[]> hashes = entries.Select(e => e.Hash)
+            .Concat(package.Manifest is { } manifest ? [RowKeys.Of(manifest.Hash.Value)] : [])
+            .Concat(package.Grants.Values.Select(g => RowKeys.Of(g.Hash.Value)));
+        foreach (byte[] hash in hashes)
+        {
+            if (await tables.Objects.FindAsync(hash, CancellationToken.None).ConfigureAwait(false) is not { } row)
+                continue;
+            if (row.PinCount > 0 || promises.IsProtected(new ObjectHash(RowKeys.Hash(hash))))
+                return false;
+            objects.Add(row);
+        }
+
+        // The Heads go with the Package as a whole; no next Head is elected for a Package that is no longer held.
+        await tables.Heads.DeleteWhereAsync(HeadRow.Columns.Package == key, CancellationToken.None).ConfigureAwait(false);
+        foreach (EntryRow entry in entries)
+            state.Heads = state.Heads.Without(package.Id, new ObjectHash(RowKeys.Hash(entry.Hash)));
+        foreach (ObjectRow row in objects)
+            await UnlinkAsync(row, new ObjectHash(RowKeys.Hash(row.Hash))).ConfigureAwait(false);
+        await tables.Grants.DeleteWhereAsync(GrantRow.Columns.Package == key, CancellationToken.None).ConfigureAwait(false);
+        await tables.Packages.DeleteAsync(key, CancellationToken.None).ConfigureAwait(false);
+        state.Trust.Drop(package.Id);
         Changes.TrustChanged = true;
         return true;
     }
@@ -732,10 +885,17 @@ internal sealed class StoreBatch
         await tables.References.DeleteWhereAsync(ReferenceRow.Columns.Referrer == row.Hash, CancellationToken.None).ConfigureAwait(false);
         if ((ObjectTag)row.Tag == ObjectTag.Entry)
         {
-            if (await tables.Entries.FindAsync(row.Hash, CancellationToken.None).ConfigureAwait(false) is { } entry)
-                state.Heads = state.Heads.Without(new PackageId(RowKeys.Hash(entry.Package)), hash);
+            EntryRow? entry = await tables.Entries.FindAsync(row.Hash, CancellationToken.None).ConfigureAwait(false);
             await tables.Entries.DeleteAsync(row.Hash, CancellationToken.None).ConfigureAwait(false);
-            await tables.Heads.DeleteWhereAsync(HeadRow.Columns.Entry == row.Hash, CancellationToken.None).ConfigureAwait(false);
+            await tables.Parents.DeleteWhereAsync(ParentRow.Columns.Child == row.Hash, CancellationToken.None).ConfigureAwait(false);
+            long heads = await tables.Heads.DeleteWhereAsync(HeadRow.Columns.Entry == row.Hash, CancellationToken.None).ConfigureAwait(false);
+            if (entry is not null)
+            {
+                var package = new PackageId(RowKeys.Hash(entry.Package));
+                state.Heads = state.Heads.Without(package, hash);
+                if (heads > 0)
+                    await ElectHeadAsync(package, entry.Device).ConfigureAwait(false);
+            }
         }
 
         state.Objects--;

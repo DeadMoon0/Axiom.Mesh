@@ -14,4 +14,10 @@ internal enum PackageCommandKind
 
     /// <summary>Set its local retention policy (LOCAL-SPEC.md §14.14).</summary>
     SetPolicy = 3,
+
+    /// <summary>
+    /// Forget it: Listed, no peer lists it any more and nothing of it is pinned, so the record, its Entries, Manifest and
+    /// Grants leave the store (LOCAL-SPEC.md §6.4).
+    /// </summary>
+    Drop = 4,
 }

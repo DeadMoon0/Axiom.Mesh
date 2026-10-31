@@ -1,6 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Axiom.LDB.Entity;
+using Axiom.Mesh.Core.Storage;
 using Axiom.Mesh.Local;
 
 namespace Axiom.Mesh.Core;
@@ -18,21 +20,23 @@ internal static class OperationStarts
     /// <param name="request">The request.</param>
     /// <param name="cancellationToken">Cancelled when the connection ends.</param>
     /// <returns>The answer.</returns>
-    public static ValueTask<LocalAnswer> FetchAsync(RequestContext context, uint correlation, Fetch request, CancellationToken cancellationToken)
+    public static async ValueTask<LocalAnswer> FetchAsync(RequestContext context, uint correlation, Fetch request, CancellationToken cancellationToken)
     {
         MeshNode node = context.Node;
         if (!node.Trust.IsFollowed(request.PackageId))
-            return ValueTask.FromResult(PackageRequests.Unknown(correlation, request.PackageId));
+            return PackageRequests.Unknown(correlation, request.PackageId);
+        if (!await IsOfPackageAsync(node, request.PackageId, request.Hash, cancellationToken).ConfigureAwait(false))
+            return LocalAnswer.Failure(correlation, Status.NotFound, $"No stored Entry of Package {request.PackageId} references {request.Hash}; fetch what the Package's history names (LOCAL-SPEC.md §6.4).", "hash");
 
         (PinReason reason, Hash32 source) = StoreRequests.PinOwner(context.Connection);
-        return ValueTask.FromResult(Start(context, correlation, OperationKind.Fetch, ProgressUnit.Objects, LocalAnswer.Ok<Fetch, uint>, async (progress, ct) =>
+        return Start(context, correlation, OperationKind.Fetch, ProgressUnit.Objects, LocalAnswer.Ok<Fetch, uint>, async (progress, ct) =>
         {
             var fetcher = new ObjectFetcher(node, request.PackageId, request.Recursive, (hash, size, inner) => request.Pin ? PinAsync(node, hash, size, reason, source, inner) : Task.FromResult(true));
             if (await fetcher.RunAsync(request.Hash, progress, ct).ConfigureAwait(false) is { } failed)
                 return failed;
             progress.Report(fetcher.Fetched, fetcher.Fetched, "fetched");
             return OperationOutcome.Done(RecordBytes.Of(new FetchResult { Objects = fetcher.Fetched, Bytes = fetcher.Bytes }));
-        }));
+        });
     }
 
     /// <summary>Pins a stored object for a role, unless that would put the pinned bytes over the budget.</summary>
@@ -49,6 +53,19 @@ internal static class OperationStarts
             return false;
         await node.Writer.SendAsync(new PinCommand(PinCommandKind.Pin, [hash], reason, source), cancellationToken).ConfigureAwait(false);
         return true;
+    }
+
+    // LOCAL-SPEC.md §6.4: the object is one of the Package's, a stored Entry of it or reached from one through the reference
+    // rows (SPEC.md §10.3), before anything is wanted for it (STRUCTURAL-DEBT.md 42).
+    private static async Task<bool> IsOfPackageAsync(MeshNode node, PackageId package, ObjectHash hash, CancellationToken cancellationToken)
+    {
+        await using LdbContext context = await LdbContext.OpenAsync(node.Writer.Database, cancellationToken).ConfigureAwait(false);
+        byte[] packageKey = RowKeys.Of(package.Value);
+        async Task<bool> IsEntryOfThePackage(ObjectHash candidate) =>
+            await context.Set<EntryRow>().FindAsync(RowKeys.Of(candidate.Value), cancellationToken).ConfigureAwait(false) is { } row
+            && row.Package.AsSpan().SequenceEqual(packageKey);
+        return await IsEntryOfThePackage(hash).ConfigureAwait(false)
+            || await ReferenceWalk.UpwardAsync(context, hash, IsEntryOfThePackage, cancellationToken).ConfigureAwait(false) is not null;
     }
 
     private static LocalAnswer Start(RequestContext context, uint correlation, OperationKind kind, ProgressUnit unit, Func<uint, uint, LocalAnswer> ok, Func<OperationProgress, CancellationToken, Task<OperationOutcome>> work)

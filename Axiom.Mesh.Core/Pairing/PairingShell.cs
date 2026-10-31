@@ -75,6 +75,15 @@ internal sealed class PairingShell : IDisposable
     /// <param name="running">The node.</param>
     public void Attach(MeshNode running) => node = running;
 
+    /// <summary>
+    /// The mode of a pairing when it is the current one, read without the lock (the dispatcher asks it before a
+    /// <c>ConfirmPairing</c> runs, LOCAL-SPEC.md §2.2); <see langword="null"/> for any other pairing.
+    /// </summary>
+    /// <param name="pairing">The pairing id the request names.</param>
+    /// <returns>Its mode, or <see langword="null"/>.</returns>
+    public LocalMode? ModeOf(uint pairing) =>
+        Volatile.Read(ref current) is { } run && run.Id == pairing && !run.Machine.IsEnded ? (LocalMode)(byte)run.Machine.Mode : null;
+
     /// <summary>The current or the last pairing (<c>GetPairing</c>); <see langword="null"/> when there was none.</summary>
     /// <returns>The record.</returns>
     public async Task<Pairing?> GetAsync(CancellationToken cancellationToken)

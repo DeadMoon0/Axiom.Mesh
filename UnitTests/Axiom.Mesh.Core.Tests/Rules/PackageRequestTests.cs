@@ -136,6 +136,38 @@ public sealed class PackageRequestTests
         Assert.Empty((await bob.SendAsync(new ListPackages { FollowedOnly = true }, None)).Value.Packages);
     }
 
+    // §6.4: UnfollowPackage returns the record to Listed while a peer lists it, else drops it with its Entries; a Listed
+    // Package the last peer that listed it omits (here: a revocation) is dropped then. A peer that is merely away keeps it.
+    [Fact]
+    public async Task AnUnfollowedPackageNoPeerListsIsDropped_AndSoIsAListedOneTheLastListerOmits()
+    {
+        await using TestMesh mesh = await TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop", "bob-desktop") with { Trust = TrustSeed.MutuallyKnown("alice-laptop", "bob-desktop"), Silent = ["alice-laptop", "bob-desktop"] }, None);
+        TestNode alice = mesh["alice-laptop"];
+        TestNode bob = mesh["bob-desktop"];
+        PackageId channel = await alice.CreatePackageAsync("Family", PackageKind.Channel, Retention.Default, None);
+        await alice.GrantAsync(channel, "bob", GrantRights.Read, None);
+        ObjectHash entry = await alice.WriteEntryAsync(channel, new Axiom.Mesh.Payloads.MessagePayload { Text = "hello", Attachments = [], ReplyTo = default }, None);
+        await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
+        await mesh.SettleAsync(None);
+        await bob.FollowAsync(channel, None);
+        await bob.WaitForEntryAsync(entry, None);
+
+        await mesh.StopNodeAsync("alice-laptop", None);
+        LocalClient client = await bob.ConnectUserAsync("app", None);
+        Assert.True((await client.SendAsync(new UnfollowPackage { PackageId = channel }, None)).IsOk);
+        Assert.Empty((await client.SendAsync(new ListPackages { FollowedOnly = false }, None)).Value.Packages);
+        Assert.False(await bob.Node.ContainsAsync(entry, None));
+
+        await mesh.StartNodeAsync("alice-laptop", None);
+        await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
+        await mesh.SettleAsync(None);
+        Assert.Equal([channel], (await client.SendAsync(new ListPackages { FollowedOnly = false }, None)).Value.Packages.Select(p => p.PackageId));
+
+        await mesh["alice-laptop"].GrantAsync(channel, "bob", GrantRights.None, None);
+        await mesh.SettleAsync(None);
+        Assert.Empty((await client.SendAsync(new ListPackages { FollowedOnly = false }, None)).Value.Packages);
+    }
+
     private static PackageNonce Nonce(TestNode node, PackageId package) =>
         node.Node.Trust.TryGetManifest(package, out VerifiedManifest? manifest) ? manifest.Content.Nonce : default;
 }

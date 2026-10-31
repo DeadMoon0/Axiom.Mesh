@@ -73,14 +73,17 @@ public abstract class ConventionTests<TAnchor>
     }
 
     // A grant between packages is a surface somebody needed and nobody added. The only exempt reader is the package's
-    // own test assembly, derived from the assembly name, never matched by a name pattern.
+    // own test assembly, derived from the assembly name, never matched by a name pattern. One deliberate exception: Core
+    // opens its internals to the benchmark suite, which measures the store writer, the object store and the index
+    // directly (plan §5) and ships nothing, so no package can come to depend on what it sees.
     [Fact]
     public void InternalsAreOpenToTheOwnTestAssemblyOnly()
     {
         string ownTests = PackageName + ".Tests";
+        string? measuredBy = PackageName == Core ? "Axiom.Mesh.Benchmarks" : null;
         var offenders = Package.GetCustomAttributes<InternalsVisibleToAttribute>()
             .Select(a => a.AssemblyName.Split(',')[0].Trim())
-            .Where(name => name != ownTests)
+            .Where(name => name != ownTests && name != measuredBy)
             .ToList();
 
         Assert.True(offenders.Count == 0, "Internals opened to other assemblies: " + string.Join(", ", offenders));

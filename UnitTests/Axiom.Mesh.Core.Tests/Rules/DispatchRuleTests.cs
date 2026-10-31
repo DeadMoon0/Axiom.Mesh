@@ -43,4 +43,21 @@ public sealed class DispatchRuleTests
         IReadOnlyList<string> listed = confined ? ["/usr/bin/axiom-mesh"] : [];
         Assert.Equal(permitted, DispatchRule.Permits(executable, listed, StringComparison.Ordinal));
     }
+
+    // §2.2: ConfirmPairing spends the user key in modes ShowUser, JoinUser and AddDevice, not in ShowDevice, where the device
+    // holds no user key; a pairing that is not the current one (no mode) counts as spending it. Other requests follow the table.
+    [Theory]
+    [InlineData((ushort)273, (byte)PairingMode.ShowUser, true)] // ConfirmPairing pairing with another user, showing
+    [InlineData((ushort)273, (byte)PairingMode.JoinUser, true)] // the same, entering
+    [InlineData((ushort)273, (byte)PairingMode.AddDevice, true)] // enrolling a device signs a new Roster
+    [InlineData((ushort)273, (byte)PairingMode.ShowDevice, false)] // the device being enrolled has no user key
+    [InlineData((ushort)273, (byte)0, true)] // no current pairing of that id: confined like the others
+    [InlineData((ushort)312, (byte)0, true)] // SetGrant, always
+    [InlineData((ushort)256, (byte)0, false)] // GetIdentity, never
+    public void ConfirmPairingSpendsTheUserKeyInEveryModeButShowDevice(ushort id, byte mode, bool spends)
+    {
+        Assert.True(RequestRoutes.Default.TryGet(id, out RequestRoute route));
+        LocalRequest request = id == ConfirmPairing.Id ? new ConfirmPairing { PairingId = 7 } : id == SetGrant.Id ? new SetGrant { PackageId = default, GranteeId = default, Rights = GrantRights.Read } : new GetIdentity();
+        Assert.Equal(spends, DispatchRule.SpendsUserKey(route, request, mode == 0 ? null : (PairingMode)mode));
+    }
 }

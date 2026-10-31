@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace Axiom.Mesh.Local;
 
 /// <summary>
-/// A file <see cref="StoreFiles.PutFileAsync"/> stored: its ChunkList (SPEC.md §8.3), which names it, and every object
+/// A file <see cref="StoreFiles.PutFileAsync(LocalClient, string, int, System.IProgress{long}, System.Threading.CancellationToken)"/> stored: its ChunkList (SPEC.md §8.3), which names it, and every object
 /// put for it, which carry this service's pins until it releases them (LOCAL-SPEC.md §9.5).
 /// </summary>
 public sealed record StoredFile

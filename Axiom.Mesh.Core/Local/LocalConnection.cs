@@ -25,8 +25,8 @@ internal sealed class LocalConnection
     private readonly Session<IClientMessage, IHostMessage> session;
     private readonly LinkActivity activity;
     private readonly CancellationTokenSource ending = new();
-    private readonly Channel<(RequestRoute Route, RequestFrame Frame)> ordered =
-        Channel.CreateBounded<(RequestRoute, RequestFrame)>(new BoundedChannelOptions(Limits.MaxOutstandingRequests) { SingleReader = true });
+    private readonly Channel<(RequestRoute Route, RequestFrame Frame, bool UserKey)> ordered =
+        Channel.CreateBounded<(RequestRoute, RequestFrame, bool)>(new BoundedChannelOptions(Limits.MaxOutstandingRequests) { SingleReader = true });
     private readonly object livenessGate = new();
     private ITimer? liveness;
     private ulong lastNonce;
@@ -300,26 +300,27 @@ internal sealed class LocalConnection
             return;
         }
 
-        bool permitted = !route.UserKey || DispatchRule.Permits(Origin.Executable, port.Options.ConfineUserKeyRequestsTo, port.PathComparison);
+        bool userKey = DispatchRule.SpendsUserKey(route, frame.Request, frame.Request is ConfirmPairing confirm ? port.Node.Pairings.ModeOf(confirm.PairingId) : null);
+        bool permitted = !userKey || DispatchRule.Permits(Origin.Executable, port.Options.ConfineUserKeyRequestsTo, port.PathComparison);
         (Status status, string message) = DispatchRule.Check(route, Role, port.Node.Trust.Self is not null, IsDraining, permitted);
         if (status != Status.Ok)
         {
-            Answer(route, LocalAnswer.Failure(frame.Correlation, status, message, string.Empty));
+            Answer(route, userKey, LocalAnswer.Failure(frame.Correlation, status, message, string.Empty));
             return;
         }
 
         if (route.Ordered)
-            ordered.Writer.TryWrite((route, frame));
+            ordered.Writer.TryWrite((route, frame, userKey));
         else
-            _ = RunAsync(route, frame);
+            _ = RunAsync(route, frame, userKey);
     }
 
     private async Task ApplyOrderedAsync()
     {
         try
         {
-            await foreach ((RequestRoute route, RequestFrame frame) in ordered.Reader.ReadAllAsync(ending.Token).ConfigureAwait(false))
-                await RunAsync(route, frame).ConfigureAwait(false);
+            await foreach ((RequestRoute route, RequestFrame frame, bool userKey) in ordered.Reader.ReadAllAsync(ending.Token).ConfigureAwait(false))
+                await RunAsync(route, frame, userKey).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -327,7 +328,7 @@ internal sealed class LocalConnection
         }
     }
 
-    private async Task RunAsync(RequestRoute route, RequestFrame frame)
+    private async Task RunAsync(RequestRoute route, RequestFrame frame, bool userKey)
     {
         LocalAnswer answer;
         try
@@ -352,12 +353,12 @@ internal sealed class LocalConnection
             answer = LocalAnswer.Failure(frame.Correlation, Status.IoError, "The Host could not complete the request: " + ex.Message, ex.GetType().Name);
         }
 
-        Answer(route, answer);
+        Answer(route, userKey, answer);
     }
 
-    private void Answer(RequestRoute route, LocalAnswer answer)
+    private void Answer(RequestRoute route, bool userKey, LocalAnswer answer)
     {
-        if (route.UserKey)
+        if (userKey)
             LocalLog.UserKeyRequest(port.Log, route.Descriptor.Name, route.Descriptor.Id, Origin.Pid, Origin.Executable, Origin.User, Id, answer.Status.ToString());
         if (!Outbox.Enqueue(answer.Frame()))
             CloseUnresponsive("more than 64 MiB waited for the client to read them (LOCAL-SPEC.md §7.4)");

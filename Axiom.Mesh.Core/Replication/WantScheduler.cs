@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using TransferDirection = Axiom.Mesh.Local.TransferDirection;
 using TransferState = Axiom.Mesh.Local.TransferState;
 using Axiom.Mesh.Protocol;
@@ -33,6 +34,7 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
     private readonly ITimer timer;
     private readonly TransferLog transfers;
     private bool disposed;
+    private TaskCompletionSource sourcesChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>A scheduler on the node's clock.</summary>
     /// <param name="time">The clock the 30-second re-ask runs on.</param>
@@ -60,7 +62,12 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
         get
         {
             lock (gate)
-                return wants.Values.Count(w => !w.Arrived && w.Asks.Count == 0 && !w.Sources.Any(peers.ContainsKey));
+            {
+                int waiting = 0;
+                foreach (Wanted want in wants.Values)
+                    waiting += !want.Arrived && want.Asks.Count == 0 && !want.HasSourceAmong(peers) ? 1 : 0;
+                return waiting;
+            }
         }
     }
 
@@ -72,7 +79,15 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
         get
         {
             lock (gate)
-                return wants.Values.All(w => w.Arrived || (w.Asks.Count == 0 && !w.Sources.Any(peers.ContainsKey)));
+            {
+                foreach (Wanted want in wants.Values)
+                {
+                    if (!want.Arrived && (want.Asks.Count > 0 || want.HasSourceAmong(peers)))
+                        return false;
+                }
+
+                return true;
+            }
         }
     }
 
@@ -122,8 +137,22 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
             peers[device] = peer;
         }
 
+        SourcesChanged();
         Pump();
     }
+
+    /// <summary>
+    /// A task that completes the next time what the peers may supply changes: a session attached or ended, a
+    /// <c>Have</c>, a <c>NotFound</c>, or a listing a session completed (<see cref="SourcesChanged"/>). Take it before
+    /// looking at the sources, so a change after the look is not missed. Waiting fetches wake on it instead of polling
+    /// (STRUCTURAL-DEBT.md 43).
+    /// </summary>
+    /// <returns>The task.</returns>
+    public Task WhenSourcesChange() => Volatile.Read(ref sourcesChanged).Task;
+
+    /// <summary>What the peers may supply changed: a session's listing completed or a <c>PackageChanged</c> arrived.</summary>
+    public void SourcesChanged() =>
+        Interlocked.Exchange(ref sourcesChanged, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
 
     /// <summary>A session to a peer ended: what was asked on it is asked elsewhere, and, if it was the current one, the peer's claims are forgotten.</summary>
     /// <param name="device">The peer.</param>
@@ -141,6 +170,7 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
                 want.Asks.RemoveAll(a => a.Peer.Device == device && a.Peer.Connection == connection);
         }
 
+        SourcesChanged();
         Pump();
     }
 
@@ -194,8 +224,10 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
             }
         }
 
-        if (gained)
-            Pump();
+        if (!gained)
+            return;
+        SourcesChanged();
+        Pump();
     }
 
     /// <summary>
@@ -268,6 +300,7 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
         }
 
         transfers.Record(device, package, hash, TransferDirection.In, 0, TransferState.NotFound);
+        SourcesChanged();
         Pump();
     }
 
@@ -280,7 +313,7 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
     public bool HasSource(ObjectHash hash)
     {
         lock (gate)
-            return wants.TryGetValue(hash, out Wanted? want) && (want.Asks.Count > 0 || want.Sources.Exists(peers.ContainsKey));
+            return wants.TryGetValue(hash, out Wanted? want) && (want.Asks.Count > 0 || want.HasSourceAmong(peers));
     }
 
     /// <summary>
@@ -386,7 +419,7 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
                 Peer? best = null;
                 foreach (DeviceId source in want.Sources)
                 {
-                    if (!peers.TryGetValue(source, out Peer? peer) || peer.Budget.Remaining == 0 || want.Asks.Exists(a => a.Peer.Device == source))
+                    if (!peers.TryGetValue(source, out Peer? peer) || peer.Budget.Remaining == 0 || want.IsAskedOf(source))
                         continue;
                     if (best is null || peer.Budget.Outstanding < best.Budget.Outstanding)
                         best = peer;
@@ -453,6 +486,29 @@ internal sealed class WantScheduler : IWantedSet, IDisposable
         public List<Ask> Asks { get; } = [];
 
         public bool Arrived { get; set; }
+
+        // Loops, not LINQ: the settle checks and every pump ask these of every want, and a delegate per call adds up.
+        public bool HasSourceAmong(Dictionary<DeviceId, Peer> attachedPeers)
+        {
+            foreach (DeviceId source in Sources)
+            {
+                if (attachedPeers.ContainsKey(source))
+                    return true;
+            }
+
+            return false;
+        }
+
+        public bool IsAskedOf(DeviceId device)
+        {
+            foreach (Ask ask in Asks)
+            {
+                if (ask.Peer.Device == device)
+                    return true;
+            }
+
+            return false;
+        }
 
         public bool AddSource(DeviceId device)
         {

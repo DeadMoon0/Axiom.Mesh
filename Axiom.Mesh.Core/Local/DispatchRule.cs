@@ -36,6 +36,22 @@ internal static class DispatchRule
         return (Status.Ok, string.Empty);
     }
 
+    /// <summary>
+    /// Whether a request spends the user key (§2.2): the table says so, except for <c>ConfirmPairing</c>, which does in modes
+    /// <c>ShowUser</c>, <c>JoinUser</c> and <c>AddDevice</c> and not in <c>ShowDevice</c>, where the device has no user key to
+    /// spend. A pairing that is not the current one counts as spending it: the request fails anyway, and confinement errs on
+    /// the side of one request too many (STRUCTURAL-DEBT.md 34).
+    /// </summary>
+    /// <param name="route">The request's row.</param>
+    /// <param name="request">The request.</param>
+    /// <param name="pairingMode">For <c>ConfirmPairing</c>, the mode of the pairing it names when that is the current one; else <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when the request is logged and confinable as a user-key request.</returns>
+    public static bool SpendsUserKey(RequestRoute route, LocalRequest request, PairingMode? pairingMode)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        return route.UserKey && !(request is ConfirmPairing && pairingMode == PairingMode.ShowDevice);
+    }
+
     /// <summary>Whether a connection's executable may send user-key requests (§2.2): any, when nothing is listed.</summary>
     /// <param name="executable">The connection's executable; empty when the platform did not say.</param>
     /// <param name="confineTo">The listed executables.</param>

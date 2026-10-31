@@ -19,9 +19,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The package's own test project, and nobody else. -->
+    <!-- The package's own test project, and the benchmark suite (ConventionTests.InternalsAreOpenToTheOwnTestAssemblyOnly). -->
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>Axiom.Mesh.Core.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <!-- The benchmark suite measures the store writer, the object store and the index directly (plan §5); it ships nothing. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Axiom.Mesh.Benchmarks</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
 

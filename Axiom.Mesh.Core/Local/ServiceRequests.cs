@@ -87,12 +87,17 @@ internal static class ServiceRequests
         if (PutRule.Check(request.Object.ToArray(), out StorableObject? storable) is { } refusal)
             return refusal.Answer(correlation);
 
+        // The object and its pin are queued back to back, so they usually commit in one batch: a put costs one commit, and
+        // concurrent puts (PutObject writes no Package and is not ordered, LOCAL-SPEC.md §3.4) share theirs. A pin of an object
+        // the store refused is a no-op.
         MeshNode node = context.Node;
-        AdmitResult stored = await node.Store.PutAsync(storable!, cancellationToken).ConfigureAwait(false);
+        (PinReason reason, Hash32 source) = StoreRequests.PinOwner(context.Connection);
+        Task<AdmitResult> admitted = await node.Writer.EnqueueAsync(new AdmitCommand(storable!, Origin.Local, null, null), cancellationToken).ConfigureAwait(false);
+        Task<int> pinned = await node.Writer.EnqueueAsync(new PinCommand(PinCommandKind.Pin, [storable!.Hash], reason, source), cancellationToken).ConfigureAwait(false);
+        AdmitResult stored = await admitted.ConfigureAwait(false);
+        await pinned.ConfigureAwait(false);
         if (stored.Outcome == AdmitOutcome.StoreFull)
             return PackageRequests.StoreFull(correlation);
-        (PinReason reason, Hash32 source) = StoreRequests.PinOwner(context.Connection);
-        await node.Writer.SendAsync(new PinCommand(PinCommandKind.Pin, [storable!.Hash], reason, source), cancellationToken).ConfigureAwait(false);
         return LocalAnswer.Ok<PutObject, LocalStoredObject>(correlation, new LocalStoredObject { Hash = storable.Hash, Stored = stored.Outcome == AdmitOutcome.Stored });
     }
 

@@ -87,13 +87,10 @@ internal sealed class PeerSessionHandler : ISessionHandler<MeshMessage, MeshMess
         {
             Hello own = OwnHello(current, self);
             await session.WriteAsync(own, CancellationToken.None).ConfigureAwait(false); // a write begun is finished (ReplicationSession)
-            ProtocolReadResult<MeshMessage> first;
-            try
+            // The read is abandoned, never cancelled, when the frame bound passes or the node drains (STRUCTURAL-DEBT.md 53).
+            if (await AbandonableRead.ReadAsync(session, reading.Token).ConfigureAwait(false) is not { } first)
             {
-                first = await session.ReadAsync(reading.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (frameLate.IsCancellationRequested)
-            {
+                stopping.ThrowIfCancellationRequested();
                 table.RefusedBeforeHello(tracked, FrameLate);
                 ended = await ViolatedAsync(session, tracked, FrameLate).ConfigureAwait(false);
                 return;

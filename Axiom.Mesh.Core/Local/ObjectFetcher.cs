@@ -17,7 +17,6 @@ namespace Axiom.Mesh.Core;
 internal sealed class ObjectFetcher
 {
     private static readonly TimeSpan WithoutSource = TimeSpan.FromSeconds(Limits.FetchWithoutSourceSeconds);
-    private static readonly TimeSpan Look = TimeSpan.FromSeconds(1);
 
     private readonly MeshNode node;
     private readonly PackageId package;
@@ -75,13 +74,15 @@ internal sealed class ObjectFetcher
                 if (missing.Count == 0)
                     return null;
 
+                // Taken before the sources are looked at, so a session that lists the Package after the look wakes the fetch.
+                Task sourcesChange = wants.WhenSourcesChange();
                 List<PlannedWant> planned = [.. missing.Select(h => new PlannedWant(h, WantKind.Fetch))];
                 wants.Want(planned, package, null);
                 foreach (DeviceId peer in node.Replicating.ListedBy(package))
                     wants.Want(planned, package, peer);
 
                 ObjectHash? lacking = missing.Where(h => !wants.HasSource(h)).Select(h => (ObjectHash?)h).FirstOrDefault();
-                TimeSpan wait = Look;
+                TimeSpan? deadline = null;
                 string message = $"fetching {missing.Count} objects";
                 if (lacking is { } without)
                 {
@@ -93,7 +94,7 @@ internal sealed class ObjectFetcher
                         return OperationOutcome.Failed(Status.NotFound, $"No peer can supply {without}: none is connected that lists the Package, or every one answered NotFound.");
                     }
 
-                    wait = WithoutSource - waited < Look ? WithoutSource - waited : Look;
+                    deadline = WithoutSource - waited;
                     message = $"waiting for a source of {without}";
                 }
                 else
@@ -101,14 +102,16 @@ internal sealed class ObjectFetcher
                     sourceless = null;
                 }
 
-                // The next look is armed before progress says where the fetch stands, so a clock moved after it finds it.
+                // Woken by a stored object, a change of sources, or the 60-second deadline; nothing polls (STRUCTURAL-DEBT.md
+                // 43). The deadline is armed before progress says where the fetch stands, so a clock moved after it finds it.
                 using var tick = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 if (following)
                     reading ??= changes.Reader.WaitToReadAsync(cancellationToken).AsTask();
-                Task due = Task.Delay(wait, time, tick.Token);
+                Task due = deadline is { } left ? Task.Delay(left, time, tick.Token) : Task.Delay(Timeout.InfiniteTimeSpan, tick.Token);
                 progress.Report(objects, objects + (ulong)missing.Count, message);
-                await (reading is null ? due : Task.WhenAny(reading, due)).ConfigureAwait(false);
+                await Task.WhenAny(reading ?? due, sourcesChange, due).ConfigureAwait(false);
                 await tick.CancelAsync().ConfigureAwait(false);
+                await ((Task)due).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (reading is { IsCompleted: true })
                 {

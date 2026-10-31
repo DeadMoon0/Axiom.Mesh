@@ -21,23 +21,51 @@ public static class StoreFiles
     public const string PartialPrefix = ".axiom-mesh-partial-";
 
     /// <summary>
-    /// Stores a file: reads it once from start to end, cuts it into Chunks of exactly 1 MiB except the last (SPEC.md
-    /// §8.2), puts each with <c>PutObject</c>, then its ChunkList (§8.3). Every object put carries this connection's pin
-    /// (reason <c>Service</c> for a service) until it is released (LOCAL-SPEC.md §9.5). A zero-length file has no Chunks.
+    /// How many Chunks <see cref="PutFileAsync(LocalClient, string, IProgress{long}, CancellationToken)"/> keeps in flight:
+    /// eight 1 MiB buffers, well inside the 64 requests a connection may have outstanding (LOCAL-SPEC.md §3.4).
+    /// </summary>
+    public const int DefaultChunksInFlight = 8;
+
+    /// <summary>
+    /// Stores a file with <see cref="DefaultChunksInFlight"/> Chunks in flight; see
+    /// <see cref="PutFileAsync(LocalClient, string, int, IProgress{long}, CancellationToken)"/>.
     /// </summary>
     /// <param name="client">The connection; a service, since <c>PutObject</c> is a service request.</param>
     /// <param name="path">The file.</param>
     /// <param name="progress">Bytes read so far, or <see langword="null"/>.</param>
     /// <param name="cancellationToken">Cancels reading; the Chunks already put stay, pinned, and no ChunkList is put.</param>
+    /// <returns>The stored file, or why not.</returns>
+    public static Task<LocalResult<StoredFile>> PutFileAsync(LocalClient client, string path, IProgress<long>? progress, CancellationToken cancellationToken) =>
+        PutFileAsync(client, path, DefaultChunksInFlight, progress, cancellationToken);
+
+    /// <summary>
+    /// Stores a file: reads it once from start to end, cuts it into Chunks of exactly 1 MiB except the last (SPEC.md
+    /// §8.2), puts each with <c>PutObject</c>, then its ChunkList (§8.3). Up to <paramref name="chunksInFlight"/> puts are
+    /// outstanding at once, each in a buffer of its own that is reused once the Host answered, so memory stays at that many
+    /// Chunks whatever the file's size; the ChunkList names the Chunks in file order whatever order the Host answers in.
+    /// Every object put carries this connection's pin (reason <c>Service</c> for a service) until it is released
+    /// (LOCAL-SPEC.md §9.5). A zero-length file has no Chunks.
+    /// </summary>
+    /// <param name="client">The connection; a service, since <c>PutObject</c> is a service request.</param>
+    /// <param name="path">The file.</param>
+    /// <param name="chunksInFlight">1 to 64 Chunks outstanding at once; leave room for the connection's other requests.</param>
+    /// <param name="progress">Bytes read so far, or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">
+    /// Cancels reading and waiting; the Chunks already put stay, pinned, and no ChunkList is put. A put already written is
+    /// still applied and answered by the Host; its answer is discarded.
+    /// </param>
     /// <returns>
     /// The stored file, or why not: <c>NotFound</c> for no such path, <c>Invalid</c> for a directory or a file larger than
-    /// a ChunkList can name, <c>IoError</c> when the file system refuses or the file changes while it is read, and any
-    /// refusal of <c>PutObject</c> such as <c>StoreFull</c>.
+    /// a ChunkList can name, <c>IoError</c> when the file system refuses or the file changes while it is read, and the
+    /// first refusal of <c>PutObject</c> in file order, such as <c>StoreFull</c>.
     /// </returns>
-    public static async Task<LocalResult<StoredFile>> PutFileAsync(LocalClient client, string path, IProgress<long>? progress, CancellationToken cancellationToken)
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="chunksInFlight"/> is not 1 to 64.</exception>
+    public static async Task<LocalResult<StoredFile>> PutFileAsync(LocalClient client, string path, int chunksInFlight, IProgress<long>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrEmpty(path);
+        ArgumentOutOfRangeException.ThrowIfLessThan(chunksInFlight, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(chunksInFlight, Limits.MaxOutstandingRequests);
         if (Directory.Exists(path))
             return Refused<StoredFile>(Status.Invalid, $"{path} is a directory, not a regular file.");
 
@@ -59,7 +87,7 @@ public static class StoreFiles
         {
             try
             {
-                return await PutAsync(client, file, path, progress, cancellationToken).ConfigureAwait(false);
+                return await PutAsync(client, file, path, chunksInFlight, progress, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -122,30 +150,40 @@ public static class StoreFiles
         }
     }
 
-    private static async Task<LocalResult<StoredFile>> PutAsync(LocalClient client, FileStream file, string path, IProgress<long>? progress, CancellationToken cancellationToken)
+    private static async Task<LocalResult<StoredFile>> PutAsync(LocalClient client, FileStream file, string path, int chunksInFlight, IProgress<long>? progress, CancellationToken cancellationToken)
     {
         long length = file.Length;
         DateTime changed = File.GetLastWriteTimeUtc(path);
-        byte[] buffer = new byte[Limits.ChunkLength];
         var chunks = new List<ObjectHash>();
         long size = 0;
-        while (true)
+        await using (var window = new ChunkWindow(client, chunksInFlight))
         {
-            int read = await file.ReadAtLeastAsync(buffer, Limits.ChunkLength, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false);
-            if (read == 0)
-                break;
-            if (chunks.Count == Limits.MaxChunkListChunks)
-                return Refused<StoredFile>(Status.Invalid, $"{path} is larger than a ChunkList can name ({Limits.MaxChunkListChunks} Chunks of {Limits.ChunkLength} bytes, SPEC.md §8.3).");
+            while (true)
+            {
+                if (await window.NextBufferAsync().ConfigureAwait(false) is not { } buffer)
+                    return window.Failure!.Value;
+                int read = await file.ReadAtLeastAsync(buffer.AsMemory(Chunker.HeaderLength, Limits.ChunkLength), Limits.ChunkLength, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    window.Return(buffer);
+                    break;
+                }
 
-            Chunk chunk = ObjectBuilders.Chunk(buffer.AsSpan(0, read));
-            LocalResult<StoredObject> put = await client.SendAsync(new PutObject { Object = chunk.Bytes }, cancellationToken).ConfigureAwait(false);
-            if (!put.IsOk)
-                return LocalResult<StoredFile>.Failure(put.Status, put.Error);
-            chunks.Add(chunk.Hash);
-            size += read;
-            progress?.Report(size);
-            if (read < Limits.ChunkLength)
-                break;
+                if (chunks.Count == Limits.MaxChunkListChunks)
+                {
+                    window.Return(buffer);
+                    return Refused<StoredFile>(Status.Invalid, $"{path} is larger than a ChunkList can name ({Limits.MaxChunkListChunks} Chunks of {Limits.ChunkLength} bytes, SPEC.md §8.3).");
+                }
+
+                chunks.Add(window.Put(buffer, Chunker.HeaderLength + read, cancellationToken));
+                size += read;
+                progress?.Report(size);
+                if (read < Limits.ChunkLength)
+                    break;
+            }
+
+            if (await window.CompleteAsync().ConfigureAwait(false) is { } failed)
+                return failed;
         }
 
         if (size != length || file.Length != length || File.GetLastWriteTimeUtc(path) != changed)

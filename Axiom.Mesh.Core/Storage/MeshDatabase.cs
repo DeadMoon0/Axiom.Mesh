@@ -94,6 +94,7 @@ internal sealed class MeshDatabase : IAsyncDisposable
             await context.EnsureTableAsync<PinRow>(cancellationToken).ConfigureAwait(false);
             await context.EnsureTableAsync<PeerRow>(cancellationToken).ConfigureAwait(false);
             await context.EnsureTableAsync<ReferenceRow>(cancellationToken).ConfigureAwait(false);
+            await context.EnsureTableAsync<ParentRow>(cancellationToken).ConfigureAwait(false);
 
             MetaRow epoch = await context.Set<MetaRow>().FindAsync(MetaKeys.StoreEpoch, cancellationToken).ConfigureAwait(false)
                 ?? throw Mismatch("no store epoch", null);

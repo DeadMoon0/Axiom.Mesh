@@ -195,6 +195,11 @@ internal sealed class TrustBuilder
         return true;
     }
 
+    /// <summary>Forgets a Package entirely: no peer lists it and it is not followed (LOCAL-SPEC.md §6.4).</summary>
+    /// <param name="package">The Package.</param>
+    /// <returns><see langword="true"/> when it was known.</returns>
+    public bool Drop(PackageId package) => packages.Remove(package);
+
     /// <summary>Whether a device stands, not removed or removed, in the current Roster of the Package's owner (SPEC.md §9.4).</summary>
     /// <param name="package">The Package.</param>
     /// <param name="device">The device.</param>

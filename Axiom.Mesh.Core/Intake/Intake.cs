@@ -71,7 +71,7 @@ internal sealed class Intake
                     await ReexamineAsync(cancellationToken).ConfigureAwait(false);
                 }
 
-                return new IntakeOutcome(IntakeVerdict.Admitted, null, stored, default);
+                return new IntakeOutcome(IntakeVerdict.Admitted, null, stored, default) { Entry = decision.Storable as AdmittedEntry };
             case IntakeVerdict.Held:
                 Held.Add(new HeldObject(parsed, from, nowMs, decision.Need, context));
                 return new IntakeOutcome(IntakeVerdict.Held, null, null, decision.Need);

@@ -20,9 +20,12 @@ public static class ObjectBuilders
         if (data.Length is < Limits.MinChunkLength or > Limits.ChunkLength)
             throw new ArgumentException($"A Chunk holds 1 to {Limits.ChunkLength} bytes; {data.Length} were given (SPEC.md §8.2).", nameof(data));
 
-        ArrayBufferWriter<byte> output = ObjectEncoding.Start(ObjectTag.Chunk);
-        output.Write(data);
-        return ObjectEncoding.ParseOwn<Chunk>(ObjectEncoding.Finish(output));
+        // One array of the exact size, the data copied once behind the header: the Chunk owns its bytes.
+        byte[] bytes = new byte[Chunker.HeaderLength + data.Length];
+        bytes[0] = (byte)ObjectTag.Chunk;
+        bytes[1] = Objects.Version;
+        data.CopyTo(bytes.AsSpan(Chunker.HeaderLength));
+        return ObjectEncoding.ParseOwn<Chunk>(bytes);
     }
 
     /// <summary>A ChunkList (SPEC.md §8.3).</summary>

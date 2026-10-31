@@ -27,6 +27,7 @@ public sealed class EntityTests
         ["Peers"] = "Device Bytes(32) | User Bytes(32)? | Addresses String | FirstSeenMs Int64 | LastSeenMs Int64 | BackoffUntilMs Int64 | Violations Int32 | ViolationsSinceMs Int64 || ByDevice(Device) unique",
         ["Meta"] = "Name String(32) | Bytes Bytes(65)? | Number UInt64 || ByName(Name) unique",
         ["References"] = "Key Bytes(64) | Referrer Bytes(32) | Target Bytes(32) || ByKey(Key) unique | ByReferrer(Referrer) | ByTarget(Target)",
+        ["Parents"] = "Key Bytes(64) | Child Bytes(32) | Parent Bytes(32) || ByKey(Key) unique | ByChild(Child) | ByParent(Parent)",
     };
 
     // Damage: a renamed, retyped, resized or re-indexed column changes the file format of every existing store; the
@@ -38,7 +39,7 @@ public sealed class EntityTests
         [
             UserRow.Model.Schema, DeviceRow.Model.Schema, PackageRow.Model.Schema, GrantRow.Model.Schema, HeadRow.Model.Schema,
             EntryRow.Model.Schema, ObjectRow.Model.Schema, PinRow.Model.Schema, PeerRow.Model.Schema, MetaRow.Model.Schema,
-            ReferenceRow.Model.Schema,
+            ReferenceRow.Model.Schema, ParentRow.Model.Schema,
         ];
 
         Assert.Equal(Schemas.Keys.Order(), tables.Select(t => t.Name).Order());
@@ -65,6 +66,7 @@ public sealed class EntityTests
         await RoundTripAsync(node, new PeerRow { Device = a, User = b, Addresses = "192.0.2.1:41810\n[2001:db8::1]:41810", FirstSeenMs = 1, LastSeenMs = 2, BackoffUntilMs = 3, Violations = 4, ViolationsSinceMs = 5 });
         await RoundTripAsync(node, new MetaRow { Name = "test.value", Bytes = Bytes(10, 65), Number = 11 });
         await RoundTripAsync(node, new ReferenceRow { Key = Bytes(11, 64), Referrer = a, Target = b });
+        await RoundTripAsync(node, new ParentRow { Key = Bytes(12, 64), Child = a, Parent = b });
     }
 
     private static async Task RoundTripAsync<T>(TestStore node, T row)

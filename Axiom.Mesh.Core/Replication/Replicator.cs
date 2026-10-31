@@ -109,6 +109,29 @@ internal sealed class Replicator : IDisposable
     /// <param name="device">The peer.</param>
     public void SessionStarted(DeviceId device) => intake.Held.OriginBack(Origin.FromPeer(device));
 
+    /// <summary>
+    /// SPEC.md §10.3 ahead of the commit: the parents of an Entry a peer sent, wanted from that peer as soon as intake
+    /// admitted it instead of once its batch committed. A walk down a long history then costs one round trip per Entry,
+    /// while the store commits what arrived in batches behind it (STRUCTURAL-DEBT.md 52). What the Entry references is
+    /// still wanted after the commit, under the retention policy.
+    /// </summary>
+    /// <param name="entry">The admitted Entry.</param>
+    /// <param name="source">The peer that sent it, which holds its parents (§10.4).</param>
+    /// <param name="cancellationToken">Cancels reading the index.</param>
+    /// <returns>A task that completes once the missing parents are wanted.</returns>
+    public async ValueTask WantParentsAsync(AdmittedEntry entry, DeviceId source, CancellationToken cancellationToken)
+    {
+        EntryContent content = entry.Content;
+        if (content.Parents.IsEmpty || !writer.Trust.TryGetPackage(content.Package, out PackageTrust? held) || !held.IsFollowed)
+            return;
+
+        var parents = new List<PlannedWant>(content.Parents.Count);
+        for (int i = 0; i < content.Parents.Count; i++)
+            parents.Add(new PlannedWant(content.Parents[i], WantKind.Parent));
+        await using LdbContext context = await LdbContext.OpenAsync(writer.Database, cancellationToken).ConfigureAwait(false);
+        wants.Want(await MissingAsync(context, parents, cancellationToken).ConfigureAwait(false), content.Package, source);
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -173,17 +196,7 @@ internal sealed class Replicator : IDisposable
                     continue;
 
                 context ??= await LdbContext.OpenAsync(writer.Database, cancellationToken).ConfigureAwait(false);
-                var missing = new List<PlannedWant>(walk.Count);
-                foreach (PlannedWant want in walk)
-                {
-                    if (!wants.IsWanted(want.Hash) && !intake.Held.Contains(want.Hash)
-                        && await context.Set<ObjectRow>().FindAsync(RowKeys.Of(want.Hash.Value), cancellationToken).ConfigureAwait(false) is null)
-                    {
-                        missing.Add(want);
-                    }
-                }
-
-                wants.Want(missing, id, stored.Origin.Peer);
+                wants.Want(await MissingAsync(context, walk, cancellationToken).ConfigureAwait(false), id, stored.Origin.Peer);
             }
         }
         finally
@@ -191,6 +204,22 @@ internal sealed class Replicator : IDisposable
             if (context is not null)
                 await context.DisposeAsync().ConfigureAwait(false);
         }
+    }
+
+    // SPEC.md §10.3: never want what is held, wanted already, or waiting in the held buffer.
+    private async Task<List<PlannedWant>> MissingAsync(LdbContext context, IReadOnlyList<PlannedWant> planned, CancellationToken cancellationToken)
+    {
+        var missing = new List<PlannedWant>(planned.Count);
+        foreach (PlannedWant want in planned)
+        {
+            if (!wants.IsWanted(want.Hash) && !intake.Held.Contains(want.Hash)
+                && await context.Set<ObjectRow>().FindAsync(RowKeys.Of(want.Hash.Value), cancellationToken).ConfigureAwait(false) is null)
+            {
+                missing.Add(want);
+            }
+        }
+
+        return missing;
     }
 
     private static Dictionary<ObjectHash, PackageId> EntriesOf(ChangeSet set)

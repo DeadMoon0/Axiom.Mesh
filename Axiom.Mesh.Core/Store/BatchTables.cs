@@ -22,6 +22,7 @@ internal sealed class BatchTables
         Pins = new(transaction);
         Peers = new(transaction);
         References = new(transaction);
+        Parents = new(transaction);
     }
 
     /// <summary>The names of every table a batch may write.</summary>
@@ -29,7 +30,7 @@ internal sealed class BatchTables
     [
         Rows<MetaRow>.Table, Rows<UserRow>.Table, Rows<DeviceRow>.Table, Rows<PackageRow>.Table, Rows<GrantRow>.Table,
         Rows<HeadRow>.Table, Rows<EntryRow>.Table, Rows<ObjectRow>.Table, Rows<PinRow>.Table, Rows<PeerRow>.Table,
-        Rows<ReferenceRow>.Table,
+        Rows<ReferenceRow>.Table, Rows<ParentRow>.Table,
     ];
 
     /// <summary>The <c>Meta</c> table.</summary>
@@ -64,4 +65,7 @@ internal sealed class BatchTables
 
     /// <summary>The <c>References</c> table.</summary>
     public Rows<ReferenceRow> References { get; }
+
+    /// <summary>The <c>Parents</c> table.</summary>
+    public Rows<ParentRow> Parents { get; }
 }

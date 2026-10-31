@@ -16,7 +16,6 @@ namespace Axiom.Mesh.Core;
 /// </summary>
 internal sealed class ServedObjects
 {
-    private const int MaxVisited = 4_096;
     private const int MaxRemembered = 65_536;
 
     private readonly UserId peer;
@@ -80,32 +79,18 @@ internal sealed class ServedObjects
     // Upwards through the references (SPEC.md §9.7): breadth first to the Entries that name the object, bounded.
     private async Task<bool> MayServeThroughAsync(LdbContext context, ObjectHash hash, TrustSnapshot trust, CancellationToken cancellationToken)
     {
-        var seen = new HashSet<ObjectHash> { hash };
-        var frontier = new Queue<ObjectHash>();
-        frontier.Enqueue(hash);
-        while (frontier.TryDequeue(out ObjectHash next) && seen.Count <= MaxVisited)
-        {
-            List<ReferenceRow> referrers = await context.Set<ReferenceRow>().ReadOnlyQuery()
-                .Where(ReferenceRow.Columns.Target == RowKeys.Of(next.Value))
-                .ToListAsync(cancellationToken).ConfigureAwait(false);
-            foreach (ReferenceRow reference in referrers)
-            {
-                var referrer = new ObjectHash(RowKeys.Hash(reference.Referrer));
-                if (!seen.Add(referrer))
-                    continue;
-                if (visible.Contains(referrer)
-                    || await MayServeEntryAsync(context, referrer, trust, cancellationToken).ConfigureAwait(false))
-                {
-                    Remember(referrer);
-                    Remember(hash);
-                    return true;
-                }
-
-                frontier.Enqueue(referrer);
-            }
-        }
-
-        return false;
+        // The whole path down from a visible Entry is remembered once found, so the next Chunk of the same ChunkList
+        // stops at its ChunkList instead of walking up to the Entry again (STRUCTURAL-DEBT.md 27).
+        IReadOnlyList<ObjectHash>? path = await ReferenceWalk.UpwardAsync(
+            context,
+            hash,
+            async referrer => visible.Contains(referrer) || await MayServeEntryAsync(context, referrer, trust, cancellationToken).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+        if (path is null)
+            return false;
+        foreach (ObjectHash on in path)
+            Remember(on);
+        return true;
     }
 
     private void Remember(ObjectHash hash)

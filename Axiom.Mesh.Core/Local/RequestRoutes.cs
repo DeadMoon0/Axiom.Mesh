@@ -28,6 +28,10 @@ internal sealed class RequestRoutes
     // §3.4: what a Draining session still serves.
     private static readonly FrozenSet<ushort> WhileDraining = new ushort[] { 401, 416, 417, 418 }.ToFrozenSet();
 
+    // §3.4: requests that write but touch no Package, so nothing orders them against the connection's other requests: a
+    // PutObject stores an object named by its hash, idempotently, and many run at once (STRUCTURAL-DEBT.md 57).
+    private static readonly FrozenSet<ushort> Unordered = new ushort[] { PutObject.Id }.ToFrozenSet();
+
     private readonly FrozenDictionary<ushort, RequestRoute> routes;
 
     private RequestRoutes(IEnumerable<RequestRoute> rows) => routes = rows.ToFrozenDictionary(r => r.Descriptor.Id);
@@ -108,7 +112,7 @@ internal sealed class RequestRoutes
             NeedingIdentity.Contains(d.Id),
             SpendingUserKey.Contains(d.Id),
             WhileDraining.Contains(d.Id),
-            Ordered: !d.Name.StartsWith("Get", StringComparison.Ordinal) && !d.Name.StartsWith("List", StringComparison.Ordinal))));
+            Ordered: !d.Name.StartsWith("Get", StringComparison.Ordinal) && !d.Name.StartsWith("List", StringComparison.Ordinal) && !Unordered.Contains(d.Id))));
     }
 
     /// <summary>A typed handler as a row's handler.</summary>

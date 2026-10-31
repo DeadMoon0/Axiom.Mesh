@@ -11,7 +11,7 @@ namespace Axiom.Mesh.Local;
 public static class Trees
 {
     /// <summary>
-    /// Stores a directory: every regular file below it with <see cref="StoreFiles.PutFileAsync"/> (symbolic links and
+    /// Stores a directory: every regular file below it with <see cref="StoreFiles.PutFileAsync(LocalClient, string, int, System.IProgress{long}, System.Threading.CancellationToken)"/> (symbolic links and
     /// other special files are left out), then one Tree per directory, the deepest first, each put with
     /// <c>PutObject</c>. The result's root is what an Entry references; its objects carry this connection's pins until
     /// it releases them with <c>Unpin</c> after writing the Entry (LOCAL-SPEC.md §9.5).
@@ -22,7 +22,7 @@ public static class Trees
     /// <param name="cancellationToken">Cancels the work; what was put stays, pinned.</param>
     /// <returns>
     /// The published Tree, or why not: <c>NotFound</c> for no such directory, <c>Invalid</c> for a name a Tree may not
-    /// hold, and every refusal of <see cref="StoreFiles.PutFileAsync"/>.
+    /// hold, and every refusal of <see cref="StoreFiles.PutFileAsync(LocalClient, string, int, System.IProgress{long}, System.Threading.CancellationToken)"/>.
     /// </returns>
     public static async Task<LocalResult<PublishedTree>> PublishDirectoryAsync(LocalClient client, string directory, IProgress<long>? progress, CancellationToken cancellationToken)
     {

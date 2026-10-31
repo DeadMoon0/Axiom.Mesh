@@ -130,6 +130,57 @@ public sealed class StoreFilesTests
         Assert.True(await mesh[LocalMeshes.Node].Node.ContainsAsync(none.ChunkList, None));
     }
 
+    // §9.5, SPEC.md §8.2, §8.3: with several Chunks in flight the ChunkList names the Chunks in file order, the same file
+    // as with one at a time; a window outside 1 to 64 (LOCAL-SPEC.md §3.4) is the caller's mistake.
+    [Fact]
+    public async Task APipelinedPutStoresTheSameFileInFileOrderAsOneAtATime()
+    {
+        await using TestMesh mesh = await LocalMeshes.StartAsync();
+        using var temp = new TempDirectory();
+        LocalClient cli = await ArchiveServiceAsync(mesh);
+        byte[] content = DistinctChunks(5, 777, 40);
+        string path = Path.Combine(temp.Path, "five.bin");
+        File.WriteAllBytes(path, content);
+
+        StoredFile pipelined = Ok(await StoreFiles.PutFileAsync(cli, path, 4, null, None));
+        StoredFile alone = Ok(await StoreFiles.PutFileAsync(cli, path, 1, null, None));
+
+        ChunkedFile expected = Chunker.Cut(content);
+        Assert.Equal(expected.List.Hash, pipelined.ChunkList);
+        Assert.Equal(expected.Chunks.Select(c => c.Hash), pipelined.Chunks);
+        Assert.Equal((pipelined.ChunkList, pipelined.Size), (alone.ChunkList, alone.Size));
+        foreach (Chunk chunk in expected.Chunks)
+            Assert.True(await mesh[LocalMeshes.Node].Node.ContainsAsync(chunk.Hash, None));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => StoreFiles.PutFileAsync(cli, path, 0, null, None));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => StoreFiles.PutFileAsync(cli, path, Limits.MaxOutstandingRequests + 1, null, None));
+    }
+
+    // §6.5, §9.5: a put the Host refuses part-way (the pinned bytes would pass the budget) ends the file with that refusal;
+    // no ChunkList is put, and no put is left outstanding on the connection.
+    [Fact]
+    public async Task APipelinedPutThatTheHostRefusesPartWayEndsWithTheRefusalAndPutsNoChunkList()
+    {
+        await using TestMesh mesh = await LocalMeshes.StartAsync();
+        using var temp = new TempDirectory();
+        LocalClient cli = await ArchiveServiceAsync(mesh);
+        LocalClient user = await mesh[LocalMeshes.Node].ConnectUserAsync("app", None);
+        ulong pinned = (await user.SendAsync(new GetStore(), None)).Value.PinnedBytes;
+        Assert.True((await user.SendAsync(new SetStoreBudget { Bytes = pinned + (2 * (ulong)Limits.ChunkLength) + 100 }, None)).IsOk);
+        byte[] content = DistinctChunks(6, 0, 60);
+        string path = Path.Combine(temp.Path, "six.bin");
+        File.WriteAllBytes(path, content);
+
+        LocalResult<StoredFile> refused = await StoreFiles.PutFileAsync(cli, path, 3, null, None);
+
+        Assert.Equal(Status.StoreFull, refused.Status);
+        Assert.False(await mesh[LocalMeshes.Node].Node.ContainsAsync(Chunker.Cut(content).List.Hash, None));
+        Assert.True((await cli.SendAsync(new GetStorePath(), None)).Status is Status.Ok or Status.NotPermitted);
+    }
+
+    // Content whose every 1 MiB part differs (ObjectFixtures.Content repeats every 64 KiB, so its Chunks would be one object).
+    private static byte[] DistinctChunks(int chunks, int remainder, byte seed) =>
+        [.. Enumerable.Range(0, chunks).SelectMany(i => ObjectFixtures.Content(Limits.ChunkLength, (byte)(seed + i))), .. ObjectFixtures.Content(remainder, (byte)(seed + chunks))];
+
     private static async Task<LocalClient> ArchiveServiceAsync(TestMesh mesh)
     {
         LocalClient cli = await mesh[LocalMeshes.Node].ConnectServiceAsync("cli", LocalMeshes.CliToken, None);

@@ -578,15 +578,21 @@ public sealed class MeshNode : IAsyncDisposable
         writer.SendAsync(new PackageCommand(PackageCommandKind.Follow, package, LocalRetention.Default), cancellationToken);
 
     /// <summary>
-    /// Stops following a Package (LOCAL-SPEC.md §6.3): it is listed again, its wants are cancelled, and what it pinned for
+    /// Stops following a Package (LOCAL-SPEC.md §6.4): it is Listed again while an established peer lists it, else it is
+    /// dropped with its Entries unless something of it is still pinned; its wants are cancelled, and what it pinned for
     /// history and policy may be evicted; what this device wrote stays pinned until sent once (SPEC.md §11.2). The own
     /// Packages cannot be unfollowed.
     /// </summary>
     /// <param name="package">The Package.</param>
     /// <param name="cancellationToken">Cancels waiting for the store.</param>
     /// <returns><see langword="true"/> when the node followed it before.</returns>
-    public Task<bool> UnfollowAsync(PackageId package, CancellationToken cancellationToken) =>
-        writer.SendAsync(new PackageCommand(PackageCommandKind.Unfollow, package, LocalRetention.Default), cancellationToken);
+    public async Task<bool> UnfollowAsync(PackageId package, CancellationToken cancellationToken)
+    {
+        bool unfollowed = await writer.SendAsync(new PackageCommand(PackageCommandKind.Unfollow, package, LocalRetention.Default), cancellationToken).ConfigureAwait(false);
+        if (unfollowed && Replicating.ListedBy(package).Count == 0)
+            await writer.SendAsync(new PackageCommand(PackageCommandKind.Drop, package, LocalRetention.Default), cancellationToken).ConfigureAwait(false);
+        return unfollowed;
+    }
 
     /// <summary>
     /// Stores an object made here (SPEC.md §11.1): a Manifest or Grant the own user signed, a Chunk, ChunkList or Tree of

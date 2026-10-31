@@ -26,6 +26,7 @@ namespace Axiom.Mesh.Testing;
 public sealed class ScriptedPeer : IAsyncDisposable
 {
     private readonly SslStream tls;
+    private readonly SerialWriteStream writes;
     private readonly X509Certificate2 certificate;
     private readonly TimeProvider clock;
     private Connection? connection;
@@ -36,6 +37,7 @@ public sealed class ScriptedPeer : IAsyncDisposable
     {
         Identity = identity;
         this.tls = tls;
+        writes = new SerialWriteStream(tls);
         this.certificate = certificate;
         this.clock = clock;
     }
@@ -236,14 +238,13 @@ public sealed class ScriptedPeer : IAsyncDisposable
         var frame = new ArrayBufferWriter<byte>();
         using (var codec = new CodecRunner<MeshMessage, MeshMessage>(Amp.Definition))
             codec.Encode(message, frame);
-        await tls.WriteAsync(frame.WrittenMemory, cancellationToken).ConfigureAwait(false);
-        await tls.FlushAsync(cancellationToken).ConfigureAwait(false);
+        await writes.WriteAndFlushAsync(frame.WrittenMemory, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Writes only the first <paramref name="length"/> bytes of a message's frame straight to the TLS stream, so the node
-    /// sees a frame begin and not end (SPEC.md §5.1). Allowed with a session open, while it writes nothing itself: nothing
-    /// is sent automatically before 60 seconds of silence.
+    /// sees a frame begin and not end (SPEC.md §5.1). Allowed with a session open: it takes the one write lock the session's
+    /// own writes take, its heartbeat and automatic answers included, so the TLS stream never sees two writes at once.
     /// </summary>
     /// <param name="message">The message whose frame is begun.</param>
     /// <param name="length">How many of its bytes to write; fewer than the whole frame.</param>
@@ -258,8 +259,7 @@ public sealed class ScriptedPeer : IAsyncDisposable
             codec.Encode(message, frame);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(length, frame.WrittenCount);
-        await tls.WriteAsync(frame.WrittenMemory[..length], cancellationToken).ConfigureAwait(false);
-        await tls.FlushAsync(cancellationToken).ConfigureAwait(false);
+        await writes.WriteAndFlushAsync(frame.WrittenMemory[..length], cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Reads until the node sends <c>Bye</c>, passing over what comes before it.</summary>
@@ -428,7 +428,7 @@ public sealed class ScriptedPeer : IAsyncDisposable
     {
         if (connection is not null)
             await connection.DisposeAsync().ConfigureAwait(false);
-        await tls.DisposeAsync().ConfigureAwait(false);
+        await writes.DisposeAsync().ConfigureAwait(false);
         certificate.Dispose();
     }
 
@@ -440,7 +440,7 @@ public sealed class ScriptedPeer : IAsyncDisposable
             throw new InvalidOperationException("The connection speaks axiom-mesh-pair/1 already.");
         if (HandshakeFailure is not null)
             throw Unexpected("a completed handshake", HandshakeFailure.Message);
-        connection = Connection.FromStream(tls, new ConnectionOptions { TimeProvider = clock, LeaveOpen = true });
+        connection = Connection.FromStream(writes, new ConnectionOptions { TimeProvider = clock, LeaveOpen = true });
         session = await connection.OpenAsync(Amp.Definition, cancellationToken).ConfigureAwait(false);
         return session;
     }
@@ -453,7 +453,7 @@ public sealed class ScriptedPeer : IAsyncDisposable
             throw new InvalidOperationException("The connection speaks AMP/1 already; a pairing connection speaks only axiom-mesh-pair/1.");
         if (HandshakeFailure is not null)
             throw Unexpected("a completed handshake", HandshakeFailure.Message);
-        connection = Connection.FromStream(tls, new ConnectionOptions { TimeProvider = clock, LeaveOpen = true });
+        connection = Connection.FromStream(writes, new ConnectionOptions { TimeProvider = clock, LeaveOpen = true });
         pairing = await connection.OpenAsync(PairProtocol.Definition, cancellationToken).ConfigureAwait(false);
         return pairing;
     }

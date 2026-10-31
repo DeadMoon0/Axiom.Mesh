@@ -214,8 +214,10 @@ internal sealed class StoreWriter : IAsyncDisposable
         StoreBatch applied;
         try
         {
+            // The files first, several at a time and outside the transaction: a flush per object is the dearest step.
+            FileWrites ahead = await FileWrites.RunAsync(files, batch).ConfigureAwait(false);
             await using WriteTransaction transaction = await database.Database.BeginWriteAsync(BatchTables.Names, TransactionOptions.Default, CancellationToken.None).ConfigureAwait(false);
-            applied = new StoreBatch(new BatchTables(transaction), state, files, Options, Promises, time.GetUtcNow().ToUnixTimeMilliseconds());
+            applied = new StoreBatch(new BatchTables(transaction), state, files, Options, Promises, time.GetUtcNow().ToUnixTimeMilliseconds(), ahead);
             foreach (StoreCommand command in batch)
                 await applied.ApplyAsync(command).ConfigureAwait(false);
             await applied.FinishAsync().ConfigureAwait(false);

@@ -53,6 +53,7 @@ internal sealed class ReplicationSession : IDisposable
     private int reading;
     private int pushing;
     private int started;
+    private int abandoned;
 
     /// <summary>Replication over a session whose <c>Hello</c>s were exchanged and checked.</summary>
     /// <param name="node">What the node shares.</param>
@@ -143,16 +144,18 @@ internal sealed class ReplicationSession : IDisposable
         Task pushingLoop = Task.Run(() => PushLoopAsync(loops.Token), CancellationToken.None);
         try
         {
-            // A violation found outside the read (a listing too slow, a frame not completed) does not cancel the pending
-            // read: the session's automatic answers (a Pong) are flushed under the read's token, and cancelling it as one
-            // finishes leaves the writer's cancellation set, so the Bye(Violation) written next would be encrypted and then
-            // refused by the transport, a gap in the TLS record sequence that the peer reads as "decryption failed". The read
-            // is abandoned instead; it ends when the connection closes, and nothing it reads afterwards is acted on.
+            // Neither a violation found outside the read (a listing too slow, a frame not completed) nor the node draining
+            // cancels the pending read (AbandonableRead, STRUCTURAL-DEBT.md 53): the read is abandoned instead, it ends when
+            // the connection closes, and nothing it reads afterwards is acted on. The Bye that follows is then never refused.
+            var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using CancellationTokenRegistration onStop = stopping.Register(static state => ((TaskCompletionSource)state!).TrySetResult(), stopped);
             Task<SessionEnd> reads = ReadLoopAsync(stopping);
-            if (await Task.WhenAny(reads, violated.Task).ConfigureAwait(false) == reads)
+            Task first = await Task.WhenAny(reads, violated.Task, stopped.Task).ConfigureAwait(false);
+            if (first == reads)
                 return await reads.ConfigureAwait(false);
-            _ = reads.ContinueWith(static ended => _ = ended.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-            return SessionEnd.Violation(Volatile.Read(ref violation)!);
+            Volatile.Write(ref abandoned, 1);
+            AbandonableRead.Abandon(reads);
+            return first == violated.Task ? SessionEnd.Violation(Volatile.Read(ref violation)!) : new SessionEnd(SessionEndKind.Cancelled, string.Empty);
         }
         finally
         {
@@ -185,9 +188,11 @@ internal sealed class ReplicationSession : IDisposable
         {
             try
             {
-                ProtocolReadResult<MeshMessage> read = await session.ReadAsync(stopping).ConfigureAwait(false);
+                ProtocolReadResult<MeshMessage> read = await session.ReadAsync(CancellationToken.None).ConfigureAwait(false);
                 if (Volatile.Read(ref violation) is { } raised)
                     return SessionEnd.Violation(raised);
+                if (Volatile.Read(ref abandoned) == 1)
+                    return new SessionEnd(SessionEndKind.Cancelled, string.Empty);
                 if (read.IsCompleted)
                     return new SessionEnd(session.State == Amp.Closed ? SessionEndKind.PeerBye : SessionEndKind.PeerClosed, string.Empty);
                 if (read.Message is Bye)
@@ -269,10 +274,13 @@ internal sealed class ReplicationSession : IDisposable
 
         partial = [];
         node.Facts.Record(NodeFactKind.ListingDone, Connection, tracked.Remote, Device, $"{theirs.Count} packages");
+        node.Wants.SourcesChanged(); // a waiting Fetch may have a source now
         foreach (PackageId omitted in previous.Keys)
         {
-            if (!theirs.ContainsKey(omitted))
-                await OwnerOmitsAsync(omitted, cancellationToken).ConfigureAwait(false);
+            if (theirs.ContainsKey(omitted))
+                continue;
+            await OwnerOmitsAsync(omitted, cancellationToken).ConfigureAwait(false);
+            await DropUnlistedAsync(omitted, cancellationToken).ConfigureAwait(false);
         }
 
         foreach (WireState state in theirs.Values)
@@ -287,6 +295,7 @@ internal sealed class ReplicationSession : IDisposable
             return "a PackageChanged that breaks SPEC.md §7.2: " + step.Detail;
         lock (theirsGate)
             theirs[state.Package] = state;
+        node.Wants.SourcesChanged();
         await ConsiderAsync(state, cancellationToken).ConfigureAwait(false);
         return null;
     }
@@ -314,6 +323,15 @@ internal sealed class ReplicationSession : IDisposable
         {
             await PostAsync(new WithdrawGrantCommand(package, From), cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    // LOCAL-SPEC.md §6.4: a Package this node only lists, which the last peer that listed it now omits, is dropped (the
+    // writer keeps it while something of it is pinned). A peer that disconnects omits nothing: it may come back.
+    private async ValueTask DropUnlistedAsync(PackageId package, CancellationToken cancellationToken)
+    {
+        listedHere.Remove(package);
+        if (node.Writer.Trust.TryGetPackage(package, out PackageTrust? held) && held.State == PackageState.Listed && node.ListedBy(package).Count == 0)
+            await PostAsync(new PackageCommand(PackageCommandKind.Drop, package, LocalRetention.Default), cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask AnswerAsync(IReadOnlyList<ObjectHash> hashes, CancellationToken cancellationToken)
@@ -371,12 +389,27 @@ internal sealed class ReplicationSession : IDisposable
             case IntakeVerdict.Admitted when outcome.Stored is { } stored:
                 // The want ends once the store decided, so no plan made meanwhile wants the object again.
                 _ = ObserveStoredAsync(stored, hash, entry, wanted);
+                if (outcome.Entry is { } admitted)
+                    await WantParentsAsync(admitted).ConfigureAwait(false);
                 return null;
         }
 
         if (wanted)
             node.Wants.Settle(hash);
         return null;
+    }
+
+    // SPEC.md §10.3: the walk goes on from what was admitted, before the store committed it (STRUCTURAL-DEBT.md 52).
+    private async ValueTask WantParentsAsync(AdmittedEntry admitted)
+    {
+        try
+        {
+            await node.Replicator.WantParentsAsync(admitted, Device, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The node stops; the next listing plans the walk again.
+        }
     }
 
     // SPEC.md §8.6: an Entry whose held parents fail the clock rules is faulty content, refused by the writer.
