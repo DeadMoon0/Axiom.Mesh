@@ -34,6 +34,9 @@ DESIGN.md §17. Numbers are stable: a paid entry's number is not reused.
   two instances in one process on Windows found each other beside the operating system's responder (M4).
 - **Evidence:** fundamentals plan, decision D7; M4 records mDNS as manual.
 - **Tolerated because:** the DNS-SD codec is pure and fully tested; broadcast and static peers are tested on loopback.
+  The integration suite (M11) runs real nodes on sockets but announces their endpoints on an in-process board, the claims
+  mDNS would carry (`IntegrationTests/.../Support/RealNode.cs`); a static peer added over the command line is dialled on
+  real sockets (`Integration.Tests: StaticPeerTests`).
 - **Paid in:** not planned for CI; the manual check is part of `ACCEPTANCE.md` (M13/M14).
 
 ## 3. PIPE-ACCESS.md is not written
@@ -299,8 +302,12 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
   Entry written after a held one.
 - **Not paid in M9:** `WriteEntry` never stores before its parents (it names stored parents only), so the request work
   did not reach this path; the check belongs to the history walk.
-- **Paid in:** M11, with the scenario suite's history walks: the writer checks the stored children of an Entry it stores
-  (a reverse parent index) and marks a faulty one, which is then neither listed as a Head nor served.
+- **Not paid in M11:** SPEC.md draft 4 now states the rule (§8.6: checked when the last parent is stored; a faulty one no
+  longer listed, served or forwarded). Doing it needs a reverse parent index (a schema step) and a way to retire a stored
+  Entry from Heads, pins and serving, which is entry 18's missing Head election as well; the scenario suite's walks never
+  meet a faulty late parent, so nothing proved the shape of either.
+- **Paid in:** M12, together with entry 18: a `ParentRow` index written with each Entry, the children of a newly stored
+  Entry checked against `Lamport.TryFindParentFault`, a faulty one retired as an eviction that elects the next Head.
 
 ## 29. History is walked when an object is stored, not when the policy changes
 
@@ -386,14 +393,17 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 
 - **Rule:** LOCAL-SPEC.md §15: the pipe admitted for the Host's OS user and refused for another, by access list and by
   process identity, on each desktop platform.
-- **Instead:** the decision is tested (`PipeAdmissionTests`) and the served user end to end on the real pipe
-  (`RealPipeTests`), but no test connects as another OS user: that needs a second account (Windows) or `sudo -u nobody`
-  (Linux), which a unit test cannot assume.
+- **Instead:** since M11 Linux is proved end to end: `Integration.Tests: PipeTests.OnLinuxAnotherUserIsRefusedByTheSocketsModeAndByProcessIdentity`
+  connects as user `nobody` (`sudo -n -u nobody`, password-less on GitHub's Ubuntu runners; skipped with the reason where
+  it is not) and is refused by the socket's 0600 mode, and with the mode opened up, by the `SO_PEERCRED` check. Windows is
+  proved by its two fences separately (`OnWindowsThePipesAccessListAllowsTheHostsAccountAlone`,
+  `OnWindowsAConnectionThroughTheMachinesNameIsRefused`); a connection as another Windows account needs that account's
+  password (`LogonUser`) or elevation, and is skipped with that reason.
 - **Evidence:** `UnitTests/Axiom.Mesh.Host.Tests/Rules/RealPipeTests.cs`; CONFORMANCE.md (LOCAL §2.2, planned row).
 - **Tolerated because:** the access list (owner only) and the process identity check are independent fences, each
   checked by construction and by the decision's tests.
-- **Paid in:** M11, with the integration tests (`PipeTests.AnotherUserIsRefusedByTheAccessListAndByProcessIdentity`,
-  skipped where no second account or sudo exists).
+- **Paid in:** M13, narrowed to Windows: the install-script CI job (which runs as an administrator on the runner) creates
+  a second local account and connects as it.
 
 ## 38. A budget set by request is not kept across a restart
 
@@ -432,7 +442,11 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 - **Instead:** the record returns to Listed whatever the listings say.
 - **Evidence:** `Axiom.Mesh.Core/Store/StoreBatch.cs` (`PackageAsync`), `Local/PackageRequests.cs`.
 - **Tolerated because:** a Listed record pins nothing and costs a row; following it again is the user's choice.
-- **Paid in:** M11, with the scenario suite (a drop when the last listing session omits it and nothing of it is pinned).
+- **Not paid in M11:** dropping the record means a Package of trust state `None` that may still have Entries in the
+  store (unpinned, evictable); what `ListPackages`, visibility and a later listing then make of those Entries is not
+  specified, and no scenario needed the drop.
+- **Paid in:** M12: drop the record when the last session that listed it omits it and nothing of it is pinned, evict its
+  Entries with it, and say so in LOCAL-SPEC.md §6.4.
 
 ## 42. Fetch and Materialise do not check that the Package references the object
 
@@ -456,33 +470,19 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 
 ## 44. Forgetting a user does not announce its devices as forgotten
 
-- **Rule:** LOCAL-SPEC.md §14.11: `PeerChanged(Forgotten)` when a device's user was forgotten.
-- **Instead:** `ForgetUser` publishes `UserChanged(Forgotten)` and closes the user's sessions; the peer table keeps the
-  devices' records, so topic `peers` shows their sessions closing, not `Forgotten`.
-- **Evidence:** `Axiom.Mesh.Core/Local/UserRequests.cs`, `Peers/PeerTable.cs`.
-- **Tolerated because:** the devices are refused from then on (they are in no known Roster) and listed by `ListPeers` as
-  not known; the user interface of entry 8 comes later.
-- **Paid in:** M11 (M10's pairing adds users but does not touch the peer table's records; a forget removing the user's
-  devices from the table and emitting `Forgotten` belongs with the scenario suite's forget scenario).
+Paid in M11: `ForgetUser` removes the user's devices from the peer table (`PeerTable.ForgetUser`), so topic `peers`
+reports each as `Forgotten` (`Core.Tests: UserRequestTests.ForgettingAUserForgetsItsDevicesAsPeers_TopicPeersSaysForgotten`).
 
 ## 45. A paired user's display name is not kept
 
-- **Rule:** PAIR-SPEC.md §9.1: "The display name is stored for the user's interface"; LOCAL-SPEC.md §5.2 `User.name`.
-- **Instead:** the pairing shows the other side's name in `Pairing.remoteName`, but after `Paired` the name is dropped:
-  `UserRow` has no name column, so `ListKnownUsers` shows an empty name for every user but the own one. An enrolled device
-  keeps its user's name (it is the identity's `userName`).
-- **Evidence:** `Axiom.Mesh.Core/Storage/UserRow.cs`; `Local/UserRequests.cs` (`UserOf`).
-- **Tolerated because:** users are named by id or prefix on the command line; nothing decides by a name.
-- **Paid in:** M11, with a schema step that adds the column (the index's schema version rises).
+Paid in M11: `UserRow.Name` (index schema version unchanged, no release exists yet) keeps the name a pairing showed;
+`ListKnownUsers` and `UserChanged` read it; `MeshNode.AdoptIdentityAsync(roster, userName, ct)` gives a node's identity a
+name (`Testing.Tests: MeshScenarios.TwoUsersWhoPairSeeTheSameCode_KnowEachOtherByName_AndEstablishOneSessionEach`).
 
 ## 46. The entering side dials only the IP addresses of a code
 
-- **Rule:** PAIR-SPEC.md §2.2: a code's address is a DNS name, an IPv4 address or an IPv6 literal.
-- **Instead:** `PairingShell.EnterAsync` skips an address that is not an IP literal; the showing side writes only IP
-  literals (its interfaces' unicast addresses), so codes this implementation shows always work.
-- **Evidence:** `Axiom.Mesh.Core/Pairing/PairingShell.cs` (`EnterAsync`).
-- **Tolerated because:** a code with a host name comes only from another implementation or by hand.
-- **Paid in:** M11, with the real-socket fixture (resolve through the dialler, which then takes a `DnsEndPoint`).
+Paid in M11: `IDialer.ResolveAsync(host)` (the system resolver in `TcpDialer`, `InMemoryNetwork.Name` in memory) turns a
+host name of a code into addresses before admission decides on each (`Core.Tests: PairingTests.ACodeThatNamesAHostIsResolvedAndDialled`).
 
 ## 47. The command line is compiled ahead of time without the IL scanner
 
@@ -505,11 +505,40 @@ it (`IdentityRequestTests.CreateIdentityMakesRosterSeq1WithThisDevice_TwiceIsAlr
 
 ## 49. A pairing code lists every interface's address, reachable or not
 
-- **Rule:** PAIR-SPEC.md §2.2: the addresses "on every interface it serves the pairing on", in the order to try.
-- **Instead:** the showing side lists the unicast addresses of every interface that is up (IPv4 first, at most 8, as
-  many as fit 512 characters), virtual adapters included; the entering side tries them in order, each bounded by the
-  dialler's connect timeout and the 10-second handshake.
-- **Evidence:** `Axiom.Mesh.Core/Node/NetworkAddresses.cs`; `Pairing/PairingShell.cs` (`CodeAddresses`).
-- **Tolerated because:** the right address is usually among the first; a wrong one costs seconds, not a failed pairing.
-- **Paid in:** M11, with the real-socket fixture: prefer addresses of interfaces with a gateway, and let the Host's
-  configuration name them.
+Paid in M11: `PairingAddressRule` lists the addresses of interfaces that are up, routable before link-local before
+loopback (each only when the tier before is empty), interfaces with a gateway first, IPv4 before IPv6; a node whose
+listener is bound to one address (`MeshNodeOptions.ListenAddress`, the Host's `mesh.listen`) lists that address alone
+(`Core.Tests: PairingAddressRuleTests`).
+
+## 50. The scripted peer can write a frame start beside its session
+
+- **Rule:** one writer per TLS stream (an `SslStream` takes one write at a time; AMP/1's writes are serialised by the
+  ProtoStream connection's write lock, the heartbeat and automatic answers included).
+- **Instead:** `ScriptedPeer.SendFrameStartAsync` (the harness, not the product) writes a partial frame straight to the TLS
+  stream while its session is open, outside that lock; a heartbeat or an automatic `Pong` of the session at the same
+  moment would make `SslStream` refuse the second write. `SendRawAsync` refuses to run with a session open.
+- **Evidence:** `Axiom.Mesh.Testing/ScriptedPeer.cs`. Every write of Core goes through `Session.WriteAsync` (M11 review
+  of `PeerSessionHandler`, `ReplicationSession`, `PairingShell`, `ActivityStream`, LWSE's in-memory transport).
+- **Tolerated because:** the one test that uses it writes after the session has been silent for less than 60 seconds,
+  when the session sends nothing on its own.
+- **Paid in:** M12, by asking ProtoStream for a raw write under the connection's lock (or a partial-frame message type).
+
+## 51. The socket fixture keeps its nodes' keys in memory
+
+- **Rule:** ARCHITECTURE.md rule 3 (keys only in the Host's key store) as the shipped daemon applies it.
+- **Instead:** `RealMeshFixture` gives each real node an `InMemoryKeyStore` that outlives its restarts; the Host's
+  `FileKeyStore` is internal to the Host and covered by `Host.Tests` (`FileKeyStoreTests`, `RealPipeTests`).
+- **Evidence:** `IntegrationTests/Axiom.Mesh.Integration.Tests/Support/RealNode.cs`.
+- **Tolerated because:** the scenarios test replication, trust and the pipe, not key storage.
+- **Paid in:** M13, with the install-script job that runs the published daemon end to end.
+
+## 52. A history walk asks for one parent per round trip
+
+- **Rule:** fundamentals plan §5: a 10 000-entry history walk within 10 s (benchmark target; the release floor is 120 s).
+- **Instead:** M11's floor measured 51.5 s on loopback with TLS (194 Entries/s, Windows, net10.0): a walk wants an Entry's
+  parents only once the Entry is stored, so a linear Channel costs one round trip and one store batch per Entry.
+- **Evidence:** `Integration.Tests: FloorTests.AHistoryOfTenThousandEntriesIsWalkedWithinTwoMinutes` (run with
+  `AXIOM_MESH_FLOORS=1`).
+- **Tolerated because:** the floor holds, and a follower catching up on a long Channel is rare in phase 1.
+- **Paid in:** M12, with the benchmark: batch the walk (ask for the parents of every Entry of a stored batch at once) and
+  measure against the 10 s target.

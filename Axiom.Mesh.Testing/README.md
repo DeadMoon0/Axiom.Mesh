@@ -13,7 +13,9 @@ stop and start, partition, severed links and heal, `SettleAsync`, `FakeDiscovery
 object) with `ObjectFixtures`; local clients (M8): `TestNode.ConnectUserAsync`, `ConnectServiceAsync`, `ConnectInProcessAsync`,
 `ConnectAsync` and `ConnectRaw` from a `TestProcess`, and `TestMesh.CreateIdentityAsync` over the local port. Pairing (M10):
 `TestMesh.PairAsync`, `EnrolAsync` and `WaitForPairingAsync`, `ScriptedPeer`'s pairing frames; the command line in-process:
-`TestNode.CliAsync`.
+`TestNode.CliAsync`. The scenario fixture (M11): `IMeshFixture`, which `TestMesh` implements and the integration suite's
+socket fixture implements on real nodes, `TestCliService`, `MeshWaits`, `MeshPairing`, and `ScriptedPeer.ConnectAsync`
+over any open connection (a TCP one included).
 
 ## Quick Start
 
@@ -79,6 +81,37 @@ CliResult users = await strangers["alice-laptop"].CliAsync("users --json", Cance
 Console.WriteLine(users.ExitCode);                                                              // Ok
 ```
 
+A scenario written once against `IMeshFixture` runs on any mesh that implements it: in memory on `TestMesh`, or on real
+nodes with sockets, disks and the real pipe (the repository's integration suite runs its scenario suite both ways, from
+one source file). Nodes start as devices of their own users; users meet by pairing; the command line writes as the
+`cli` service of `TestCliService`.
+
+```csharp
+using Axiom.Mesh.Local;
+
+async Task<string> PairWriteAndFollowAsync(IMeshFixture fixture, CancellationToken ct)
+{
+    await fixture.PairAsync("alice-laptop", "bob-desktop", ct);
+    await fixture.ConnectAsync("alice-laptop", "bob-desktop", ct);
+    await fixture.HoldUserKeyAsync("alice-laptop", ct);
+    await using LocalClient owner = await fixture.ConnectUserAsync("alice-laptop", "readme", ct);
+    Package family = (await owner.SendAsync(new CreatePackage { Kind = PackageKind.Channel, Name = "Family" }, ct)).Value;
+    await owner.SendAsync(new SetGrant { PackageId = family.PackageId, GranteeId = TestIdentity.Of("bob-desktop").UserId, Rights = GrantRights.Read }, ct);
+    await fixture.CliAsync("alice-laptop", $"write {family.PackageId.Value.ToHex()} --text 'hello, Bob'", ct);
+    await fixture.SettleAsync(ct);                                // Bob's node now lists the Channel
+
+    await using LocalClient follower = await fixture.ConnectUserAsync("bob-desktop", "readme", ct);
+    await follower.SendAsync(new FollowPackage { PackageId = family.PackageId }, ct);
+    await fixture.SettleAsync(ct);                                // and holds what Alice wrote
+    return (await fixture.CliAsync("bob-desktop", $"history {family.PackageId.Value.ToHex()}", ct)).Stdout;
+}
+
+await using IMeshFixture inMemory = await TestMesh.StartAsync(
+    TestMeshOptions.Of("alice-laptop", "bob-desktop") with { Local = TestCliService.Local },
+    CancellationToken.None);
+Console.WriteLine(await PairWriteAndFollowAsync(inMemory, CancellationToken.None));   // the Entry, on Bob's node
+```
+
 ## What is in it
 
 | Type | What it is |
@@ -97,6 +130,9 @@ Console.WriteLine(users.ExitCode);                                              
 | `InMemoryKeyStore` | An `IKeyStore` in memory. |
 | `ScriptedPeer` | A peer that connects (`ConnectAsync`) or is dialled (`AcceptAsync`) with any identity and speaks raw AMP/1: `SendAsync`, `SendRawAsync`, `SendFrameStartAsync` (a frame begun and never finished), `ExpectAsync<T>`, `ExpectByeAsync`, `ExpectClosedAsync`, `ExpectClosedWithoutHelloAsync`; on a connection under the pairing ALPN `SendPairAsync`, `ExpectPairAsync<T>` and `ExpectPairingClosedAsync` (a frame of any other protocol fails the expectation). |
 | `CliResult`, `CliWords` | What an in-process command line left; a command line split into arguments as a shell would. |
+| `IMeshFixture` | A running mesh of published devices as a scenario sees it, in memory or on sockets: `Clock`, `Node(name)`, `PairAsync`, `EnrolAsync`, `HoldUserKeyAsync`, `ConnectAsync`, `SettleAsync`, `WaitUntilAsync`, `ConnectUserAsync`, `ConnectCliServiceAsync`, `CliAsync`, `ConnectScriptedPeerAsync`, `StopNodeAsync`, `StartNodeAsync`. `TestMesh` implements it. |
+| `TestCliService` | The external service `cli` with a published token (`Token`, `Service`, `Local`), as a Host's default `config.json` lists it. |
+| `MeshWaits`, `MeshPairing` | The conditions every fixture's waits re-check (`IsEstablishedWith`, `IsSettled`), and one pairing driven over two local ports (`RunAsync`, `WaitForAsync`), shared by the in-memory and the socket fixture. |
 | `TestMeshException` | A wait that ran out, or an expectation the node did not meet, with the nodes' last facts. |
 
 ## Rules of use
@@ -112,6 +148,9 @@ Console.WriteLine(users.ExitCode);                                              
 - **Settle before you count.** `SettleAsync` returns once every running node is idle (no store command, change set, want
   or queued message left), every node holds one session per peer, and every message one side sent the other side has
   handled; a want no node can answer does not hold it up. Read counters and message totals only after it.
+- **Connect before you count, and know who dialled.** `ConnectAsync` returns only once both nodes hold one session each and
+  no second connection between them is still in its handshake, so advancing the clock afterwards expires nothing. Start
+  nodes `Silent` when a test must set something up (a Roster, a subscription) before the first `Hello`.
 - **Signatures are not deterministic.** BCL ECDSA signs with a random nonce, so `RosterOf(user, seq, …)` makes a new
   object each call; hand the same instance to every node that should hold it. `RosterOf(user)` is cached.
 - **A scripted peer always presents its certificate.** On Windows an in-process TLS client given none presents one an

@@ -36,7 +36,8 @@ names no test, or when a proved row names a test that does not exist.
 | Promise | Proved by |
 |---|---|
 | The pipe admits the Host's operating-system user only. | `Host.Tests: PipeAdmissionTests.Decide_AnotherOsUserIsRefused_TheServedUserAdmitted_AnAllowListedUserAdmittedForASystemService`, `Host.Tests: RealPipeTests.AClientOfTheSameUserCreatesAnIdentityOverTheRealPipe_ItSurvivesARestart_ASecondDaemonOnThePipeDoesNotStart` |
-| Another operating-system user is refused on each desktop platform, by the access list and by process identity, end to end. | planned: `Integration.Tests: PipeTests.AnotherUserIsRefusedByTheAccessListAndByProcessIdentity` |
+| Another operating-system user is refused, by the access list and by process identity, end to end: on Linux as user `nobody` against the socket's mode and its `SO_PEERCRED` check; on Windows by an owner-only, protected access list and by refusing remote clients. | `Integration.Tests: PipeTests.OnLinuxAnotherUserIsRefusedByTheSocketsModeAndByProcessIdentity`, `Integration.Tests: PipeTests.OnWindowsThePipesAccessListAllowsTheHostsAccountAlone`, `Integration.Tests: PipeTests.OnWindowsAConnectionThroughTheMachinesNameIsRefused` |
+| The Host learns who connected to the pipe from the operating system, never from the client. | `Integration.Tests: PipeTests.TheHostLearnsTheClientsPidAndUserFromThePlatform` |
 | Every request that spends the user key is logged with its process id and executable, and may be confined to listed executables. | `Core.Tests: UserKeyRequestTests.EveryUserKeyRequestIsLoggedWithPidAndPath_AndOneFromAnUnlistedExecutableIsNotPermitted` |
 | An in-process service's name is never granted on the pipe; a spawned or external name only with its token. | `Core.Tests: LocalHelloTests.AnInProcessNameIsNeverGrantedOnThePipe_ASpawnedOrExternalNameNeedsItsToken` |
 | No record of the local protocol can carry a private key. | `Local.Tests: NoKeyCrossesThePipeTests.NoRecordHasAFieldThatCanHoldAPrivateKey` |
@@ -49,7 +50,27 @@ names no test, or when a proved row names a test that does not exist.
 | The parents and clock chosen for a new Entry always make it well-formed and faultless, or writing stops with `ClockExhausted`. | `Model.Tests: ParentChoiceTests.Decide` |
 | A `WriteEntry` with no parents produces an Entry that orders identically on every node. | `Core.Tests: ServiceRoleTests.WithNoParentsTheEntryVerifiesOrdersAndIsFaultless_ForTheFourParentCases_AndTwoParentsWhenTheHighestClockIs2Pow32Plus1AboveTheOwnHead` |
 | A change crosses any number of hops without polling, and is never sent back to where it came from. | `Core.Tests: ReplicationScenarioTests.AChangeCrossesTwoHopsWithoutPolling`, `Core.Tests: ReplicationScenarioTests.AThirdNodeRelaysAndNothingIsSentBackToTheSource` |
-| The same scenario passes in memory and on sockets. | planned: `Integration.Tests: RealMeshScenarios.EveryInMemoryScenarioPassesOnSocketsDiskAndTheRealPipe` |
+| The same scenario passes in memory and on sockets. | `Integration.Tests: ScenarioSuiteTests.TheSocketSuiteCompilesTheInMemorySuitesScenarioFileAndRunsEveryScenarioInIt` |
+
+## Scenarios
+
+Each scenario runs twice, from one source file: in memory (`Testing.Tests: InMemoryScenarios`) and on loopback sockets
+with real TLS, a store and an index on disk and the real pipe (`Integration.Tests: SocketScenarios`).
+
+| Promise | Proved by |
+|---|---|
+| Two users who pair see the same code, then know each other by the names their devices showed. | `Testing.Tests: MeshScenarios.TwoUsersWhoPairSeeTheSameCode_KnowEachOtherByName_AndEstablishOneSessionEach` |
+| What one device writes reaches every device that may see it and follows it, through relays, and nothing is sent back to where it came from. | `Testing.Tests: MeshScenarios.AFollowerHoldsWhatTheOwnerWrote_AndAThirdDeviceRelaysWithoutSendingBackToTheSource` |
+| What was written while a device was offline arrives once it is back, in both directions. | `Testing.Tests: MeshScenarios.WhatOneSideWroteWhileTheOtherWasOfflineArrivesOnceItIsBack_InBothDirections` |
+| A revoked user keeps what it holds, receives the revocation, and is neither listed nor served afterwards. | `Testing.Tests: MeshScenarios.ARevokedUserKeepsWhatItHolds_ReceivesTheRevocation_AndIsNoLongerListedOrServed` |
+| A removed device is closed and refused for ever, across restarts. | `Testing.Tests: MeshScenarios.ARemovedDeviceIsClosedAndRefusedForEver` |
+| A device that connects twice keeps one session, the newer. | `Testing.Tests: MeshScenarios.ASecondConnectionOfOneDeviceReplacesTheFirst_WhichIsClosedAsADuplicate` |
+| A client that stops reading loses its subscription; its connection and the mesh carry on. | `Testing.Tests: MeshScenarios.AClientThatStopsReadingLosesItsSubscription_TheConnectionAndTheMeshCarryOn` |
+| A device of a user nobody knows is refused before a protocol byte and never dialled. | `Testing.Tests: MeshScenarios.EveIsRefusedBeforeAProtocolByte_AndNeverDialled` |
+| Faulty content is dropped and never forwarded; an object with the wrong hash closes the session. | `Testing.Tests: MeshScenarios.AJumpedClockIsDroppedAsFaultyAndNeverForwarded_AWrongHashClosesTheSessionAsAViolation` |
+| Under a tiny budget everything unpinned is evicted, and the publishing device keeps what it published. | `Testing.Tests: MeshScenarios.UnderATinyBudgetEverythingUnpinnedIsEvicted_TheOwnerKeepsWhatItPublished` |
+| An enrolled device holds its user's identity, never the user key, and replicates the user's Packages. | `Testing.Tests: MeshScenarios.AnEnrolledDeviceHoldsTheUsersIdentityButNotItsKey_AndReplicatesItsPackages` |
+| A restart keeps users, Packages and history, and replication resumes without pairing again. | `Testing.Tests: MeshScenarios.ARestartKeepsUsersPackagesAndHistory_AndReplicationResumes` |
 
 ## The packages
 

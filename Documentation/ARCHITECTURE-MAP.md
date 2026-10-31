@@ -112,12 +112,23 @@ The daemon (M8), by rule.
 
 | Rule | Carried by |
 |---|---|
+| §1 (pipe) The pipe is one shell | `PipeHost.cs` (public): opens the platform listener (`Pipes/`), admits each connection by `PipeAdmission.Decide` and hands it to `LocalPort.AdoptAsync`; `HostRuntime` runs one, the integration suite one per real node. |
 | §1 Honest layers under one dishonest runtime | `HostRuntime.cs` composes the dishonest parts once; `HostPaths.Resolve`, `HostConfiguration.Parse/Problems/WithTokens/NodeOptionsOf` and `Pipes/PipeAdmission.Decide` are pure; `HostProgram.RunAsync` takes arguments, writers, the environment and the stop signal, `Program` is the shell. |
 | §3 The Host alone holds keys | `Keys/FileKeyStore.cs` (DPAPI CurrentUser with a per-role purpose on Windows; 0700/0600 on Linux, a wider directory or file refused at start), `HostFiles.cs` (configuration and logs the user's alone). |
 | §4 Nothing believed without proof (local trust boundary) | `Pipes/WindowsPipeListener.cs` (`CreateNamedPipe` with `FILE_FLAG_FIRST_PIPE_INSTANCE`, `PIPE_REJECT_REMOTE_CLIENTS` and an owner-only access list; pid by `GetNamedPipeClientProcessId`, executable by `QueryFullProcessImageName`, user from the impersonation token after the first bytes), `Pipes/UnixSocketListener.cs` (stale socket taken over only when refused, 0600, `SO_PEERCRED`, `/proc/<pid>/exe`), `Pipes/PipeAdmission.cs` (the served user, or a system service's allow list; nobody else), proven by `Host.Tests: PipeAdmissionTests` and `RealPipeTests`. |
 | §6 Every wait a deadline | `Pipes/WindowsPipeListener.cs` (10 s for a client's first bytes, at most 16 at once), `HostProgram.RunAsync` (Ctrl-C and SIGTERM drain the local clients with 5 s of grace, then stop the node). |
 | §7 A failure says who must act | `HostException.cs` (exit code, fault, steps: pipe taken, keys not private, a key that does not unwrap), `MeshConfigurationException` for `config.json` (the key and path named), `HostExitCode.cs` (0 ok, 1 usage, 2 configuration, 3 pipe taken, 4 environment); proven by `Host.Tests: RunCommandTests`. |
 | §11 Opt-outs are named options logged at start | `Configuration/HostOptions.cs` and its sections (`HostOptionsJson`: source-generated, unknown keys refused), `HostRuntime.cs` (home, pipe, mesh endpoint and identity printed at start; notes for options that cannot take effect). |
+
+## Axiom.Mesh.Testing and the integration suite
+
+The harness (M6–M11) and the suites that run on it, by rule.
+
+| Rule | Carried by |
+|---|---|
+| §1 Honest layers; edges injected | `TestMesh` fills `MeshNodeEnvironment` with in-memory parts on one `FakeTimeProvider`; `IntegrationTests/Axiom.Mesh.Integration.Tests/Support/RealNode.cs` with the real ones (`DirectoryObjectFiles`, an LDB directory, `TcpDialer`, `SystemEntropy`, `TimeProvider.System`, a `PipeHost`) on its own loopback address; both hand discovery an `InMemoryNetwork` board, the only part not taken from the operating system. |
+| §6 Every wait a deadline | `TestMesh` and `RealMeshFixture` re-check after every node fact within `TestMesh.Deadline`; `MeshWaits` holds the conditions (`IsEstablishedWith`, `IsSettled`), `MeshPairing` the pairing waits; `Shared/TestSuiteConventionTests.NoTestUsesThreadSleepOrTaskDelay` in every suite, the integration suite's included. |
+| §9 A promise only with its test | `IMeshFixture` (Axiom.Mesh.Testing) and `UnitTests/Axiom.Mesh.Testing.Tests/Rules/MeshScenarios.cs`, compiled by `InMemoryScenarios` and, unchanged, by the integration suite's `SocketScenarios`; `Integration.Tests: ScenarioSuiteTests` holds the two together; the release floors (`Regression/FloorTests.cs`, `AXIOM_MESH_FLOORS=1`, Release) print what they measured. |
 
 ## Axiom.Mesh.Cli
 
