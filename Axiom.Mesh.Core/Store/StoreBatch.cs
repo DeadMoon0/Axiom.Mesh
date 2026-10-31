@@ -684,7 +684,8 @@ internal sealed class StoreBatch
     }
 
     // LOCAL-SPEC.md §6.4: a Listed Package no peer lists any more is forgotten, unless something of it is still pinned (a
-    // user or service pin): its Entries, Manifest and Grants are evicted, its rows and its trust go (STRUCTURAL-DEBT.md 41).
+    // user or service pin): its Entries, Manifest and Grants are evicted, its rows and its trust go (STRUCTURAL-DEBT.md 41), and
+    // PackageChanged(Dropped) announces it (§14.12).
     private async Task<bool> DropAsync(PackageTrust package)
     {
         byte[] key = RowKeys.Of(package.Id.Value);
@@ -711,6 +712,7 @@ internal sealed class StoreBatch
         await tables.Grants.DeleteWhereAsync(GrantRow.Columns.Package == key, CancellationToken.None).ConfigureAwait(false);
         await tables.Packages.DeleteAsync(key, CancellationToken.None).ConfigureAwait(false);
         state.Trust.Drop(package.Id);
+        Changes.Package(new PackageChange(package.Id, PackageChangeKind.Dropped, Origin.Local));
         Changes.TrustChanged = true;
         return true;
     }

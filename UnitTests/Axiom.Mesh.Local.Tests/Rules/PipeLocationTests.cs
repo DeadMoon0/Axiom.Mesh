@@ -27,6 +27,22 @@ public sealed class PipeLocationTests
         Assert.Equal(path, location.Path);
     }
 
+    // §2.1 and the Host's precedence: AXIOM_MESH_PIPE, else the configured pipe.name, else the platform's default; the
+    // command line reads pipe.name from config.json and resolves through the same rule (STRUCTURAL-DEBT.md 48).
+    [Theory]
+    [InlineData(LocalPlatform.Windows, null, "axiom-mesh-home", @"\\.\pipe\axiom-mesh-home")] // the configured name, prefixed
+    [InlineData(LocalPlatform.Windows, "", "axiom-mesh-home", @"\\.\pipe\axiom-mesh-home")] // an empty variable does not hide it
+    [InlineData(LocalPlatform.Windows, "from-variable", "axiom-mesh-home", @"\\.\pipe\from-variable")] // the variable wins
+    [InlineData(LocalPlatform.Windows, null, "", @"\\.\pipe\axiom-mesh")] // an empty configured name is the default
+    [InlineData(LocalPlatform.Linux, null, "/home/u/mesh.sock", "/home/u/mesh.sock")] // a socket path on Linux
+    [InlineData(LocalPlatform.Linux, "/tmp/v.sock", "/home/u/mesh.sock", "/tmp/v.sock")] // the variable wins on Linux too
+    public void TheVariableWinsOverTheConfiguredName_WhichWinsOverTheDefault(LocalPlatform platform, string? variable, string? configured, string path)
+    {
+        var environment = new PipeEnvironment { Pipe = variable, ConfiguredName = configured, XdgRuntimeDir = "/run/user/1000" };
+
+        Assert.Equal(path, PipeLocation.Resolve(platform, environment).Path);
+    }
+
     [Fact]
     public void AWindowsPipeIsOpenedByItsNameWithoutThePrefix()
     {

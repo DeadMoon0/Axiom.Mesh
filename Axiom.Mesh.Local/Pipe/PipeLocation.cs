@@ -30,7 +30,8 @@ public sealed record PipeLocation
         : Path;
 
     /// <summary>
-    /// Resolves the pipe: <c>AXIOM_MESH_PIPE</c> when set and not empty, else the platform's default of §2.1. On
+    /// Resolves the pipe: <c>AXIOM_MESH_PIPE</c> when set and not empty, else the configured name (the Host's
+    /// <c>pipe.name</c>), else the platform's default of §2.1. On
     /// Windows a name without the <c>\\.\pipe\</c> prefix gets it.
     /// </summary>
     /// <param name="platform">The platform.</param>
@@ -40,7 +41,9 @@ public sealed record PipeLocation
     public static PipeLocation Resolve(LocalPlatform platform, PipeEnvironment environment)
     {
         ArgumentNullException.ThrowIfNull(environment);
-        string? named = string.IsNullOrEmpty(environment.Pipe) ? null : environment.Pipe;
+        string? named = !string.IsNullOrEmpty(environment.Pipe) ? environment.Pipe
+            : !string.IsNullOrEmpty(environment.ConfiguredName) ? environment.ConfiguredName
+            : null;
         return platform switch
         {
             LocalPlatform.Windows => new PipeLocation { Kind = PipeKind.NamedPipe, Path = WindowsPath(named ?? DefaultName) },

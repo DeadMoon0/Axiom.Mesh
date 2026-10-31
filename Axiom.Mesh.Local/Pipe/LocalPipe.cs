@@ -21,8 +21,19 @@ public static class LocalPipe
     /// <exception cref="MeshConfigurationException">The platform has no pipe, or the variable the default needs is missing.</exception>
     public static PipeLocation Locate() => PipeLocation.Resolve(CurrentPlatform(), CurrentEnvironment());
 
+    /// <summary>
+    /// The pipe of the Host this process would talk to when the Host's configuration names one: <c>AXIOM_MESH_PIPE</c>,
+    /// else <paramref name="configuredName"/> (<c>pipe.name</c> in the Host's <c>config.json</c>), else the defaults of
+    /// §2.1, the same precedence the Host listens by.
+    /// </summary>
+    /// <param name="configuredName">The configured name; <see langword="null"/> or empty when the configuration names none.</param>
+    /// <returns>The location.</returns>
+    /// <exception cref="MeshConfigurationException">The platform has no pipe, or the variable the default needs is missing.</exception>
+    public static PipeLocation Locate(string? configuredName) =>
+        PipeLocation.Resolve(CurrentPlatform(), CurrentEnvironment() with { ConfiguredName = configuredName });
+
     /// <summary>Connects to the Host's pipe: a named pipe on Windows, a Unix domain socket elsewhere.</summary>
-    /// <param name="location">Where the pipe is, from <see cref="Locate"/> or <see cref="PipeLocation.Resolve"/>.</param>
+    /// <param name="location">Where the pipe is, from <see cref="Locate()"/> or <see cref="PipeLocation.Resolve"/>.</param>
     /// <param name="cancellationToken">Cancels the connect.</param>
     /// <returns>A duplex stream, for <c>LocalClient.OpenAsync</c>.</returns>
     /// <exception cref="LocalConnectionException">Nothing answered at the pipe within 5 seconds: the Host is not running, or listens elsewhere.</exception>

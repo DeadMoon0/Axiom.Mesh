@@ -1007,8 +1007,8 @@ Rules:
   established peer lists it, else it is dropped: its Entries, Manifest and Grants are evicted and the record is
   forgotten, unless something of it is still pinned (a `User` or `Service` pin), which keeps it Listed. A Listed Package
   is dropped the same way when the last established peer that listed it omits it from a completed listing; a peer that
-  disconnects omits nothing. No event announces a drop (§14.12 has no change kind for it); `ListPackages` no longer
-  lists the Package. A Package the own user owns is always followed; `UnfollowPackage` on it is `Invalid`.
+  disconnects omits nothing. A drop is announced with `PackageChanged(Dropped)` (§14.12), after the `Unfollowed` of an
+  `UnfollowPackage` that drops; `ListPackages` no longer lists the Package. A Package the own user owns is always followed; `UnfollowPackage` on it is `Invalid`.
 - `SetGrant` and `RevokeGrant` produce a Grant with `seq` one higher than the current Grant for that grantee, or
   1; `RevokeGrant` is `SetGrant` with `rights` 0 and is `NotFound` for a grantee without a current Grant. The
   owner only (`NotOwner`), with the user key (`UserKeyAbsent`); the grantee MUST be a known user (`NotFound`)
@@ -1966,10 +1966,11 @@ session; bits 4 to 7 reserved.
 | 3 | Grant | a new current Grant, in `grant` |
 | 4 | Head | a new or changed Head, in `head` |
 | 5 | Policy | a new local policy |
-| 6 | Unfollowed | stopped following; the record shows `state` Listed, or the last record of a Package that is dropped |
+| 6 | Unfollowed | stopped following; the record shows `state` Listed |
 | 7 | Listed | a peer listed a Package this Host did not know (§5.4, decision 20); `state` Listed |
+| 8 | Dropped | the Package was dropped (§6.4): the Host holds nothing of it any more and `ListPackages` no longer lists it; the record is its last one, `state` Listed, no Heads, `entries` 0 |
 
-8 to 255 reserved.
+9 to 255 reserved. Value 8 was added for 0.1.0 (2026-10-31).
 
 ### 14.13 Telemetry series
 

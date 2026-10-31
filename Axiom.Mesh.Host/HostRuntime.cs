@@ -88,9 +88,11 @@ internal sealed class HostRuntime : IAsyncDisposable
             gated = new IdentityGatedDiscovery(ct => self.Task.WaitAsync(ct), options.Mesh.Mdns, options.Mesh.Broadcast, start.Time, facts);
             List<IDiscovery> parts = [gated];
 
+            var files = new DirectoryObjectFiles(paths.Data, start.Entropy);
+            StoreDirectoryFlush flush = files.ProbeDirectoryFlush();
             var environment = new MeshNodeEnvironment
             {
-                Files = new DirectoryObjectFiles(paths.Data, start.Entropy),
+                Files = files,
                 Database = database,
                 Keys = keys,
                 Discovery = new CompositeDiscovery(new CompositeDiscoveryOptions { Parts = parts, Time = start.Time, Cache = new AnnouncementCache(1024, TimeSpan.Zero) }),
@@ -106,6 +108,7 @@ internal sealed class HostRuntime : IAsyncDisposable
             runtime.loops.Add(Task.Run(() => runtime.LogDiscoveryAsync(facts, runtime.stopping.Token), CancellationToken.None));
             runtime.loops.Add(Task.Run(() => runtime.AnnounceWhenIdentifiedAsync(self, runtime.stopping.Token), CancellationToken.None));
             HostLog.Started(runtime.log, start.Version, paths.Home, pipe.Location, node.MeshEndpoint.ToString());
+            HostLog.StoreFlush(runtime.log, paths.Data, flush);
             return runtime;
         }
         catch
@@ -130,7 +133,8 @@ internal sealed class HostRuntime : IAsyncDisposable
         string? runtimeDirectory = environment("XDG_RUNTIME_DIR");
         return PipeLocation.Resolve(HostPlatform.Current, new PipeEnvironment
         {
-            Pipe = environment(PipeLocation.EnvironmentVariable) is { Length: > 0 } variable ? variable : options.Pipe.Name,
+            Pipe = environment(PipeLocation.EnvironmentVariable),
+            ConfiguredName = options.Pipe.Name,
             XdgRuntimeDir = runtimeDirectory,
             TmpDir = environment("TMPDIR"),
             UserId = OperatingSystem.IsLinux() && string.IsNullOrEmpty(runtimeDirectory) ? HostPlatform.UserId : null,

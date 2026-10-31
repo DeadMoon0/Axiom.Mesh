@@ -2,7 +2,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Axiom.Mesh.Core.Tests.Support;
 using Axiom.Mesh.Local;
+using LocalPackageChange = Axiom.Mesh.Local.PackageChange;
 using LocalPackageState = Axiom.Mesh.Local.PackageState;
 
 namespace Axiom.Mesh.Core.Tests.Rules;
@@ -136,8 +138,9 @@ public sealed class PackageRequestTests
         Assert.Empty((await bob.SendAsync(new ListPackages { FollowedOnly = true }, None)).Value.Packages);
     }
 
-    // §6.4: UnfollowPackage returns the record to Listed while a peer lists it, else drops it with its Entries; a Listed
-    // Package the last peer that listed it omits (here: a revocation) is dropped then. A peer that is merely away keeps it.
+    // §6.4, §14.12: UnfollowPackage returns the record to Listed while a peer lists it, else drops it with its Entries; a
+    // Listed Package the last peer that listed it omits (here: a revocation) is dropped then. A peer that is merely away
+    // keeps it. Topic packages reports Unfollowed, then Dropped with the Package's last record.
     [Fact]
     public async Task AnUnfollowedPackageNoPeerListsIsDropped_AndSoIsAListedOneTheLastListerOmits()
     {
@@ -154,9 +157,13 @@ public sealed class PackageRequestTests
 
         await mesh.StopNodeAsync("alice-laptop", None);
         LocalClient client = await bob.ConnectUserAsync("app", None);
+        Subscription<PackageChanged> changes = (await client.SubscribeAsync<PackageChanged>(Filter.Any with { PackageId = channel }, None)).Value;
         Assert.True((await client.SendAsync(new UnfollowPackage { PackageId = channel }, None)).IsOk);
         Assert.Empty((await client.SendAsync(new ListPackages { FollowedOnly = false }, None)).Value.Packages);
         Assert.False(await bob.Node.ContainsAsync(entry, None));
+        Assert.Equal(LocalPackageChange.Unfollowed, (await Events.FirstAsync(changes, e => e.Change != LocalPackageChange.Head)).Change);
+        PackageChanged dropped = await Events.FirstAsync(changes, e => e.Change == LocalPackageChange.Dropped);
+        Assert.Equal((channel, "Family", LocalPackageState.Listed, 0ul), (dropped.Package.PackageId, dropped.Package.Name, dropped.Package.State, dropped.Package.Entries));
 
         await mesh.StartNodeAsync("alice-laptop", None);
         await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
@@ -166,6 +173,7 @@ public sealed class PackageRequestTests
         await mesh["alice-laptop"].GrantAsync(channel, "bob", GrantRights.None, None);
         await mesh.SettleAsync(None);
         Assert.Empty((await client.SendAsync(new ListPackages { FollowedOnly = false }, None)).Value.Packages);
+        Assert.Equal(channel, (await Events.FirstAsync(changes, e => e.Change == LocalPackageChange.Dropped)).Package.PackageId);
     }
 
     private static PackageNonce Nonce(TestNode node, PackageId package) =>

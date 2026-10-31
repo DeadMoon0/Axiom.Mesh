@@ -26,4 +26,7 @@ internal enum PackageChangeKind : byte
 
     /// <summary>A peer listed a Package this node did not know.</summary>
     Listed = 7,
+
+    /// <summary>The Package was dropped: no established peer lists it and nothing of it is pinned.</summary>
+    Dropped = 8,
 }

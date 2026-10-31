@@ -89,4 +89,31 @@ public sealed class StoreSequenceTests
         Assert.False(refused.IsTransient);
         Assert.Equal(2, refused.RecoverySteps.Count);
     }
+
+    // STRUCTURAL-DEBT.md 56, release notes of 0.1.0: a store written by a build before 0.1.0 (schema version 1, Entries in
+    // the layout before SPEC.md draft 5, no Parents table) is refused at start; there is no migration, so the steps say to
+    // delete the pre-release store and create the identity again.
+    [Fact]
+    public async Task AStoreOfAPreReleaseBuildIsRefusedAtStart_AndTheStepsSayToDeleteIt()
+    {
+        using var environment = new InMemoryStorageEnvironment();
+        await using Database database = await Database.OpenAsync(environment, DatabaseOptions.Default, CancellationToken.None);
+        await (await MeshDatabase.OpenAsync(database, new DeterministicEntropy(1), CancellationToken.None)).DisposeAsync();
+        await using (LdbContext context = await LdbContext.OpenAsync(database, CancellationToken.None))
+        {
+            MetaRow version = (await context.Set<MetaRow>().FindAsync(MetaKeys.SchemaVersion, CancellationToken.None))!;
+            version.Number = 1;
+            await context.SaveChangesAsync(CancellationToken.None);
+        }
+
+        MeshStoreException refused = await Assert.ThrowsAsync<MeshStoreException>(() => MeshDatabase.OpenAsync(database, new DeterministicEntropy(1), CancellationToken.None));
+
+        Assert.Equal(2ul, MeshDatabase.SchemaVersion);
+        Assert.Equal(MeshFault.Environment, refused.Fault);
+        Assert.False(refused.IsTransient);
+        Assert.Contains("pre-release", refused.FriendlyMessage, System.StringComparison.Ordinal);
+        Assert.Contains("no migration", refused.FriendlyMessage, System.StringComparison.Ordinal);
+        Assert.StartsWith("Stop the Host and delete the pre-release store", refused.RecoverySteps[0], System.StringComparison.Ordinal);
+        Assert.Contains("identity create", refused.RecoverySteps[1], System.StringComparison.Ordinal);
+    }
 }

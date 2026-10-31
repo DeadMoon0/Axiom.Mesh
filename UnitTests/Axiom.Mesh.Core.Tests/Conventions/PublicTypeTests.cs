@@ -36,6 +36,7 @@ public sealed class PublicTypeTests
         typeof(IObjectFiles), // the Host and Testing choose where objects live
         typeof(ObjectDeletion), // what an IObjectFiles answers on delete
         typeof(DirectoryObjectFiles), // the Host's
+        typeof(StoreDirectoryFlush), // DirectoryObjectFiles.ProbeDirectoryFlush: the Host logs it at start
         typeof(InMemoryObjectFiles), // Testing's
         typeof(LocalPort), // MeshNode.Local: the Host adopts each pipe connection, Testing connects clients
         typeof(LocalPortOptions), // MeshNodeOptions.Local: what the Host's configuration tells the port

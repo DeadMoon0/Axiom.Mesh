@@ -24,7 +24,7 @@ public static class Contracts
         protected override IEnumerable<MeshException> Samples() =>
         [
             new MeshStoreException(
-                "The node's database was not made by this version of Axiom.Mesh (schema version 1 expected, found 2).",
+                "The node's database was not made by this version of Axiom.Mesh (schema version 2 expected, found 3).",
                 "Run the version of Axiom.Mesh that made this database, or a later one that can migrate it.",
                 "Or move the data directory aside and start anew."),
             new MeshNodeException(

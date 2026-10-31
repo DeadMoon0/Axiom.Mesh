@@ -262,7 +262,11 @@ internal sealed class LocalEventHub
 
         foreach (PackageChange change in changes.Packages)
         {
-            Package record = await PackageRecords.BuildAsync(port.Node, change.Package, cancellationToken).ConfigureAwait(false);
+            // A dropped Package is no longer held: its last record comes from the trust before the batch, with no Heads
+            // and no Entries left (§14.12 Dropped).
+            Package record = change.Kind == PackageChangeKind.Dropped
+                ? PackageRecords.Of(change.Package, before, [], 0, 0)
+                : await PackageRecords.BuildAsync(port.Node, change.Package, cancellationToken).ConfigureAwait(false);
             bool Match(Filter f) => FilterRule.Matches(f, change.Package, (ushort)record.Kind);
             foreach (PackageChanged changed in EventsOf(change, record, changes, before))
             {

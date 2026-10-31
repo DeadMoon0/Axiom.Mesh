@@ -14,8 +14,8 @@ namespace Axiom.Mesh.Core.Storage;
 /// <para>
 /// A write goes to <c>&lt;h&gt;.tmp-&lt;random&gt;</c> in the object's own directory, is flushed to disk, and is renamed into place
 /// without overwriting (SPEC.md §11.1), so a crash leaves the object absent or complete; a name that already exists is
-/// a finished object, and the write is dropped. On Linux the directory is flushed too where the runtime lets a
-/// directory be opened; on Windows a rename is durable with the file.
+/// a finished object, and the write is dropped. On Linux and macOS the directory is flushed too (<c>fsync</c>
+/// through libc, see <see cref="ProbeDirectoryFlush"/>); on Windows a rename is durable with the file.
 /// </para>
 /// <para>
 /// Readers open with read and delete sharing, so that eviction can unlink a file a reader holds; the reader keeps the
@@ -49,6 +49,18 @@ public sealed class DirectoryObjectFiles : IObjectFiles
     {
         string hex = hash.ToString();
         return Path.Combine(StorePath!, ObjectsFolder, hex[..2], hex[2..4], hex);
+    }
+
+    /// <summary>
+    /// Flushes the store directory once and says how renames in it are made durable on this platform (SPEC.md §11.1), for
+    /// a host's start log: no flush needed (Windows), flushed with <c>fsync</c> (Linux, macOS), or not possible. The
+    /// directory is created when it does not exist.
+    /// </summary>
+    /// <returns>What flushing a directory does here.</returns>
+    public StoreDirectoryFlush ProbeDirectoryFlush()
+    {
+        Directory.CreateDirectory(StorePath!);
+        return DirectorySync.Flush(StorePath!);
     }
 
     /// <inheritdoc />
@@ -142,24 +154,10 @@ public sealed class DirectoryObjectFiles : IObjectFiles
         }
     }
 
-    // The rename is durable only once the directory entry is: fsync the directory where the runtime can open one.
-    // .NET refuses to open a directory as a file on some platforms; then the rename's durability rests on the file
-    // system's ordering, which STRUCTURAL-DEBT.md records.
-    private static void FlushDirectory(string folder)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        try
-        {
-            using var directory = new FileStream(folder, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, bufferSize: 0);
-            directory.Flush(flushToDisk: true);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            // Best effort; see above.
-        }
-    }
+    // The rename is durable only once the directory entry is: fsync the directory (DirectorySync; .NET refuses to open a
+    // directory as a file), which Windows does not need. Where even that fails, the rename's durability rests on the file
+    // system's ordering.
+    private static void FlushDirectory(string folder) => _ = DirectorySync.Flush(folder);
 
     private string TemporarySuffix()
     {

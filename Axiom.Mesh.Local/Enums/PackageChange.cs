@@ -1,7 +1,7 @@
 namespace Axiom.Mesh.Local;
 
 /// <summary>What changed in a <c>PackageChanged</c> event (LOCAL-SPEC.md §14.12).</summary>
-/// <remarks>Values 8 to 255 are reserved; a value this enumeration does not name is kept and tolerated (§1.5).</remarks>
+/// <remarks>Values 9 to 255 are reserved; a value this enumeration does not name is kept and tolerated (§1.5).</remarks>
 public enum PackageChange : byte
 {
     /// <summary>Assigned to nothing.</summary>
@@ -27,4 +27,7 @@ public enum PackageChange : byte
 
     /// <summary>A peer listed a Package this Host did not know.</summary>
     Listed = 7,
+
+    /// <summary>The Package was dropped (§6.4): the Host holds nothing of it any more; the record is its last one, <c>state</c> Listed.</summary>
+    Dropped = 8,
 }

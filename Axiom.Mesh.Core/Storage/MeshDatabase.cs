@@ -15,8 +15,11 @@ namespace Axiom.Mesh.Core.Storage;
 /// </summary>
 internal sealed class MeshDatabase : IAsyncDisposable
 {
-    /// <summary>The schema version these tables are; a database of another one is refused.</summary>
-    public const ulong SchemaVersion = 1;
+    /// <summary>
+    /// The schema version these tables are; a database of another one is refused. 2 since 0.1.0: the Entry layout of
+    /// SPEC.md draft 5 and the <c>Parents</c> table (STRUCTURAL-DEBT.md 56); every store of a build before it is version 1.
+    /// </summary>
+    public const ulong SchemaVersion = 2;
 
     private readonly bool ownsDatabase;
 
@@ -82,7 +85,7 @@ internal sealed class MeshDatabase : IAsyncDisposable
             await context.EnsureTableAsync(() => FirstMeta(entropy), cancellationToken).ConfigureAwait(false);
             MetaRow? version = await context.Set<MetaRow>().FindAsync(MetaKeys.SchemaVersion, cancellationToken).ConfigureAwait(false);
             if (version is null || version.Number != SchemaVersion)
-                throw Mismatch($"schema version {version?.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none"}", null);
+                throw version is { Number: < SchemaVersion } older ? PreRelease(older.Number) : Mismatch($"schema version {version?.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none"}", null);
 
             await context.EnsureTableAsync<UserRow>(cancellationToken).ConfigureAwait(false);
             await context.EnsureTableAsync<DeviceRow>(cancellationToken).ConfigureAwait(false);
@@ -120,6 +123,13 @@ internal sealed class MeshDatabase : IAsyncDisposable
             new MetaRow { Name = MetaKeys.StorePinnedBytes },
         ];
     }
+
+    // A store of a build before 0.1.0: no migration exists, so the way out is a new store (and identity).
+    private static MeshStoreException PreRelease(ulong found) => new(
+        $"The node's store was written by a pre-release build of Axiom.Mesh (schema version {found.ToString(System.Globalization.CultureInfo.InvariantCulture)}, this build reads {SchemaVersion}): its Entries have the layout before SPEC.md draft 5, and there is no migration before 0.1.0.",
+        "Stop the Host and delete the pre-release store: the data directory that holds 'index' and 'objects' (with AXIOM_MESH_HOME, <home>/data; else %LOCALAPPDATA%/Axiom.Mesh/data on Windows, ~/.local/share/axiom-mesh/data on Linux).",
+        "Delete the keys directory beside it as well, start the Host again and run 'axiom-mesh identity create': the old identity's Roster lived in the deleted store.",
+        "Pair again with the other devices; what they still hold replicates back once you follow it.");
 
     private static MeshStoreException Mismatch(string found, Exception? cause)
     {

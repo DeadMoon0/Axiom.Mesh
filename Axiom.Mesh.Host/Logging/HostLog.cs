@@ -1,3 +1,4 @@
+using Axiom.Mesh.Core.Storage;
 using Microsoft.Extensions.Logging;
 
 namespace Axiom.Mesh.Host;
@@ -40,4 +41,15 @@ internal static partial class HostLog
     /// <param name="grace">The local clients' grace.</param>
     [LoggerMessage(EventId = 5, Level = LogLevel.Information, Message = "axiom-meshd stops: local clients get {Grace} ms to finish")]
     public static partial void Stopping(ILogger logger, double grace);
+
+    /// <summary>
+    /// How renames in the store directory are made durable on this platform (SPEC.md §11.1): <c>NotNeeded</c> on Windows,
+    /// <c>Flushed</c> where the directory was <c>fsync</c>ed, <c>Unsupported</c> where it could not be. The install-script
+    /// job reads this line on Linux (STRUCTURAL-DEBT.md 14).
+    /// </summary>
+    /// <param name="logger">The daemon's logger.</param>
+    /// <param name="data">The store directory.</param>
+    /// <param name="flush">What a directory flush does here.</param>
+    [LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "store {Data}: directory flush {Flush}")]
+    public static partial void StoreFlush(ILogger logger, string data, StoreDirectoryFlush flush);
 }

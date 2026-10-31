@@ -52,6 +52,21 @@ public sealed class StoreTests
         Assert.Equal(onDisk.Bytes.ToArray(), await File.ReadAllBytesAsync(path));
     }
 
+    // SPEC.md §11.1: "flushing the file and, on platforms that need it, the directory". Linux and macOS need it and get an
+    // fsync of the directory (STRUCTURAL-DEBT.md 14, proved on the Linux runner); Windows makes a rename durable with the
+    // file and needs none.
+    [Fact]
+    public void TheStoreDirectoryIsFlushedWhereThePlatformNeedsIt_AndNeedsNoFlushOnWindows()
+    {
+        using var temp = new TempDirectory();
+        var files = new DirectoryObjectFiles(Path.Combine(temp.Path, "store"), new DeterministicEntropy(3));
+
+        StoreDirectoryFlush flush = files.ProbeDirectoryFlush();
+
+        Assert.Equal(OperatingSystem.IsWindows() ? StoreDirectoryFlush.NotNeeded : StoreDirectoryFlush.Flushed, flush);
+        Assert.True(Directory.Exists(files.StorePath));
+    }
+
     // LOCAL-SPEC.md §9.7: a reader that opened an object with delete sharing keeps its bytes while the Host evicts it; a
     // delete a reader blocks is "evict later", and the object counts as stored until the unlink succeeded.
     [Fact]
