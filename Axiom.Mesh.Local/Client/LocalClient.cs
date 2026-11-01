@@ -24,6 +24,8 @@ namespace Axiom.Mesh.Local;
 /// </para>
 /// <para>
 /// <b>Events</b> arrive through <see cref="SubscribeAsync{TEvent}"/>; the topic follows from the event type.
+/// <b>Callbacks</b> (a service's <c>ForwardedCall</c>s) go to <see cref="LocalClientOptions.Callbacks"/>, each on a worker
+/// with its 60-second deadline, while the client keeps reading; each is answered exactly once.
 /// <b>Liveness</b> needs nothing: the definition answers the Host's <c>Ping</c>. <b>Exceptions</b> are for the
 /// connection only: <see cref="LocalConnectionException"/> when it cannot be opened, is refused or ended.
 /// </para>
@@ -36,6 +38,8 @@ public sealed class LocalClient : IAsyncDisposable
     private readonly Dictionary<uint, PendingRequest> pending = [];
     private readonly Dictionary<uint, ISubscriptionSink> subscriptions = [];
     private readonly CancellationTokenSource draining = new();
+    private readonly CancellationTokenSource ended = new();
+    private readonly CallbackDispatch callbacks;
     private readonly TaskCompletionSource<LocalConnectionException> closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task reading = Task.CompletedTask;
     private uint lastCorrelation;
@@ -43,11 +47,12 @@ public sealed class LocalClient : IAsyncDisposable
     private LocalConnectionException? ending;
     private int closeStarted;
 
-    private LocalClient(Connection connection, Session<IHostMessage, IClientMessage> session, HelloAck host)
+    private LocalClient(Connection connection, Session<IHostMessage, IClientMessage> session, HelloAck host, LocalClientOptions options)
     {
         this.connection = connection;
         this.session = session;
         Host = host;
+        callbacks = new CallbackDispatch(options.Callbacks, options.TimeProvider, SendReplyAsync, ended.Token);
     }
 
     /// <summary>What the Host said in its <c>HelloAck</c>: the granted role, its flags, the identity and the store sequence and epoch.</summary>
@@ -210,6 +215,9 @@ public sealed class LocalClient : IAsyncDisposable
     /// <inheritdoc />
     public override string ToString() => $"LocalClient({Host.Role}, {(Closed.IsCompleted ? "closed" : "open")})";
 
+    /// <summary>Callbacks received and neither answered nor given up yet (§9.8), for tests.</summary>
+    internal int CallbacksPending => callbacks.Pending;
+
     /// <summary>Ends a subscription this client lapsed itself and tells the Host, in the background (§7.4).</summary>
     internal void ReleaseLapsed(ISubscriptionSink subscription) => _ = UnsubscribeLapsedAsync(subscription);
 
@@ -235,7 +243,7 @@ public sealed class LocalClient : IAsyncDisposable
             switch (answer.Message)
             {
                 case HelloAck ack:
-                    var client = new LocalClient(connection, session, ack);
+                    var client = new LocalClient(connection, session, ack, options);
                     client.reading = Task.Run(client.ReadLoopAsync, CancellationToken.None);
                     return client;
                 case Bye bye:
@@ -290,8 +298,8 @@ public sealed class LocalClient : IAsyncDisposable
                     Route(frame);
                     break;
                 case Callback callback:
-                    // Callbacks are served by services; this client knows none of them (ForwardedCall is phase 1b).
-                    await session.WriteAsync(Reply.ForUnknownCallback(callback.CallbackId), CancellationToken.None).ConfigureAwait(false);
+                    // Served off this loop, so that a handler's own requests are answered while it runs (§9.8).
+                    callbacks.Dispatch(callback);
                     break;
                 case Drain:
                     ThreadPool.UnsafeQueueUserWorkItem(static source => source.Cancel(), draining, preferLocal: false);
@@ -299,6 +307,19 @@ public sealed class LocalClient : IAsyncDisposable
                 case Bye bye:
                     return LocalConnectionException.ClosedByHost(bye);
             }
+        }
+    }
+
+    // A reply is written whole once begun: no token cancels it (STRUCTURAL-DEBT.md 53). A connection that ended takes none.
+    private async Task SendReplyAsync(Reply reply)
+    {
+        try
+        {
+            await session.WriteAsync(reply, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is ProtoStreamException or IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            // The connection is gone; the Host forgets the callback with it.
         }
     }
 

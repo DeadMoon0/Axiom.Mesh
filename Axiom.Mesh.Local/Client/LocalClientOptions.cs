@@ -26,6 +26,12 @@ public sealed record LocalClientOptions
     /// </summary>
     public ServiceToken Token { get; init; }
 
-    /// <summary>The clock the connection's timeouts run on; replace it in tests.</summary>
+    /// <summary>
+    /// What a service answers the Host's callbacks with (§9.8); <see langword="null"/> answers every callback
+    /// <c>UnknownRequest</c>, as a user client and a service that serves no calls do. Default null.
+    /// </summary>
+    public CallbackHandler? Callbacks { get; init; }
+
+    /// <summary>The clock the connection's timeouts run on, the callbacks' deadlines included; replace it in tests.</summary>
     public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 }

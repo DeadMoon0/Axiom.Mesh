@@ -9,7 +9,7 @@ namespace Axiom.Mesh.Core;
 
 /// <summary>
 /// The Package requests of LOCAL-SPEC.md §6.4: <c>ListPackages</c>, <c>GetPackage</c>, <c>CreatePackage</c>,
-/// <c>FollowPackage</c>, <c>UnfollowPackage</c>, <c>SetPackagePolicy</c>. <c>UpdatePackage</c> stays unserved (plan D7).
+/// <c>UpdatePackage</c>, <c>FollowPackage</c>, <c>UnfollowPackage</c>, <c>SetPackagePolicy</c>.
 /// Every record comes from <see cref="PackageRecords"/>.
 /// </summary>
 internal static class PackageRequests
@@ -90,6 +90,42 @@ internal static class PackageRequests
         {
             Status.Ok => LocalAnswer.Ok<CreatePackage, Package>(correlation, await PackageRecords.BuildAsync(node, manifest!.Content.Package, cancellationToken).ConfigureAwait(false)),
             Status.UserKeyAbsent => LocalAnswer.Failure(correlation, status, "Creating a Package needs the user key, which is on another device of this user: create it there.", string.Empty),
+            _ => StoreFull(correlation),
+        };
+    }
+
+    /// <summary>
+    /// <c>UpdatePackage</c> (307): the next Manifest of a Package the own user owns, as <see cref="ManifestUpdateRule"/> decides
+    /// it, signed with the user key and stored; it replicates like any current Manifest (SPEC.md §8.7, §10.5).
+    /// </summary>
+    /// <param name="context">The connection and the node.</param>
+    /// <param name="correlation">The request's correlation.</param>
+    /// <param name="request">The request.</param>
+    /// <param name="cancellationToken">Cancelled when the connection ends.</param>
+    /// <returns>The answer.</returns>
+    public static async ValueTask<LocalAnswer> UpdatePackageAsync(RequestContext context, uint correlation, UpdatePackage request, CancellationToken cancellationToken)
+    {
+        MeshNode node = context.Node;
+        TrustSnapshot trust = node.Trust;
+        if (!trust.IsFollowedOrListed(request.PackageId) || !trust.TryGetManifest(request.PackageId, out VerifiedManifest? current))
+            return Unknown(correlation, request.PackageId);
+        if (ManifestUpdateRule.Check(current.Content, trust.Self!.User, request) is { } refusal)
+            return refusal.Answer(correlation);
+
+        (Status status, VerifiedManifest? manifest) = await node.WithUserKeyAsync<VerifiedManifest>(
+            async (signer, ct) =>
+            {
+                VerifiedManifest signed = ManifestUpdateRule.Next(current.Content, request).Sign(signer);
+                if (!StoreBudgetRule.Admits(node.Writer.Totals, signed.Bytes.Length))
+                    return (Status.StoreFull, null);
+                await node.Store.PutAsync(signed, ct).ConfigureAwait(false);
+                return (Status.Ok, signed);
+            },
+            cancellationToken).ConfigureAwait(false);
+        return status switch
+        {
+            Status.Ok => LocalAnswer.Ok<UpdatePackage, Package>(correlation, await PackageRecords.BuildAsync(node, manifest!.Content.Package, cancellationToken).ConfigureAwait(false)),
+            Status.UserKeyAbsent => LocalAnswer.Failure(correlation, status, $"Updating a Package needs the user key, which is on another device of this user than {trust.Self.Device}: update it there.", string.Empty),
             _ => StoreFull(correlation),
         };
     }

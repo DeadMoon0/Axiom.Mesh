@@ -60,16 +60,19 @@ public sealed class EventTopicTests
         Assert.Equal("synced", (await Events.FirstAsync(sync, _ => true)).Event);
     }
 
-    // §10.3, §14.4: a Host without telemetry answers every telemetry request NotFound and clears capability bit 2.
+    // §10.3, §9.9, §14.4: a Host without telemetry answers every telemetry request NotFound, a service's AddTelemetry
+    // included, and clears capability bit 2.
     [Fact]
     public async Task TelemetryRequestsAreNotFoundOnAHostWithoutTelemetry()
     {
         await using TestMesh mesh = await LocalMeshes.StartAsync();
         LocalClient client = await mesh[LocalMeshes.Node].ConnectUserAsync("app", None);
+        LocalClient cli = await mesh[LocalMeshes.Node].ConnectServiceAsync("cli", LocalMeshes.CliToken, None);
 
         Assert.False(client.Host.Capabilities.HasFlag(HostCapabilities.Telemetry));
         Assert.Equal(Status.NotFound, (await client.SendAsync(new ListSeries(), None)).Status);
         Assert.Equal(Status.NotFound, (await client.SendAsync(new ListKeys { Series = "store.bytes" }, None)).Status);
         Assert.Equal(Status.NotFound, (await client.SendAsync(new GetTotal { Series = "store.bytes", Key = "" }, None)).Status);
+        Assert.Equal(Status.NotFound, (await cli.SendAsync(new AddTelemetry { Series = "svc.cli.writes", Key = "", Delta = 1 }, None)).Status);
     }
 }

@@ -52,6 +52,13 @@ internal sealed class LocalEventHub
         subscription = bus.Subscribe(ChangeQueue);
     }
 
+    /// <summary>
+    /// Held while the hub offers a batch's Entries, and by a <c>Subscribe</c> to topic entries while it reads the newest store
+    /// sequence, plans its replay and adds its subscription (LOCAL-SPEC.md §7.2: no gap and no repeat between the replay and
+    /// the live events).
+    /// </summary>
+    public SemaphoreSlim EntriesGate { get; } = new(1, 1);
+
     /// <summary>A new view of the peer table; called under the table's lock, so it only queues.</summary>
     /// <param name="view">The view.</param>
     public void PeersChanged(IReadOnlyList<PeerRecord> view) => views.Writer.TryWrite(view);
@@ -233,6 +240,22 @@ internal sealed class LocalEventHub
     {
         if (changes.Entries.Count == 0)
             return;
+
+        // A Subscribe to topic entries reads the newest store sequence and adds its subscription under the same gate, so an
+        // Entry is either at or below what it read (its replay) or offered after it was added (live): never neither.
+        await EntriesGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await OfferEntriesAsync(changes, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            EntriesGate.Release();
+        }
+    }
+
+    private async Task OfferEntriesAsync(ChangeSet changes, CancellationToken cancellationToken)
+    {
         LocalConnection[] live = Subscribed(Topic.Entries);
         if (live.Length == 0)
             return;

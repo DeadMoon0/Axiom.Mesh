@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,9 +10,9 @@ using LocalStoredObject = Axiom.Mesh.Local.StoredObject;
 namespace Axiom.Mesh.Core;
 
 /// <summary>
-/// The service role's requests of LOCAL-SPEC.md §9: <c>RegisterKind</c> (§9.2), <c>WriteEntry</c> (§9.4),
-/// <c>PutObject</c> (§9.5) and <c>GetStorePath</c> (§9.7). <c>AddTelemetry</c> and <c>Emit</c> are deferred (plan D7);
-/// <c>PutFile</c> was removed in draft 4 (the client's helpers cut files).
+/// The service role's requests of LOCAL-SPEC.md §9 (<c>RegisterKind</c> §9.2, <c>WriteEntry</c> §9.4, <c>PutObject</c> §9.5,
+/// <c>GetStorePath</c> §9.7, <c>Emit</c> §9.10) and the user role's way to a service, <c>ServiceCall</c> (§6.7).
+/// <c>AddTelemetry</c> answers <c>NotFound</c> with the telemetry requests (§9.9); <c>PutFile</c> was removed in draft 4.
 /// </summary>
 internal static class ServiceRequests
 {
@@ -115,6 +116,64 @@ internal static class ServiceRequests
         if (!context.Port.AckFor(context.Connection).Capabilities.HasFlag(HostCapabilities.StoreReadable) || context.Node.Files.StorePath is not { } path)
             return ValueTask.FromResult(LocalAnswer.Failure(correlation, Status.NotPermitted, "The store directory is not readable by this connection's user; read objects with GetObject.", string.Empty));
         return ValueTask.FromResult(LocalAnswer.Ok<GetStorePath, StorePath>(correlation, new StorePath { Path = path, Layout = StoreLayout }));
+    }
+
+    /// <summary>
+    /// <c>ServiceCall</c> (385): forwarded to the named service as a <c>ForwardedCall</c> (§9.8) and answered with what it
+    /// replied, as <see cref="ForwardedReplyRule"/> judges it; <c>ServiceUnavailable</c> at once for a service that is not
+    /// configured or not connected, <c>Busy</c> when 64 calls are outstanding toward it. Not ordered against the caller's
+    /// other requests (§3.4): it waits on another process and writes nothing here.
+    /// </summary>
+    /// <param name="context">The caller's connection and the node.</param>
+    /// <param name="correlation">The request's correlation.</param>
+    /// <param name="request">The request.</param>
+    /// <param name="cancellationToken">Cancelled when the caller's connection ends: the reply is then read and discarded.</param>
+    /// <returns>The answer.</returns>
+    public static async ValueTask<LocalAnswer> ServiceCallAsync(RequestContext context, uint correlation, ServiceCall request, CancellationToken cancellationToken)
+    {
+        if (!NameRule.IsName(request.Service) || !NameRule.IsName(request.Method))
+            return LocalAnswer.Failure(correlation, Status.Invalid, "A service and a method are names: ASCII letters, digits, '.', '-' and '_'.", NameRule.IsName(request.Service) ? "method" : "service");
+        if (context.Port.Book.ServiceConnection(request.Service) is not { } service)
+            return ForwardedReplyRule.Unavailable(correlation, request.Service, context.Port.Options.Services.Any(s => s.Name == request.Service) ? "is not connected" : "is not configured on this Host");
+
+        LocalConnection caller = context.Connection;
+        var call = new ForwardedCall { Client = (uint)caller.Id, ClientName = caller.Hello!.Name, Method = request.Method, Payload = request.Payload };
+        Task<CallbackOutcome> pending = service.CallAsync(call, TimeSpan.FromSeconds(Limits.ServiceCallSeconds), out bool busy);
+        if (busy)
+            return LocalAnswer.Failure(correlation, Status.Busy, $"{Limits.MaxOutstandingCallbacks} calls are outstanding toward the service {request.Service}; try again once one was answered.", string.Empty);
+
+        CallbackOutcome outcome = await pending.WaitAsync(cancellationToken).ConfigureAwait(false);
+        LocalAnswer answer = ForwardedReplyRule.Judge(correlation, request.Service, outcome, out string? violation);
+        if (violation is not null)
+            service.CloseViolation(violation, "a Reply the Host could not pass on (LOCAL-SPEC.md §9.8): " + violation);
+        return answer;
+    }
+
+    /// <summary>
+    /// <c>Emit</c> (518): a <c>ServiceEvent</c> on every subscription of topic <c>service</c> whose filter takes this service and
+    /// the Package (§9.10). The zero Package is always allowed; else the Package must be followed (<c>NotFound</c>) and of a
+    /// kind this service registered (<c>KindNotRegistered</c>).
+    /// </summary>
+    /// <param name="context">The connection and the node.</param>
+    /// <param name="correlation">The request's correlation.</param>
+    /// <param name="request">The request.</param>
+    /// <param name="cancellationToken">Cancelled when the connection ends.</param>
+    /// <returns>The answer.</returns>
+    public static ValueTask<LocalAnswer> EmitAsync(RequestContext context, uint correlation, Emit request, CancellationToken cancellationToken)
+    {
+        if (!NameRule.IsName(request.Event))
+            return ValueTask.FromResult(LocalAnswer.Failure(correlation, Status.Invalid, "An event is a name: ASCII letters, digits, '.', '-' and '_'.", "event"));
+        if (!request.PackageId.Value.IsZero)
+        {
+            TrustSnapshot trust = context.Node.Trust;
+            if (!trust.IsFollowed(request.PackageId) || !trust.TryGetManifest(request.PackageId, out VerifiedManifest? manifest))
+                return ValueTask.FromResult(PackageRequests.Unknown(correlation, request.PackageId));
+            if (!context.Port.Kinds.HoldsKind(context.Connection, manifest.Content.Kind))
+                return ValueTask.FromResult(LocalAnswer.Failure(correlation, Status.KindNotRegistered, $"This service did not register Package kind {(ushort)manifest.Content.Kind}.", "packageId"));
+        }
+
+        context.Port.Hub.ServiceEmitted(new ServiceEvent { Service = context.Connection.Hello!.Name, Event = request.Event, PackageId = request.PackageId, Payload = request.Payload });
+        return ValueTask.FromResult(LocalAnswer.Ok<Emit, NoContent>(correlation, default));
     }
 
     /// <summary>The record of a stored Entry by its hash.</summary>

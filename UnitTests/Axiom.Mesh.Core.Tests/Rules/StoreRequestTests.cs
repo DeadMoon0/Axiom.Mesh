@@ -63,6 +63,39 @@ public sealed class StoreRequestTests
         Assert.Empty((await user.SendAsync(new ListPins { Hash = chunk.Hash }, None)).Value.Pins);
     }
 
+    // §9.6: a service's pins stay when its connection ends, because it may restart; a service whose configuration says
+    // releasePinsOnDisconnect loses them when its connection ended.
+    [Fact]
+    public async Task AServicesPinsStayWhenItDisconnects_UnlessItsConfigurationReleasesThemOnDisconnect()
+    {
+        await using TestMesh mesh = await LocalMeshes.StartAsync(LocalMeshes.Options with
+        {
+            Services = [.. LocalMeshes.Options.Services, new LocalService { Name = "tidy", Provenance = ServiceProvenance.External, Token = LocalMeshes.WrongToken, ReleasePinsOnDisconnect = true }],
+        });
+        TestNode node = mesh[LocalMeshes.Node];
+        LocalClient user = await node.ConnectUserAsync("app", None);
+        Chunk kept = Samples.Chunk(4);
+        Chunk released = Samples.Chunk(5);
+        Assert.True(await node.Node.PutAsync(kept, None));
+        Assert.True(await node.Node.PutAsync(released, None));
+        LocalClient cli = await node.ConnectServiceAsync("cli", LocalMeshes.CliToken, None);
+        LocalClient tidy = await node.ConnectServiceAsync("tidy", LocalMeshes.WrongToken, None);
+        Assert.True((await cli.SendAsync(new PinObject { Hash = kept.Hash }, None)).IsOk);
+        Assert.True((await tidy.SendAsync(new PinObject { Hash = released.Hash }, None)).IsOk);
+
+        await cli.ByeAsync(None);
+        await tidy.ByeAsync(None);
+        await Waits.UntilAsync(() => node.Node.Local.Book.ServiceConnection("tidy") is null && node.Node.Local.Book.ServiceConnection("cli") is null, "both services to leave");
+
+        Assert.Single((await user.SendAsync(new ListPins { Hash = kept.Hash }, None)).Value.Pins);
+        // The release is queued for the store writer after the connection ended; it lands within a few commits.
+        for (int round = 0; (await user.SendAsync(new ListPins { Hash = released.Hash }, None)).Value.Pins.Count != 0; round++)
+        {
+            Assert.True(round < 5_000, "the tidy service's pin was not released");
+            await Waits.PauseAsync();
+        }
+    }
+
     // §5.11, §6.5: pins come ascending by (hash, reason, source); a page after a cursor holds the rest; hashes to Unpin
     // that are not ascending are Invalid.
     [Fact]

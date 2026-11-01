@@ -29,14 +29,15 @@ internal sealed class RequestRoutes
     private static readonly FrozenSet<ushort> WhileDraining = new ushort[] { 401, 416, 417, 418 }.ToFrozenSet();
 
     // §3.4: requests that write but touch no Package, so nothing orders them against the connection's other requests: a
-    // PutObject stores an object named by its hash, idempotently, and many run at once (STRUCTURAL-DEBT.md 57).
-    private static readonly FrozenSet<ushort> Unordered = new ushort[] { PutObject.Id }.ToFrozenSet();
+    // PutObject stores an object named by its hash, idempotently, and many run at once (STRUCTURAL-DEBT.md 57); a
+    // ServiceCall waits on another process and writes nothing here, so a slow service never holds up its caller (§6.7).
+    private static readonly FrozenSet<ushort> Unordered = new ushort[] { PutObject.Id, ServiceCall.Id }.ToFrozenSet();
 
     private readonly FrozenDictionary<ushort, RequestRoute> routes;
 
     private RequestRoutes(IEnumerable<RequestRoute> rows) => routes = rows.ToFrozenDictionary(r => r.Descriptor.Id);
 
-    /// <summary>The table of this Host: the phase-1 request set (fundamentals plan §2.5); everything else answers <c>UnknownRequest</c> (D7).</summary>
+    /// <summary>The table of this Host: every request of LOCAL-SPEC.md §14.1 but the reserved ids (telemetry answers <c>NotFound</c>, §14.4).</summary>
     public static RequestRoutes Default { get; } = Build(Handlers());
 
     /// <summary>Every row, ascending by id.</summary>
@@ -70,6 +71,7 @@ internal sealed class RequestRoutes
         [ListPackages.Id] = Of<ListPackages>(PackageRequests.ListPackagesAsync),
         [GetPackage.Id] = Of<GetPackage>(PackageRequests.GetPackageAsync),
         [CreatePackage.Id] = Of<CreatePackage>(PackageRequests.CreatePackageAsync),
+        [UpdatePackage.Id] = Of<UpdatePackage>(PackageRequests.UpdatePackageAsync),
         [FollowPackage.Id] = Of<FollowPackage>(PackageRequests.FollowPackageAsync),
         [UnfollowPackage.Id] = Of<UnfollowPackage>(PackageRequests.UnfollowPackageAsync),
         [SetPackagePolicy.Id] = Of<SetPackagePolicy>(PackageRequests.SetPackagePolicyAsync),
@@ -90,10 +92,13 @@ internal sealed class RequestRoutes
         [RemoveStaticPeer.Id] = Of<RemoveStaticPeer>(PeerRequests.RemoveStaticPeerAsync),
         [Dial.Id] = Of<Dial>(PeerRequests.DialAsync),
         [Fetch.Id] = Of<Fetch>(OperationStarts.FetchAsync),
+        [ServiceCall.Id] = Of<ServiceCall>(ServiceRequests.ServiceCallAsync),
         [RegisterKind.Id] = Of<RegisterKind>(ServiceRequests.RegisterKindAsync),
         [WriteEntry.Id] = Of<WriteEntry>(ServiceRequests.WriteEntryAsync),
         [PutObject.Id] = Of<PutObject>(ServiceRequests.PutObjectAsync),
         [GetStorePath.Id] = Of<GetStorePath>(ServiceRequests.GetStorePathAsync),
+        [AddTelemetry.Id] = Of<AddTelemetry>(TelemetryRequests.AbsentAsync),
+        [Emit.Id] = Of<Emit>(ServiceRequests.EmitAsync),
         [ListSeries.Id] = Of<ListSeries>(TelemetryRequests.AbsentAsync),
         [ListKeys.Id] = Of<ListKeys>(TelemetryRequests.AbsentAsync),
         [GetTotal.Id] = Of<GetTotal>(TelemetryRequests.AbsentAsync),

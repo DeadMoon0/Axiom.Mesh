@@ -11,6 +11,8 @@
   <ItemGroup>
     <!-- Round trips at every byte split, mutation fuzzing and the in-memory transport the client is tested over. -->
     <PackageReference Include="Axiom.ProtoStream.Testing" />
+    <!-- The callbacks' 60-second deadline and 120-second bound, moved by the test (CallbackServingTests). -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 
 </Project>

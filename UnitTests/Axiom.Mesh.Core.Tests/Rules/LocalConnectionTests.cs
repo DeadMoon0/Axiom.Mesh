@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core.Tests.Support;
@@ -49,6 +50,9 @@ public sealed class LocalConnectionTests
     public async Task AnUnknownRequestIdIsAnsweredUnknownRequestAndTheConnectionStaysOpen()
     {
         await using TestMesh mesh = await LocalMeshes.StartAsync();
+        var handlers = new Dictionary<ushort, RequestHandler>(RequestRoutes.Handlers());
+        handlers.Remove(UpdatePackage.Id);
+        mesh[LocalMeshes.Node].Node.Local.Routes = RequestRoutes.Build(handlers);
         await using RawLocalClient client = await RawLocalClient.ReadyAsync(mesh, LocalMeshes.Node);
 
         uint unserved = await client.RequestAsync(new UpdatePackage { PackageId = default });

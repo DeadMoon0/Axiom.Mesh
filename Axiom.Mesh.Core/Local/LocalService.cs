@@ -26,4 +26,10 @@ public sealed record LocalService
 
     /// <summary>The Entry kinds it may register, ascending.</summary>
     public IReadOnlyList<EntryKind> EntryKinds { get; init; } = [];
+
+    /// <summary>
+    /// Whether the Host releases every <c>Service</c> pin of this service when its connection ends (LOCAL-SPEC.md §9.6). By
+    /// default they stay, because an out-of-process service may restart and still needs them.
+    /// </summary>
+    public bool ReleasePinsOnDisconnect { get; init; }
 }

@@ -42,6 +42,16 @@ internal sealed class KindRegistry
             return held.TryGetValue(kind, out var registration) && ReferenceEquals(registration.Holder, connection) && registration.EntryKinds.Contains(entryKind);
     }
 
+    /// <summary>Whether a connection holds a Package kind (§9.10 <c>Emit</c>: <c>KindNotRegistered</c> otherwise).</summary>
+    /// <param name="connection">The connection.</param>
+    /// <param name="kind">The Package kind.</param>
+    /// <returns><see langword="true"/> when it registered the kind.</returns>
+    public bool HoldsKind(LocalConnection connection, PackageKind kind)
+    {
+        lock (gate)
+            return held.TryGetValue(kind, out var registration) && ReferenceEquals(registration.Holder, connection);
+    }
+
     /// <summary>The Entry kinds of every kind a connection holds (§6.4 <c>ListStored</c> in the service role).</summary>
     /// <param name="connection">The connection.</param>
     /// <returns>The Entry kinds; empty when it holds none.</returns>

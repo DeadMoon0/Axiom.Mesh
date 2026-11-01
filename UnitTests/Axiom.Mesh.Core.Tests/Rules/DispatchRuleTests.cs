@@ -23,14 +23,28 @@ public sealed class DispatchRuleTests
     [InlineData((ushort)418, Role.User, true, true, true, Status.Ok)] // and CancelOperation
     [InlineData((ushort)312, Role.User, true, false, false, Status.NotPermitted)] // SetGrant from an executable outside the confinement
     [InlineData((ushort)312, Role.User, true, false, true, Status.Ok)] // SetGrant permitted and served
-    [InlineData((ushort)307, Role.User, true, false, true, Status.UnknownRequest)] // UpdatePackage, deferred to a later phase (D7)
-    [InlineData((ushort)385, Role.User, true, false, true, Status.UnknownRequest)] // ServiceCall, deferred (D7)
-    [InlineData((ushort)518, Role.Service, true, false, true, Status.UnknownRequest)] // Emit, deferred (D7)
+    [InlineData((ushort)307, Role.User, true, false, true, Status.Ok)] // UpdatePackage, served since phase 1b
+    [InlineData((ushort)385, Role.User, true, false, true, Status.Ok)] // ServiceCall, served since phase 1b
+    [InlineData((ushort)385, Role.Service, true, false, true, Status.NotPermitted)] // ServiceCall is the user role's only
+    [InlineData((ushort)518, Role.Service, true, false, true, Status.Ok)] // Emit, served since phase 1b
+    [InlineData((ushort)517, Role.Service, true, false, true, Status.Ok)] // AddTelemetry reaches its handler (which answers NotFound)
     [InlineData((ushort)513, Role.User, true, false, true, Status.NotPermitted)] // WriteEntry is the service role's only
     public void TheChecksRunInOrder_RoleIdentityDrainingConfinementThenWhetherServed(ushort id, Role role, bool identity, bool draining, bool permitted, Status expected)
     {
         Assert.True(RequestRoutes.Default.TryGet(id, out RequestRoute route));
         Assert.Equal(expected, DispatchRule.Check(route, role, identity, draining, permitted).Status);
+    }
+
+    // §3.4, §1.5: a request the protocol knows but a Host's table serves no handler for is answered UnknownRequest, last.
+    [Fact]
+    public void ARequestWithoutAHandlerIsUnknownRequest_AfterEveryOtherCheck()
+    {
+        var handlers = new Dictionary<ushort, RequestHandler>(RequestRoutes.Handlers());
+        handlers.Remove(ServiceCall.Id);
+        Assert.True(RequestRoutes.Build(handlers).TryGet(ServiceCall.Id, out RequestRoute route));
+
+        Assert.Equal(Status.UnknownRequest, DispatchRule.Check(route, Role.User, true, false, true).Status);
+        Assert.Equal(Status.NotPermitted, DispatchRule.Check(route, Role.Service, true, false, true).Status);
     }
 
     [Theory]

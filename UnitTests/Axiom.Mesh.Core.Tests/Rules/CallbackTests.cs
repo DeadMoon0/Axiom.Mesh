@@ -24,19 +24,20 @@ public sealed class CallbackTests
         await using RawLocalClient service = await ServiceAsync(mesh);
         LocalConnection connection = mesh[LocalMeshes.Node].Node.Local.Book.Live().Single(c => c.Role == Role.Service);
 
-        Task<Reply?> answered = connection.CallAsync(Call("ping"), Deadline, out bool busy);
+        Task<CallbackOutcome> answered = connection.CallAsync(Call("ping"), Deadline, out bool busy);
         Callback first = Assert.IsType<Callback>(await service.ReadAsync());
         await service.SendAsync(Reply.Ok<ForwardedCall, ReadOnlyMemory<byte>>(first.CallbackId, new byte[] { 7 }));
-        Reply? reply = await answered.WaitAsync(TestMesh.Deadline);
+        CallbackOutcome outcome = await answered.WaitAsync(TestMesh.Deadline);
 
         Assert.False(busy);
-        Assert.True(reply!.TryReadOk<ForwardedCall, ReadOnlyMemory<byte>>(out ReadOnlyMemory<byte> body));
+        Assert.Equal(CallbackEnd.Replied, outcome.End);
+        Assert.True(outcome.Reply!.TryReadOk<ForwardedCall, ReadOnlyMemory<byte>>(out ReadOnlyMemory<byte> body));
         Assert.Equal(new byte[] { 7 }, body.ToArray());
 
-        Task<Reply?> expiring = connection.CallAsync(Call("slow"), Deadline, out _);
+        Task<CallbackOutcome> expiring = connection.CallAsync(Call("slow"), Deadline, out _);
         Callback second = Assert.IsType<Callback>(await service.ReadAsync());
         mesh.Clock.Advance(Deadline);
-        Assert.Null(await expiring.WaitAsync(TestMesh.Deadline));
+        Assert.Equal(CallbackEnd.Expired, (await expiring.WaitAsync(TestMesh.Deadline)).End);
         await service.SendAsync(Reply.Ok<ForwardedCall, ReadOnlyMemory<byte>>(second.CallbackId, ReadOnlyMemory<byte>.Empty));
         uint correlation = await service.RequestAsync(new GetIdentity());
         Assert.Equal(Status.Ok, (await service.ResponseAsync(correlation)).Status);
@@ -54,15 +55,14 @@ public sealed class CallbackTests
         await using RawLocalClient service = await ServiceAsync(mesh);
         LocalConnection connection = mesh[LocalMeshes.Node].Node.Local.Book.Live().Single(c => c.Role == Role.Service);
 
-        Task<Reply?>[] outstanding = [.. Enumerable.Range(0, Limits.MaxOutstandingCallbacks).Select(i => connection.CallAsync(Call($"call {i}"), Deadline, out _))];
-        Task<Reply?> refused = connection.CallAsync(Call("one too many"), Deadline, out bool busy);
+        Task<CallbackOutcome>[] outstanding = [.. Enumerable.Range(0, Limits.MaxOutstandingCallbacks).Select(i => connection.CallAsync(Call($"call{i}"), Deadline, out _))];
+        _ = connection.CallAsync(Call("one-too-many"), Deadline, out bool busy);
 
         Assert.True(busy);
-        Assert.Null(await refused);
         Assert.Equal(Limits.MaxOutstandingCallbacks, connection.Callbacks.Outstanding);
         await service.DisposeAsync();
-        Reply?[] ended = await Task.WhenAll(outstanding).WaitAsync(TestMesh.Deadline);
-        Assert.All(ended, Assert.Null);
+        CallbackOutcome[] ended = await Task.WhenAll(outstanding).WaitAsync(TestMesh.Deadline);
+        Assert.All(ended, e => Assert.Equal(CallbackEnd.ConnectionEnded, e.End));
     }
 
     private static ForwardedCall Call(string method) => new() { Client = 1, ClientName = "app", Method = method };

@@ -54,6 +54,7 @@ public sealed class LocalPort
         Log = log;
         Handler = new LocalPortHandler(this);
         Hub = new LocalEventHub(this, bus);
+        Services = new ServiceDirectory(options.Services);
     }
 
     /// <summary>Connections served now, waiting for <c>Hello</c> or past it.</summary>
@@ -79,6 +80,9 @@ public sealed class LocalPort
 
     /// <summary>The connections past and waiting for <c>Hello</c>.</summary>
     internal ConnectionBook Book { get; } = new();
+
+    /// <summary>The configured services and the spawned ones' tokens as they stand now (LOCAL-SPEC.md §4.2).</summary>
+    internal ServiceDirectory Services { get; }
 
     /// <summary>Which service holds which Package kind (LOCAL-SPEC.md §9.2).</summary>
     internal KindRegistry Kinds { get; } = new();
@@ -133,6 +137,24 @@ public sealed class LocalPort
             return Forget(remote, stream);
         }
     }
+
+    /// <summary>
+    /// Sets the token of a spawned service for the child the Host is about to start (LOCAL-SPEC.md §4.2, decision 27): the
+    /// child's connections present it, one at a time, until <see cref="ClearSpawnedToken"/>. Call it before the child starts,
+    /// with a fresh token of 32 random bytes per start.
+    /// </summary>
+    /// <param name="serviceName">The service's name, as the configuration lists it as spawned.</param>
+    /// <param name="token">The child's token; never <see cref="ServiceToken.None"/>.</param>
+    /// <exception cref="ArgumentException">The name is not a configured spawned service, or the token is none.</exception>
+    public void SetSpawnedToken(string serviceName, ServiceToken token) => Services.Set(serviceName, token);
+
+    /// <summary>
+    /// Withdraws a spawned service's token once its child exited (LOCAL-SPEC.md §4.2): from now on no connection proves the
+    /// name, all-zero tokens included, until the next child's token is set. A connection already admitted keeps running.
+    /// </summary>
+    /// <param name="serviceName">The service's name, as the configuration lists it as spawned.</param>
+    /// <exception cref="ArgumentException">The name is not a configured spawned service.</exception>
+    public void ClearSpawnedToken(string serviceName) => Services.Clear(serviceName);
 
     /// <summary>
     /// Connects an in-process service (LOCAL-SPEC.md §4.2, DESIGN.md §10.3): an in-memory pair whose other end the port

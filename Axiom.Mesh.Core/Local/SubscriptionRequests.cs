@@ -26,20 +26,39 @@ internal static class SubscriptionRequests
         if (request.Topic == Topic.Telemetry)
             return LocalAnswer.Failure(correlation, Status.NotFound, "This Host keeps no telemetry.", "topic");
 
-        StoreWriter writer = context.Node.Writer;
-        ulong liveAfter = writer.Totals.StoreSeq;
-        IReadOnlyList<ulong> replay = [];
-        if (request.Topic == Topic.Entries && request.Filter.FromSeq != 0)
+        if (request.Topic != Topic.Entries)
+            return Add(context, correlation, request, context.Node.Writer.Totals.StoreSeq, []);
+
+        // §7.2: the newest store sequence, the replay up to it and the subscription that takes what follows, under the gate
+        // the hub offers Entries under; an Entry stored meanwhile is offered once the subscription is there.
+        SemaphoreSlim gate = context.Port.Hub.EntriesGate;
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            List<ulong> plan = await EntryRecords.ReplayPlanAsync(writer.Database, request.Filter, request.Filter.FromSeq, liveAfter, cancellationToken).ConfigureAwait(false);
-            if (plan.Count > Limits.MaxReplayEntries)
+            StoreWriter writer = context.Node.Writer;
+            ulong liveAfter = writer.Totals.StoreSeq;
+            IReadOnlyList<ulong> replay = [];
+            if (request.Filter.FromSeq != 0)
             {
-                return LocalAnswer.Failure(correlation, Status.GapTooLarge, $"More than {Limits.MaxReplayEntries} stored Entries match from store sequence {request.Filter.FromSeq}: page with ListStored first, then subscribe from where it ends.", "filter.fromSeq");
+                List<ulong> plan = await EntryRecords.ReplayPlanAsync(writer.Database, request.Filter, request.Filter.FromSeq, liveAfter, cancellationToken).ConfigureAwait(false);
+                if (plan.Count > Limits.MaxReplayEntries)
+                {
+                    return LocalAnswer.Failure(correlation, Status.GapTooLarge, $"More than {Limits.MaxReplayEntries} stored Entries match from store sequence {request.Filter.FromSeq}: page with ListStored first, then subscribe from where it ends.", "filter.fromSeq");
+                }
+
+                replay = plan;
             }
 
-            replay = plan;
+            return Add(context, correlation, request, liveAfter, replay);
         }
+        finally
+        {
+            gate.Release();
+        }
+    }
 
+    private static LocalAnswer Add(RequestContext context, uint correlation, Subscribe request, ulong liveAfter, IReadOnlyList<ulong> replay)
+    {
         var subscription = new LocalSubscription(request.SubscriptionId, request.Topic, request.Filter, liveAfter, replay);
         Outbox outbox = context.Connection.Outbox;
         return outbox.Add(subscription) switch

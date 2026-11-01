@@ -1,6 +1,13 @@
 # Axiom Mesh Local Protocol, Version 1 (axiom-mesh-local/1)
 
-**Status:** Draft 4, 2026-10-31. Draft 4 follows AMP/1 draft 5: the Host parses no payload. `WriteEntry` copies the
+**Status:** Draft 5, 2026-11-01. Draft 5 makes services programs of their own: the Host spawns and supervises them
+and hands each child its token, the pipe and its state directory in the environment (§2.1, §4.2, §9.1, decisions
+26 to 28); a spawned token lasts for that child's connections, one at a time, until the child exits; `ServiceCall`
+runs beside the caller's other requests (§3.4, §6.7); a `Reply` that is not the callback's layout is a violation of
+the service's connection and its caller hears `ServiceUnavailable` (§9.8); the key that releases a service's pins on
+disconnect is named (§9.6); the `Dropped` change kind of 0.1.0 (§14.12) and the published vectors (§15) are part of
+the draft.
+Draft 4, 2026-10-31. Draft 4 follows AMP/1 draft 5: the Host parses no payload. `WriteEntry` copies the
 writer's `references` and `redacts` into the Entry's envelope (§9.4), the `Entry` record carries both (§5.6), and the
 content helpers `Materialise` (317) and `PutFile` (515) left the Host for the client library (their ids stay reserved,
 §14.1, §14.6); `Fetch` stays, because getting an object by hash from peers is routing.
@@ -170,7 +177,7 @@ brought in line:
     phone cannot evict an attachment nobody else has yet.
 23. **The pipe checks process identity** (§2.2): the Host refuses a connection whose OS user is not the user it
     serves, logs user, process id and executable of every connection, MAY confine the user-key requests (§6) to
-    configured executables, and resolves every path a client names as that client's user (§13). A spawned
+    configured executables, and opens no path a client names (§13; draft 4 moved file work to the client). A spawned
     out-of-process service proves it was spawned with `Hello.token` (§4.2); an in-process service's name is never
     granted on the pipe.
 24. **The store has an epoch** (§4.2, §9.3): `HelloAck.storeEpoch` changes when the database was restored or
@@ -181,6 +188,18 @@ brought in line:
     may claim the name. This lets the command line and the user's own scripts write Entries in the service role
     without the Host spawning them; the token sits in the user's configuration and is the user's, like
     everything else the pipe admits (§2.2).
+26. **Services are programs of their own** (§9.1), added in draft 5: on a desktop the Host spawns each configured
+    service as a child process, supervises it (restart with backoff, give up loudly) and hands it, in its
+    environment, its token, the pipe the Host listens on, the Host's home and a state directory of its own that only
+    the user can read (§2.1, §4.2). A service keeps its own database there; the Host's database holds nothing of a
+    service. In-process services stay specified for platforms without child processes (phones, §2.1).
+27. **A spawned token lasts for the child** (§4.2), added in draft 5: the token the Host put into a child's
+    environment admits that child's connections, one at a time (check 4), until the child exits; a child that lost its
+    connection reconnects with the token it has (§2.3). The next child gets a fresh token.
+28. **A callback's reply is the service's word** (§3.4, §9.8), added in draft 5: `ServiceCall` waits on another
+    process and writes nothing on the Host, so it is not ordered against the caller's other requests; a `Reply` whose
+    body is not the callback's reply layout, or whose status is reserved, is a violation of the service's connection,
+    and its caller hears `ServiceUnavailable`.
 
 ## 2. Transport
 
@@ -200,6 +219,10 @@ path (`\\.\pipe\<name>`) or a bare name, which means `\\.\pipe\<name>`. The Host
 pipe too (`pipe.name`); the variable wins over the configuration, and the configuration over the table. On macOS
 without `TMPDIR` the table names no location: Host and client refuse to start rather than guess. A client MUST NOT
 guess any other name. The pipe carries bytes in both directions with no framing of its own; §3 defines the framing.
+
+A Host that spawns a service (§4.2, §9.1) MUST put the location it listens on into the child's environment as
+`AXIOM_MESH_PIPE`, in full (on Windows `\\.\pipe\<name>`, on Linux and macOS the socket's absolute path), whichever
+of the three steps above chose it, so that the child reaches this Host and no other.
 
 The Host creates the pipe so that nobody else can stand in for it, and so that it is reachable from this
 machine only:
@@ -238,8 +261,8 @@ paths, and a user-key request from any other process is answered `NotPermitted`.
 be logged with the process id and path of the connection that sent it, whether it succeeded or not. A Host MAY
 treat `ConfirmPairing` as a user-key request in every mode, since its mode is known only from the pairing it names;
 the reference Host reads the mode of the pairing named before it dispatches, so a confined `ConfirmPairing` of a
-`ShowDevice` pairing is served, and one naming a pairing that is not the current one is treated as a user-key request. And every
-path a client names (§13) is resolved as that client's user.
+`ShowDevice` pairing is served, and one naming a pairing that is not the current one is treated as a user-key request. No
+request names a path the Host opens (§13): files are read and written by the client, as its own user.
 
 ### 2.3 Connection lifetime
 
@@ -262,7 +285,7 @@ the write: `WriteEntry` is not idempotent, and the same payload written twice is
 
 The exact access control list of the named pipe, the owner and mode of the socket file and its directory, the
 account the Host serves when it runs as a Windows service, its allow list of users (§2.2), and the configuration
-keys that set all of these are specified in a separate document, `PIPE-ACCESS.md` (to be written); this document
+keys that set all of these are specified in a separate document, [PIPE-ACCESS.md](PIPE-ACCESS.md); this document
 requires the effect stated in §2.1 and §2.2 and nothing of the form.
 
 ## 3. Framing, encoding and envelopes
@@ -344,7 +367,10 @@ Rules:
 - A client MUST NOT have more than 64 requests outstanding on one connection; the 65th is a violation.
 - The Host MAY process requests concurrently and MAY answer them in any order. Two requests on one connection
   that write to the same Package are applied in the order they were received. A client that needs one request's
-  effect to be visible to another MUST wait for the first `Response`.
+  effect to be visible to another MUST wait for the first `Response`. Requests that write no Package (`PutObject`,
+  which stores an object named by its hash) and `ServiceCall`, which waits on another process and writes nothing on
+  the Host, are not ordered against the connection's other requests: a slow service never holds up its caller's
+  other requests.
 - A request whose message id is in the request range but unknown to the Host is answered with
   `UnknownRequest`; one that the connection's role may not send, with `NotPermitted` (each request's section
   states the roles).
@@ -419,11 +445,25 @@ HelloAck:
 
 The Host's configuration lists every service by **name** (at most 32 bytes, §3.2), with the Package kinds and
 Entry kinds it may register (§9.2), whether it runs **in-process** (DESIGN.md §10.3) and, for an out-of-process
-service, the executable the Host **spawns** and supervises. When the Host spawns a service it puts a fresh
-random token of 32 bytes into the child's environment as `AXIOM_MESH_SERVICE_TOKEN`, 64 lowercase hex
-characters, and expects it back in `Hello.token`; a token is valid for one connection of that child and until
-the child exits. In-process services connect to the local port over an in-memory stream pair before the Host
-opens the pipe, with `token` all zero.
+service, the executable the Host **spawns** and supervises. In-process services connect to the local port over an
+in-memory stream pair before the Host opens the pipe, with `token` all zero.
+
+**Spawned services** (decisions 26, 27). For every start of a spawned service the Host makes a fresh random token of
+32 bytes, makes it the name's token, and only then starts the child, with these variables in its environment:
+
+| Variable | Value |
+|---|---|
+| `AXIOM_MESH_SERVICE_TOKEN` | the token, 64 lowercase hex characters |
+| `AXIOM_MESH_PIPE` | the location the Host listens on, in full (§2.1) |
+| `AXIOM_MESH_HOME` | the Host's home: the directory its configuration file lies in |
+| `AXIOM_MESH_SERVICE_STATE` | the child's state directory, readable and writable by the Host's user only, which the Host creates; the child's working directory |
+
+The token admits that child's connections, one at a time (check 4), until the child exits: a child that lost its
+connection reconnects with the token it has (§2.3). When the child exits the Host withdraws the token before it
+decides whether to start the next child, so no connection is admitted with the token of a child that is gone, and
+each child gets a token of its own. The token MUST NOT appear in a log line, a command-line argument or anything
+else another program could read; the environment of a process is readable by its user only. A name whose
+executable cannot be found is not supervised; the Host logs that once.
 
 A service the configuration lists as **external** is neither in-process nor spawned: it is a program the user
 starts, such as the command line or a script. The Host generates its token, 32 random bytes, when it first
@@ -437,13 +477,13 @@ closes:
 
 1. `version` is 1; else `Bye(Refused, "version")`.
 2. `role` is 1 or 2; else a violation, `Bye(Violation)`.
-3. For role 2, `name` is a service name the Host's configuration lists, the name is not configured as
-   in-process unless the connection *is* the in-memory pair of that in-process service, for a service the
-   Host spawns `token` equals the token it gave that child, and for an external service `token` equals the
-   token its configuration holds; else `Bye(Refused, "service")`. The Host MUST compare tokens in time
-   independent of their content. A client the
-   configuration does not list, or that cannot prove the name, is refused: the Host MUST NOT grant a role other
-   than the one asked for.
+3. For role 2, `name` is a service name the Host's configuration lists and the connection proves it: a name
+   configured as in-process only on the in-memory pair of that in-process service; a spawned name only while a
+   child of it runs and with `token` equal to that child's token; an external name only with `token` equal to the
+   token its configuration holds. A name whose token is unset (a spawned service with no child running, or a token
+   withdrawn) is proven by nothing, all zero included. Else `Bye(Refused, "service")`. The Host MUST compare
+   tokens in time independent of their content. A client the configuration does not list, or that cannot prove the
+   name, is refused: the Host MUST NOT grant a role other than the one asked for.
 4. For role 2, no other connection with the same `name` is in Ready or Draining; else `Bye(Duplicate)`. The
    live connection is kept.
 5. The connection limits of §12 hold; else `Bye(Refused, "busy")`.
@@ -1125,9 +1165,15 @@ ServiceCall (385), U:
 `ServiceCall` is forwarded to the named service as a `ForwardedCall` callback (§9.8); the service's reply body
 is returned as the OK body, and a non-zero reply status is returned as the response's status with the
 service's `Error` record. The meaning of `method` and both payloads is the service's own, described in that
-service's document. Errors: `ServiceUnavailable` when the service is not configured or not connected, or when
-its connection ends before it replied; `ServiceTimeout` when it did not reply within 60 seconds; `Busy` when 64
-callbacks are outstanding toward it.
+service's document. Errors: `ServiceUnavailable` when the service is not configured or not connected, at once,
+or when its connection ends before it replied, or when its reply was a violation (§9.8); `ServiceTimeout` when it
+did not reply within 60 seconds; `Busy` when 64 callbacks are outstanding toward it.
+
+`ServiceCall` is not ordered against the caller's other requests (§3.4, decision 28): it waits on another process
+and writes nothing on the Host, so a slow service delays the caller's call and nothing else. A caller that needs one
+call's effect before another waits for the first `Response`. The Host does not undo what a service did before a
+`ServiceTimeout` or a lost connection (§3.4); a service makes its methods safe to repeat or says in its own document
+how a caller learns whether a call took effect.
 
 ## 7. Subscriptions and events
 
@@ -1171,6 +1217,11 @@ arrives for a subscription it unsubscribed or that lapsed while the event was in
 
 Topics 11 to 255 are reserved for extensions. A subscription with `packageId`, `deviceId` or `userId` all zero
 receives the events of every Package, device or user.
+
+There is no topic for a service's presence: a client learns whether a service is connected from `ListServices`
+(§6.7, `Service.connected`), and a `ServiceCall` to a service that is not connected fails at once with
+`ServiceUnavailable`. A client that shows a service's state polls `ListServices` or subscribes to the service's
+own events (topic `service`), which stop when it is gone.
 
 ### 7.3 Events
 
@@ -1324,10 +1375,14 @@ for extensions. `unit` 1 (bytes) is kept for extensions; `unit` 3 is reserved.
 
 A service is a client in the service role that defines a Package kind and the Entry kinds in it: Sync defines
 `Archive` with `Version`; Chat defines `Channel` with `Message` and `Redaction` (SPEC.md §14.7, §14.8). It is
-written against this protocol only (DESIGN.md §10.3). In the first release Sync and Chat run inside the Host
-process, connected to the local port over an in-memory stream pair; the contract below MUST NOT depend on that,
-and a service that runs as its own program on the pipe sees exactly the same messages. A service may send
-every request of §6 marked **S**, and the requests of this section.
+written against this protocol only (DESIGN.md §10.3). On a desktop every service is a program of its own that the
+Host spawns and supervises (decision 26, §4.2): it finds its token, the pipe and its state directory in its
+environment, keeps its own index in that directory, and reconnects with the same token when its connection is lost
+(§2.3). Where a platform has no child processes (phones) a service runs inside the Host process, connected to the
+local port over an in-memory stream pair; the contract below MUST NOT depend on either, and a service sees exactly
+the same messages both ways. A service may send every request of §6 marked **S**, and the requests of this
+section. A service owns no user interface: what an app shows of it reaches the app through the service's namespace,
+its methods over `ServiceCall` and its events over `Emit` (DESIGN.md §10.5).
 
 A service that connects does, in this order: `Hello` with role 2, its name and, when the Host spawned it or
 it is external (§4.2), its token; `RegisterKind` for each of its Package kinds; a comparison of `HelloAck.storeEpoch` with the epoch its
@@ -1452,8 +1507,10 @@ pins hold what the policy wants, and the rest is evictable, which is what the us
 
 A service pins with `PinObject` and `Unpin` (§6.5); its pins have reason `Service` (§14.8) and the source of §5.11,
 and are independent of every other reason. The Host releases every pin of a service when the service's
-connection ends only if the Host's configuration says so for that service; by default they stay, because an
-out-of-process service may restart. The user releases what a service left behind with `ReleasePins` (§6.5).
+connection ends only if the Host's configuration says so for that service (the reference Host's key is
+`services.<name>.releasePinsOnDisconnect`, default false); by default they stay, because an out-of-process service
+may restart. The release is the one of `ReleasePins` with reason `Service` and that service as source, done after
+the connection ended. The user releases what a service left behind with `ReleasePins` (§6.5).
 `Fetch` with `pin` true pins with reason `Service` when called by a service.
 
 ### 9.7 `GetStorePath` (516) and direct reads
@@ -1498,6 +1555,22 @@ within 60 seconds, the callback's deadline (§3.6); the Host answers the caller 
 ignores a later reply. The service answers with its own payload, or with a status, which the Host passes to
 the caller unchanged, `Error` record included. When the caller's connection ended before the reply, the reply
 is read and discarded.
+
+**A reply the Host cannot pass on** (decision 28). A `Reply` to `ForwardedCall` whose status is `OK` and whose body
+is not exactly one `payload`, whose status is not `OK` and whose body is not exactly one `Error` record, or whose
+status is reserved (21 to 32 767, §11.1) or `Cancelled` (16, never a reply's status), is a violation of the service's
+connection (§11.3): the Host closes it with `Bye(Violation)` and answers the caller `ServiceUnavailable`. The Host
+reads a reply's body when it passes it on, so the violation may be found after the read loop moved on; the
+connection is closed all the same.
+
+**The service's side.** A service answers each `ForwardedCall` exactly once, within the 60 seconds, and MUST keep
+reading the pipe while its handlers run: a handler that waits on the Host (a request, an object) would otherwise
+wait on itself. The RECOMMENDED shape, the one of the reference client library: the read loop records the callback
+and hands it to a worker; the worker runs the handler with a deadline of 60 seconds, linked to the connection's end,
+and sends what the handler returned. A handler that fails maps to `IoError` with the fault's type in
+`Error.detail`; a handler stopped by its deadline sends nothing (the Host already answered `ServiceTimeout`); a
+reply is never sent more than 120 seconds after its callback arrived, so that it never reaches a Host that has
+forgotten the id (§3.6); a status other than `OK`, 1 to 15, 17 to 20 or 32 768 and above is never sent.
 
 **No payload callback.** The Host does not ask a service about payloads it receives from peers: it parses none
 (decision 5, §9.4) and stores an Entry of any kind opaquely, exactly as SPEC.md §8.5 and §9.2 say. A service that
@@ -1638,8 +1711,8 @@ range and unknown, in the reserved range 34 to 255, or 2048 and above; a frame o
 send (§3.3); a message in the wrong state (§4.1), a first frame other than `Hello` or `Bye` and a second
 `Hello` included; a field outside its bounds as §3.2 defines them (length, count, width, `bool`, `optional`,
 UTF-8) in a request or reply; a `correlation` of 0, one that is still outstanding, or a 65th outstanding
-request (§3.4); a `Reply` for a callback id the Host never issued on this connection (§3.6); `Hello.role`
-outside the registry. On a violation the Host MUST close the connection with `Bye(Violation)` and SHOULD log
+request (§3.4); a `Reply` for a callback id the Host never issued on this connection (§3.6); a `Reply` whose body
+is not the callback's reply layout or whose status is reserved (§9.8); `Hello.role` outside the registry. On a violation the Host MUST close the connection with `Bye(Violation)` and SHOULD log
 the connecting process. Everything else that is wrong with a request, a wrong value in substance (§3.2)
 included, is an error response, and the connection continues. A missing `Hello` (§2.3) is not a violation:
 the connection is closed without a frame.
@@ -1673,6 +1746,8 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
 | static peers | 256 | `Busy` |
 | `Drain` grace | 5 000 ms default, 30 000 ms at most | `Bye(Shutdown)` |
 | `ServiceCall` / `ForwardedCall` | 60 s | `ServiceTimeout` |
+| a service's `Reply` after its callback arrived | 120 s at most (the Host ignores late ones for 5 minutes, §3.6) | not sent |
+| a spawned child's token | until that child exits; a fresh one per start | `Bye(Refused, "service")` |
 | `Fetch` without a source | 60 s | `NotFound` (§6.4) |
 | pinned bytes | the store budget | `StoreFull` (§6.5) |
 | page of `ListHistory`, `ListStored` | 64 Entries, cut to the frame | — |
@@ -1688,7 +1763,7 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
   (§2.2); a Host that runs as a system service admits the users its allow list names. A process of the same
   OS user is trusted as that user, as with ssh-agent and Docker Desktop: that user may do everything the user
   role may do anyway, on the same machine; the protocol adds no finer right, and claims none. The form of the
-  access list and of the allow list is `PIPE-ACCESS.md` (§2.4, to be written).
+  access list and of the allow list is [PIPE-ACCESS.md](PIPE-ACCESS.md) (§2.4).
 - **The user-key requests are logged and may be confined.** The requests that produce a signed Roster or Grant
   on the user's behalf (§2.2) are the ones a local program could not forge without the pipe, because the user
   key never leaves the Host. Every one is logged with the process id and executable of its connection, and
@@ -1708,6 +1783,14 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
   Entry. The user key's backup is the one exception and is specified apart (§6.1). A `Response` never carries a
   private key, and `GetObject` of a Roster returns public keys only. A service token (§4.2) is a proof of
   spawning or of the user's choice, not a key: it opens nothing but the service role of its one name.
+- **A spawned service's token lives as long as its child** (§4.2, decision 27). The Host makes a fresh one for every
+  start, hands it over in the child's environment only (never an argument, never a log line), and withdraws it when
+  the child exits, before anything else; a program that read an old child's environment holds a token that admits
+  nothing. A service's state directory is the user's alone, like the Host's own directories.
+- **A service cannot stall its callers or the Host** (§6.7, §9.8). `ServiceCall` runs beside the caller's other
+  requests, fails at once for a service that is not connected, ends at 60 seconds whatever the service does, and a
+  reply the Host cannot pass on closes the service's connection; at most 64 callbacks are outstanding toward one
+  service.
 - **Paths are the client's.** Since draft 4 no request asks the Host to open a path a client names: files are read
   and Trees written by the client itself, as its own user, and `GetStorePath` only names the store directory, which
   a service reads read-only. Host capability bits 0 and 1 (§14.4) are computed per connection from the process
@@ -1970,7 +2053,7 @@ session; bits 4 to 7 reserved.
 | 7 | Listed | a peer listed a Package this Host did not know (§5.4, decision 20); `state` Listed |
 | 8 | Dropped | the Package was dropped (§6.4): the Host holds nothing of it any more and `ListPackages` no longer lists it; the record is its last one, `state` Listed, no Heads, `entries` 0 |
 
-9 to 255 reserved. Value 8 was added for 0.1.0 (2026-10-31).
+9 to 255 reserved. Value 8 was added for 0.1.0 (2026-10-31) and is part of draft 5.
 
 ### 14.13 Telemetry series
 
@@ -2028,8 +2111,15 @@ client discarding its index on a changed `storeEpoch`; the slow-consumer rule le
 intact; an operation cancelled by `CancelOperation`, by `Drain` and by a closed connection, with `status` `Cancelled`;
 an `Outbound` pin released after the object was sent once; direct reads of §9.7 against an object that is then
 evicted while a reader holds it open; and the pipe admitted for the Host's OS user and refused for another, by access
-list and by process identity, on each desktop platform. Test vectors are published with the reference implementation
-and are part of this specification once they exist.
+list and by process identity, on each desktop platform. Since draft 5 it also covers: a `ServiceCall` forwarded verbatim
+and its reply passed back with its status and `Error`, service-defined codes included; `ServiceUnavailable` at once for
+a service that is not connected and when its connection ends mid-call; `ServiceTimeout` at 60 seconds with the late
+reply ignored; `Busy` for the 65th outstanding call; a slow `ServiceCall` that does not hold up the caller's other
+requests; a malformed `Reply` closing the service's connection; `Emit` for the zero Package, for a followed Package of
+a registered kind, and refused for the others; a spawned name refused until its child's token is set, admitted with
+it, and refused again once withdrawn; a service's pins kept on disconnect unless its configuration releases them;
+and a service client that keeps reading while its handlers run and replies exactly once. The test vectors are
+published in `Documentation/vectors/local.txt` and are part of this specification.
 
 ## Appendix A. Layouts at a glance
 

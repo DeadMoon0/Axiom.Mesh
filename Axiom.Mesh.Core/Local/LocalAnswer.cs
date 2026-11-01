@@ -51,6 +51,14 @@ internal sealed class LocalAnswer
         return new LocalAnswer(Response.Failure(correlation, status, error), FrameSizes.OfError(error), status, null);
     }
 
+    /// <summary>A failure with an explanation somebody else wrote: a service's <c>Error</c>, passed on unchanged (§6.7, §9.8).</summary>
+    /// <param name="correlation">The request's correlation.</param>
+    /// <param name="status">Why, never Ok.</param>
+    /// <param name="error">The explanation, already within its bounds (§5.14).</param>
+    /// <returns>The answer.</returns>
+    public static LocalAnswer Failure(uint correlation, Status status, Error error) =>
+        new(Response.Failure(correlation, status, error), FrameSizes.OfError(error), status, null);
+
     /// <summary>The same answer, with something to do once it was written.</summary>
     /// <param name="written">What to do.</param>
     /// <returns>The answer.</returns>

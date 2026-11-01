@@ -11,6 +11,7 @@ public sealed class PipeLocationTests
     [InlineData(LocalPlatform.Windows, "", null, null, null, PipeKind.NamedPipe, @"\\.\pipe\axiom-mesh")] // an empty variable counts as unset
     [InlineData(LocalPlatform.Windows, "axiom-mesh-test", null, null, null, PipeKind.NamedPipe, @"\\.\pipe\axiom-mesh-test")] // a bare name gets the pipe prefix
     [InlineData(LocalPlatform.Windows, @"\\.\pipe\other", null, null, null, PipeKind.NamedPipe, @"\\.\pipe\other")] // a full pipe path is kept
+    [InlineData(LocalPlatform.Windows, @"\\.\pipe\axiom-mesh", null, null, null, PipeKind.NamedPipe, @"\\.\pipe\axiom-mesh")] // the full location a Host hands its spawned children (§2.1)
     [InlineData(LocalPlatform.Linux, null, "/run/user/1000", null, 1000u, PipeKind.UnixSocket, "/run/user/1000/axiom-mesh.sock")] // XDG_RUNTIME_DIR first
     [InlineData(LocalPlatform.Linux, null, "/run/user/1000/", null, null, PipeKind.UnixSocket, "/run/user/1000/axiom-mesh.sock")] // a trailing slash is not doubled
     [InlineData(LocalPlatform.Linux, null, null, null, 1001u, PipeKind.UnixSocket, "/run/user/1001/axiom-mesh.sock")] // else /run/user/<uid>

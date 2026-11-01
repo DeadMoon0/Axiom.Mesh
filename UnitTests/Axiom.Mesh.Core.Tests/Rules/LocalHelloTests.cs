@@ -84,6 +84,41 @@ public sealed class LocalHelloTests
         Assert.Equal("service", (await RefusedAsync(mesh, Service("worker", LocalMeshes.CliToken))).Detail);
     }
 
+    // §4.2 check 3, decision 27: a spawned name with no child running is proven by nothing, all zero included; once the
+    // Host set its child's token that token admits it, for one connection at a time and again after a reconnect; once
+    // the child exited and the Host withdrew the token, it is refused again, and the next child's token is another.
+    [Fact]
+    public async Task ASpawnedNameIsRefusedUntilTheHostSetsItsToken_AdmittedWithIt_AndRefusedAgainOnceCleared()
+    {
+        await using TestMesh mesh = await LocalMeshes.StartAsync(LocalMeshes.Options with
+        {
+            Services = [.. LocalMeshes.Options.Services, new LocalService { Name = "chat", Provenance = ServiceProvenance.Spawned }],
+        });
+        TestNode node = mesh[LocalMeshes.Node];
+        LocalPort port = node.Node.Local;
+        ServiceToken child = LocalMeshes.WorkerToken;
+
+        Assert.Equal("service", (await RefusedAsync(mesh, Service("chat", ServiceToken.None))).Detail);
+        Assert.Equal("service", (await RefusedAsync(mesh, Service("chat", child))).Detail);
+
+        port.SetSpawnedToken("chat", child);
+        LocalClient first = await node.ConnectServiceAsync("chat", child, None);
+        Assert.Equal(ByeReason.Duplicate, (await RefusedAsync(mesh, Service("chat", child))).Reason);
+        await first.ByeAsync(None);
+        await Waits.UntilAsync(() => port.Book.ServiceConnection("chat") is null, "the first connection to end");
+        LocalClient again = await node.ConnectServiceAsync("chat", child, None);
+        await again.ByeAsync(None);
+        await Waits.UntilAsync(() => port.Book.ServiceConnection("chat") is null, "the reconnection to end");
+
+        port.ClearSpawnedToken("chat");
+        Assert.Equal("service", (await RefusedAsync(mesh, Service("chat", child))).Detail);
+        Assert.Equal("service", (await RefusedAsync(mesh, Service("chat", ServiceToken.None))).Detail);
+        port.SetSpawnedToken("chat", LocalMeshes.WrongToken);
+        Assert.Equal("service", (await RefusedAsync(mesh, Service("chat", child))).Detail);
+        Assert.Throws<ArgumentException>(() => port.SetSpawnedToken("cli", child));
+        Assert.Throws<ArgumentException>(() => port.SetSpawnedToken("chat", ServiceToken.None));
+    }
+
     // §2.3: no Hello within 10 seconds closes the connection without a frame; at most 16 wait for Hello, and a 17th closes
     // the one that waited longest.
     [Fact]

@@ -11,7 +11,7 @@ namespace Axiom.Mesh.Core.Tests.Rules;
 
 /// <summary>
 /// LOCAL-SPEC.md §6.4, the Package requests: <c>CreatePackage</c> makes a followed Package with Manifest seq 1 owned by
-/// the own user; <c>ListPackages</c> pages ascending by id with its filters; <c>GetPackage</c>, <c>FollowPackage</c>,
+/// the own user; <c>UpdatePackage</c> raises the seq by one for the owner with the user key; <c>ListPackages</c> pages ascending by id with its filters; <c>GetPackage</c>, <c>FollowPackage</c>,
 /// <c>UnfollowPackage</c> and <c>SetPackagePolicy</c> with every refusal the section lists.
 /// </summary>
 public sealed class PackageRequestTests
@@ -174,6 +174,69 @@ public sealed class PackageRequestTests
         await mesh.SettleAsync(None);
         Assert.Empty((await client.SendAsync(new ListPackages { FollowedOnly = false }, None)).Value.Packages);
         Assert.Equal(channel, (await Events.FirstAsync(changes, e => e.Change == LocalPackageChange.Dropped)).Package.PackageId);
+    }
+
+    // §6.4: UpdatePackage produces the Manifest with seq one higher, the given fields and the current values of the absent
+    // ones; it reaches a follower of the Package like any current Manifest (PackageChanged(Manifest)).
+    [Fact]
+    public async Task UpdatePackageRaisesTheManifestSeqByOne_OverlaysTheGivenFields_AndAFollowerGetsTheNewManifest()
+    {
+        await using TestMesh mesh = await TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop", "alice-phone"), None);
+        TestNode laptop = mesh["alice-laptop"];
+        await laptop.HoldUserKeyAsync(None);
+        LocalClient client = await laptop.ConnectUserAsync("app", None);
+        Package created = (await client.SendAsync(new CreatePackage { Kind = PackageKind.Archive, Name = "Photos", Retention = Retention.Everything }, None)).Value;
+        await mesh.ConnectAsync("alice-laptop", "alice-phone", None);
+        await mesh.SettleAsync(None);
+        await mesh["alice-phone"].FollowAsync(created.PackageId, None);
+        await mesh.SettleAsync(None);
+        LocalClient phone = await mesh["alice-phone"].ConnectUserAsync("app", None);
+        Subscription<PackageChanged> changes = (await phone.SubscribeAsync<PackageChanged>(Filter.Any with { PackageId = created.PackageId }, None)).Value;
+        var head = new ObjectHash(Hash32.Of([1]));
+
+        Package renamed = (await client.SendAsync(new UpdatePackage { PackageId = created.PackageId, Name = "Holiday photos" }, None)).Value;
+        Package branched = (await client.SendAsync(new UpdatePackage { PackageId = created.PackageId, Branches = [new Branch("main", head)] }, None)).Value;
+        await mesh.SettleAsync(None);
+
+        Assert.Equal((2ul, "Holiday photos", Retention.Everything), (renamed.ManifestSeq, renamed.Name, renamed.Retention));
+        Assert.Equal((3ul, "Holiday photos", Retention.Everything), (branched.ManifestSeq, branched.Name, branched.Retention));
+        Assert.Equal([new Branch("main", head)], branched.Branches);
+        PackageChanged seen = await Events.FirstAsync(changes, e => e.Change == LocalPackageChange.Manifest && e.Package.ManifestSeq == 3);
+        Assert.Equal(("Holiday photos", created.PackageId), (seen.Package.Name, seen.Package.PackageId));
+    }
+
+    // §6.4: the owner only (NotOwner), with the user key (UserKeyAbsent); an empty name, a retention above 2 and branches out
+    // of order or repeated are Invalid; an unknown Package is NotFound. None of them changes the Manifest.
+    [Fact]
+    public async Task UpdatePackageIsTheOwnersOnly_WithTheUserKey_AndRefusesAnEmptyNameAnUnknownRetentionAndUnorderedBranches()
+    {
+        await using TestMesh mesh = await TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop", "alice-phone", "bob-desktop"), None);
+        TestNode laptop = mesh["alice-laptop"];
+        await laptop.HoldUserKeyAsync(None);
+        LocalClient client = await laptop.ConnectUserAsync("app", None);
+        Package own = (await client.SendAsync(new CreatePackage { Kind = PackageKind.Channel, Name = "Family" }, None)).Value;
+        PackageId bobs = await mesh["bob-desktop"].CreatePackageAsync("Bob's", PackageKind.Channel, Retention.Default, None);
+        await mesh.PairAsync("alice-laptop", "bob-desktop", None);
+        await mesh["bob-desktop"].GrantAsync(bobs, "alice", GrantRights.Read, None);
+        await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
+        await mesh.ConnectAsync("alice-laptop", "alice-phone", None);
+        await mesh.SettleAsync(None);
+        await laptop.FollowAsync(bobs, None);
+        await mesh["alice-phone"].FollowAsync(own.PackageId, None);
+        await mesh.SettleAsync(None);
+        ObjectHash a = new(Hash32.Of([1]));
+        ObjectHash b = new(Hash32.Of([2]));
+        PackageId unknown = PackageId.Derive(TestIdentity.Of("eve-device").UserId, new PackageNonce(Hash32.Of([7])));
+
+        Assert.Equal(Status.NotOwner, (await client.SendAsync(new UpdatePackage { PackageId = bobs, Name = "Mine" }, None)).Status);
+        Assert.Equal(Status.Invalid, (await client.SendAsync(new UpdatePackage { PackageId = own.PackageId, Name = "" }, None)).Status);
+        Assert.Equal(Status.Invalid, (await client.SendAsync(new UpdatePackage { PackageId = own.PackageId, Retention = (Retention)3 }, None)).Status);
+        Assert.Equal(Status.Invalid, (await client.SendAsync(new UpdatePackage { PackageId = own.PackageId, Branches = [new Branch("main", a), new Branch("dev", b)] }, None)).Status);
+        Assert.Equal(Status.Invalid, (await client.SendAsync(new UpdatePackage { PackageId = own.PackageId, Branches = [new Branch("main", a), new Branch("main", b)] }, None)).Status);
+        Assert.Equal(Status.NotFound, (await client.SendAsync(new UpdatePackage { PackageId = unknown, Name = "x" }, None)).Status);
+        LocalClient phone = await mesh["alice-phone"].ConnectUserAsync("app", None);
+        Assert.Equal(Status.UserKeyAbsent, (await phone.SendAsync(new UpdatePackage { PackageId = own.PackageId, Name = "From the phone" }, None)).Status);
+        Assert.Equal(1ul, (await client.SendAsync(new GetPackage { PackageId = own.PackageId }, None)).Value.ManifestSeq);
     }
 
     private static PackageNonce Nonce(TestNode node, PackageId package) =>

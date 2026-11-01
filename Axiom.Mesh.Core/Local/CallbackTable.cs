@@ -10,7 +10,8 @@ namespace Axiom.Mesh.Core;
 /// The callbacks the Host has outstanding toward one service (LOCAL-SPEC.md §3.6, §9.8): ids chosen here, never 0, never
 /// reused on the connection; at most 64 outstanding (<c>Busy</c> past that); each with its deadline, after which it leaves
 /// the outstanding set and its caller hears <c>ServiceTimeout</c>. A <c>Reply</c> completes its callback; a <c>Reply</c> for
-/// an id that expired within the last 5 minutes is ignored; one for an id never issued is a violation.
+/// an id that expired within the last 5 minutes is ignored; one for an id never issued is a violation. Each callback ends
+/// once, as a <see cref="CallbackOutcome"/>: replied, expired, or ended with the connection.
 /// </summary>
 internal sealed class CallbackTable : IDisposable
 {
@@ -37,19 +38,22 @@ internal sealed class CallbackTable : IDisposable
         }
     }
 
-    /// <summary>Issues a callback: an id, and the task its <c>Reply</c> completes.</summary>
+    /// <summary>Issues a callback: an id, and the task that says how it ended.</summary>
     /// <param name="deadline">How long the service has to reply (§9.8: 60 seconds for <c>ForwardedCall</c>).</param>
     /// <param name="id">The callback id to send it with.</param>
-    /// <param name="reply">Completes with the <c>Reply</c>; with <see langword="null"/> at the deadline or when the connection ends.</param>
-    /// <returns><see langword="false"/> when 64 are outstanding (<c>Busy</c>) or the connection ended.</returns>
-    public bool TryIssue(TimeSpan deadline, out uint id, out Task<Reply?> reply)
+    /// <param name="outcome">
+    /// Completes with the <c>Reply</c> (<see cref="CallbackEnd.Replied"/>), at the deadline (<see cref="CallbackEnd.Expired"/>)
+    /// or when the connection ends (<see cref="CallbackEnd.ConnectionEnded"/>), whichever comes first.
+    /// </param>
+    /// <returns><see langword="false"/> when 64 are outstanding (<c>Busy</c>); the outcome then says the connection ended when it had.</returns>
+    public bool TryIssue(TimeSpan deadline, out uint id, out Task<CallbackOutcome> outcome)
     {
         lock (gate)
         {
             if (closed || outstanding.Count >= Limits.MaxOutstandingCallbacks)
             {
                 id = 0;
-                reply = Task.FromResult<Reply?>(null);
+                outcome = Task.FromResult(closed ? CallbackOutcome.ConnectionEnded : CallbackOutcome.Expired);
                 return false;
             }
 
@@ -57,7 +61,7 @@ internal sealed class CallbackTable : IDisposable
             var pending = new Pending(id);
             pending.Timer = time.CreateTimer(static state => ((Expiry)state!).Fire(), new Expiry(this, id), deadline, Timeout.InfiniteTimeSpan);
             outstanding.Add(id, pending);
-            reply = pending.Completion.Task;
+            outcome = pending.Completion.Task;
             return true;
         }
     }
@@ -77,7 +81,7 @@ internal sealed class CallbackTable : IDisposable
         }
 
         pending.Timer?.Dispose();
-        pending.Completion.TrySetResult(reply);
+        pending.Completion.TrySetResult(CallbackOutcome.Replied(reply));
         return true;
     }
 
@@ -95,7 +99,7 @@ internal sealed class CallbackTable : IDisposable
         foreach (Pending pending in ending)
         {
             pending.Timer?.Dispose();
-            pending.Completion.TrySetResult(null);
+            pending.Completion.TrySetResult(CallbackOutcome.ConnectionEnded);
         }
     }
 
@@ -110,7 +114,7 @@ internal sealed class CallbackTable : IDisposable
         }
 
         pending.Timer?.Dispose();
-        pending.Completion.TrySetResult(null);
+        pending.Completion.TrySetResult(CallbackOutcome.Expired);
     }
 
     // Ids that expired more than 5 minutes ago are never issued again, so a Reply naming one is a violation once forgotten.
@@ -131,7 +135,7 @@ internal sealed class CallbackTable : IDisposable
     {
         public uint Id { get; } = id;
 
-        public TaskCompletionSource<Reply?> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<CallbackOutcome> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public ITimer? Timer { get; set; }
     }

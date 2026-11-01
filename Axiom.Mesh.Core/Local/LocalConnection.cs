@@ -157,21 +157,33 @@ internal sealed class LocalConnection
     }
 
     /// <summary>
-    /// Sends a callback to the service on this connection (§3.6): its <c>Reply</c>, or <see langword="null"/> at the
-    /// deadline or when the connection ends; <see langword="null"/> at once when 64 are outstanding (<c>Busy</c>, §9.8).
+    /// Sends a callback to the service on this connection (§3.6): how it ended, with the <c>Reply</c> when the service
+    /// answered before the deadline and before the connection ended. When 64 are outstanding nothing is sent and
+    /// <paramref name="busy"/> is set (§9.8).
     /// </summary>
     /// <param name="call">The callback.</param>
     /// <param name="deadline">How long the service has to reply.</param>
     /// <param name="busy">Set when 64 callbacks were outstanding and none was sent.</param>
-    /// <returns>The reply's task.</returns>
-    public Task<Reply?> CallAsync(LocalCallback call, TimeSpan deadline, out bool busy)
+    /// <returns>The outcome's task.</returns>
+    public Task<CallbackOutcome> CallAsync(LocalCallback call, TimeSpan deadline, out bool busy)
     {
         ArgumentNullException.ThrowIfNull(call);
-        busy = !Callbacks.TryIssue(deadline, out uint id, out Task<Reply?> reply);
-        if (!busy && !Outbox.Enqueue(new OutFrame(new Callback(id, call), FrameSizes.OfCallback(call), null)))
+        bool issued = Callbacks.TryIssue(deadline, out uint id, out Task<CallbackOutcome> outcome);
+
+        // A connection that ended refuses too, but that is the connection ending, not 64 outstanding.
+        busy = !issued && outcome.Result.End != CallbackEnd.ConnectionEnded;
+        if (issued && !Outbox.Enqueue(new OutFrame(new Callback(id, call), FrameSizes.OfCallback(call), null)))
             CloseUnresponsive("more than 64 MiB waited for the client to read them (LOCAL-SPEC.md §7.4)");
-        return reply;
+        return outcome;
     }
+
+    /// <summary>
+    /// Closes with <c>Bye(Violation)</c> (§11.3) for a violation found off the read loop: a <c>Reply</c> whose body is not
+    /// its callback's layout, read when its caller passes it on (§9.8).
+    /// </summary>
+    /// <param name="detail">The Bye's detail, for the client's log.</param>
+    /// <param name="why">Why, for the node's facts.</param>
+    public void CloseViolation(string detail, string why) => CloseWith(Bye.Of(ByeReason.Violation, detail), why);
 
     /// <summary>Hands an event to every matching subscription of a topic on this connection.</summary>
     /// <param name="topic">The event's topic.</param>
@@ -226,7 +238,7 @@ internal sealed class LocalConnection
     {
         LocalHelloVerdict verdict = port.IsDraining
             ? LocalHelloVerdict.Refuse(Bye.Of(ByeReason.Shutdown, "the Host is stopping"))
-            : port.Book.Admit(this, hello, port.Options.Services);
+            : port.Book.Admit(this, hello, port.Services.Current);
         if (verdict.Refusal is { } refusal)
         {
             endReason = $"Hello refused with {refusal}";
@@ -518,6 +530,28 @@ internal sealed class LocalConnection
         }
     }
 
+    // §9.6: a service whose configuration says so loses its Service pins when its connection ended. Queued for the store
+    // writer and never awaited here: the connection is over, and nothing of it waits on the store.
+    private void ReleasePinsIfConfigured()
+    {
+        if (Service is not { ReleasePinsOnDisconnect: true } || Hello is null)
+            return;
+        (PinReason reason, Hash32 source) = StoreRequests.PinOwner(this);
+        _ = ReleaseAsync(port.Node.Writer, new PinCommand(PinCommandKind.Release, [], reason, source));
+    }
+
+    private static async Task ReleaseAsync(StoreWriter writer, PinCommand release)
+    {
+        try
+        {
+            await writer.SendAsync(release, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or OperationCanceledException or ChannelClosedException)
+        {
+            // The node stops; the pins stay for the user to release (§6.5).
+        }
+    }
+
     private async Task EndAsync(Task writing, Task applying)
     {
         ending.Cancel();
@@ -535,6 +569,7 @@ internal sealed class LocalConnection
         port.Kinds.Release(this);
         port.Book.Left(this);
         await Task.WhenAll(writing, applying).ConfigureAwait(false);
+        ReleasePinsIfConfigured();
         port.Facts.Record(NodeFactKind.LocalEnded, Id, null, default, $"{endReason}; {Origin}");
     }
 }
