@@ -67,7 +67,8 @@ public interface IMeshService
 
     /// <summary>
     /// A user client called a method of the service (LOCAL-SPEC.md §6.7, §9.8). Runs beside the other handlers, off the read
-    /// loop; answer within the deadline. Long work is a job the reply names and events report (S-D8).
+    /// loop, and never before <see cref="OnConnectedAsync"/> of the same session returned (a call that came earlier waits);
+    /// answer within the deadline. Long work is a job the reply names and events report (S-D8).
     /// </summary>
     /// <param name="session">The session.</param>
     /// <param name="call">The caller's number and name, the method and the payload.</param>

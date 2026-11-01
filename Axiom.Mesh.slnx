@@ -26,6 +26,7 @@
     <File Path="Documentation/BENCHMARKS.md" />
     <File Path="Documentation/SPEC.md" />
     <File Path="Documentation/CHAT-SERVICE.md" />
+    <File Path="Documentation/SYNC-SERVICE.md" />
   </Folder>
   <Project Path="Axiom.Mesh.Model/Axiom.Mesh.Model.csproj" />
   <Project Path="Axiom.Mesh.Protocol/Axiom.Mesh.Protocol.csproj" />
@@ -38,6 +39,8 @@
   <Folder Name="/Services/">
     <Project Path="Services/Axiom.Mesh.Chat.Client/Axiom.Mesh.Chat.Client.csproj" />
     <Project Path="Services/Axiom.Mesh.Chat/Axiom.Mesh.Chat.csproj" />
+    <Project Path="Services/Axiom.Mesh.Sync.Client/Axiom.Mesh.Sync.Client.csproj" />
+    <Project Path="Services/Axiom.Mesh.Sync/Axiom.Mesh.Sync.csproj" />
   </Folder>
   <Folder Name="/Apps/">
     <Project Path="Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj" />
@@ -58,6 +61,8 @@
   <Folder Name="/UnitTests/Services/">
     <Project Path="UnitTests/Services/Axiom.Mesh.Chat.Client.Tests/Axiom.Mesh.Chat.Client.Tests.csproj" />
     <Project Path="UnitTests/Services/Axiom.Mesh.Chat.Tests/Axiom.Mesh.Chat.Tests.csproj" />
+    <Project Path="UnitTests/Services/Axiom.Mesh.Sync.Client.Tests/Axiom.Mesh.Sync.Client.Tests.csproj" />
+    <Project Path="UnitTests/Services/Axiom.Mesh.Sync.Tests/Axiom.Mesh.Sync.Tests.csproj" />
   </Folder>
   <Folder Name="/IntegrationTests/">
     <Project Path="IntegrationTests/Axiom.Mesh.Integration.Tests/Axiom.Mesh.Integration.Tests.csproj" />

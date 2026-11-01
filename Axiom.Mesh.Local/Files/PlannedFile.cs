@@ -5,4 +5,5 @@ namespace Axiom.Mesh.Local;
 /// <param name="Hash">A ChunkList for a file, a Chunk holding the target for a link.</param>
 /// <param name="Kind">How it is written.</param>
 /// <param name="Size">The size the Tree states, for progress; the object is authoritative.</param>
-internal readonly record struct PlannedFile(string Path, ObjectHash Hash, PlannedFileKind Kind, ulong Size);
+[ClosedShape("A planned file is its path, its object, how it is written and its stated size.")]
+public readonly record struct PlannedFile(string Path, ObjectHash Hash, PlannedFileKind Kind, ulong Size);

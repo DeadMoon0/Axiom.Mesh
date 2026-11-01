@@ -29,6 +29,8 @@ public abstract class ConventionTests<TAnchor>
     private const string Cli = "Axiom.Mesh.Cli";
     private const string ChatClient = "Axiom.Mesh.Chat.Client";
     private const string Chat = "Axiom.Mesh.Chat";
+    private const string SyncClient = "Axiom.Mesh.Sync.Client";
+    private const string Sync = "Axiom.Mesh.Sync";
     private const string ProtoStream = "Axiom.ProtoStream";
 
     // Outside the family, a few assemblies are allowed to one layer only: the Host alone wraps keys with DPAPI (plan
@@ -72,13 +74,16 @@ public abstract class ConventionTests<TAnchor>
             // Testing runs every node of a mesh on LDB's in-memory storage (shipped in the Axiom.LDB.Core package).
             // It runs the command line in-process against a node (TestNode.CliAsync), the Cli assembly packed inside it. The
             // Host is never a package (fundamentals plan §6e), so the Testing package must not depend on it.
-            Testing => [.. core, Core, Cli, Service, ChatClient, "Axiom.LWSE.Testing", "Axiom.ProtoStream.Testing", "Axiom.LDB.Storage.InMemory", "Axiom.LDB.Storage.Abstractions"],
-            // The command line is an app over the chat namespace (S-D7): its Client library, never the service.
-            Cli => [Local, Model, ProtoStream, ChatClient],
+            Testing => [.. core, Core, Cli, Service, ChatClient, SyncClient, "Axiom.LWSE.Testing", "Axiom.ProtoStream.Testing", "Axiom.LDB.Storage.InMemory", "Axiom.LDB.Storage.Abstractions"],
+            // The command line is an app over the chat and sync namespaces (S-D7): their Client libraries, never the services.
+            Cli => [Local, Model, ProtoStream, ChatClient, SyncClient],
             // A service's Client library types its namespace for every app: a client of the local protocol, nothing more.
             ChatClient => [Local, Model, ProtoStream],
             // The chat service (S-D1, S-D6): the runtime, its own Client library and its index's LDB rows.
             Chat => [Service, ChatClient, Local, Model, ProtoStream, "Axiom.LDB.Core", "Axiom.LDB.Entity", "Axiom.LDB.Primitives", "Axiom.LDB.Query"],
+            SyncClient => [Local, Model, ProtoStream],
+            // The sync service (S-D1, S-D6): the runtime, its own Client library and its database's LDB rows.
+            Sync => [Service, SyncClient, Local, Model, ProtoStream, "Axiom.LDB.Core", "Axiom.LDB.Entity", "Axiom.LDB.Primitives", "Axiom.LDB.Query"],
             _ => null,
         };
     }
@@ -87,12 +92,12 @@ public abstract class ConventionTests<TAnchor>
     // own test assembly, derived from the assembly name, never matched by a name pattern. One deliberate exception: Core
     // opens its internals to the benchmark suite, which measures the store writer, the object store and the index
     // directly (plan §5) and ships nothing, so no package can come to depend on what it sees; the chat service does the
-    // same for its index (plan §9.3 item 6).
+    // same for its index (plan §9.3 item 6), the sync service for its rules (plan §9.4 item 6).
     [Fact]
     public void InternalsAreOpenToTheOwnTestAssemblyOnly()
     {
         string ownTests = PackageName + ".Tests";
-        string? measuredBy = PackageName is Core or Chat ? "Axiom.Mesh.Benchmarks" : null;
+        string? measuredBy = PackageName is Core or Chat or Sync ? "Axiom.Mesh.Benchmarks" : null;
         var offenders = Package.GetCustomAttributes<InternalsVisibleToAttribute>()
             .Select(a => a.AssemblyName.Split(',')[0].Trim())
             .Where(name => name != ownTests && name != measuredBy)

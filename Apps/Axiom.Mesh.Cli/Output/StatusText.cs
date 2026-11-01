@@ -1,5 +1,6 @@
 using Axiom.Mesh.Chat;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Sync;
 
 namespace Axiom.Mesh.Cli;
 
@@ -49,6 +50,7 @@ internal static class StatusText
         Status.GapTooLarge => "too much happened since; list the history first",
         Status.StoreFull => "the store is full: pinned objects fill the budget; unpin something or raise the budget",
         _ when ChatStatusText.IsChatStatus(status, out ChatStatus chat) => ChatStatusText.Explain(chat),
+        _ when SyncStatusText.IsSyncStatus(status, out SyncStatus sync) => SyncStatusText.Explain(sync),
         _ => $"the Host refused with status {(ushort)status}",
     };
 }

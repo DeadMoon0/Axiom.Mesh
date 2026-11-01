@@ -25,6 +25,7 @@ public sealed class MaterialiseRuleTests
     [InlineData("..", false, false)] // never the parent
     [InlineData(".axiom-mesh-materialised", false, false)] // the helpers' own marker
     [InlineData(".axiom-mesh-partial-x", false, false)] // the helpers' own temporary name
+    [InlineData(".axiom-mesh-sync", true, false)] // the sync service's marker: every name with the reserved prefix
     public void ANameIsWrittenOnlyWhenTheFileSystemHoldsItAsOneNameInTheDirectory(string name, bool windows, bool written)
     {
         Assert.Equal(written, FileNameRule.MayWrite(name, windows));

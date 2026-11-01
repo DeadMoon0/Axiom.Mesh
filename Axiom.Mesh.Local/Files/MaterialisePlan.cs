@@ -9,7 +9,7 @@ namespace Axiom.Mesh.Local;
 /// the files to write, and the names that are conflicts (a name the platform cannot hold, a case-insensitive collision,
 /// an unknown mode, a directory whose Tree is not at hand). Pure: it reads the Trees it is given and nothing else.
 /// </summary>
-internal sealed class MaterialisePlan
+public sealed class MaterialisePlan
 {
     private MaterialisePlan(IReadOnlyList<string> directories, IReadOnlyList<PlannedFile> files, IReadOnlyList<string> conflicts)
     {

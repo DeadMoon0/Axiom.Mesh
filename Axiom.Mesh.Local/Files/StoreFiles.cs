@@ -218,6 +218,39 @@ public static class StoreFiles
         }
     }
 
+    /// <summary>
+    /// Writes one file of a <see cref="MaterialisePlan"/> into a directory (SPEC.md §11.4), the one-file step of
+    /// <see cref="MaterialiseAsync"/> for a service that decides file by file what to write (the sync service): the object
+    /// is read as <see cref="ObjectReader"/> reads it and checked against the file's kind; a file's Chunks are written to a
+    /// hidden temporary name beside it (<see cref="PartialPrefix"/>), every Chunk held and the ChunkList's size verified,
+    /// marked executable where the file system has the bit, and renamed into place; a symlink is written as a regular file
+    /// holding its target text. The file's directory must exist; a cancelled or failed write leaves nothing under its name.
+    /// </summary>
+    /// <param name="reader">Where objects are read (<see cref="ObjectReader.OpenAsync"/>).</param>
+    /// <param name="file">The file: its path relative to <paramref name="directory"/>, its object, its kind.</param>
+    /// <param name="directory">The directory the path is relative to, absolute.</param>
+    /// <param name="cancellationToken">Cancels writing; no partial file is left.</param>
+    /// <returns>
+    /// The bytes written, or why not: <c>NotFound</c> for an object not stored here (fetch it first), <c>Invalid</c> when the
+    /// object is not what the file's kind says, its Chunks do not add up to its size, or a directory or a link is at the
+    /// path (nothing written: a conflict), <c>IoError</c> when the file system refuses.
+    /// </returns>
+    public static async Task<LocalResult<ulong>> WriteFileAsync(ObjectReader reader, PlannedFile file, string directory, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentException.ThrowIfNullOrEmpty(file.Path);
+        ArgumentException.ThrowIfNullOrEmpty(directory);
+        string destination = Path.Combine(directory, file.Path.Replace('/', Path.DirectorySeparatorChar));
+        try
+        {
+            return await FileWriter.WriteAsync(reader, file, destination, null, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Refused<ulong>(Status.IoError, $"{destination} cannot be written: {ex.Message}");
+        }
+    }
+
     private static async Task<LocalResult<StoredFile>> PutAsync(LocalClient client, FileStream file, string path, int chunksInFlight, IProgress<long>? progress, CancellationToken cancellationToken)
     {
         long length = file.Length;

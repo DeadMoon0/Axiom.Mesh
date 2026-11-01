@@ -71,12 +71,14 @@ public static class Trees
         return LocalResult<PublishedTree>.Ok(new PublishedTree { Root = trees[^1].Hash, Files = files.Count, Bytes = (ulong)before, Objects = [.. objects] });
     }
 
-    // The regular files below a directory, relative to it with '/', in ordinal order; links and special files left out.
+    // The regular files below a directory, relative to it with '/', in ordinal order; links, special files and the names
+    // the helpers and services keep for themselves (FileNameRule.ReservedPrefix) left out.
     private static IReadOnlyList<string> RegularFiles(string directory)
     {
         var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = false };
         return [.. Directory.EnumerateFiles(directory, "*", options)
             .Select(f => Path.GetRelativePath(directory, f).Replace(Path.DirectorySeparatorChar, '/'))
+            .Where(p => !p.Split('/').Any(FileNameRule.IsReserved))
             .Order(StringComparer.Ordinal)];
     }
 

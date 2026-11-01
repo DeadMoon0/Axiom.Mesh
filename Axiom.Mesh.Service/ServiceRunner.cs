@@ -172,9 +172,11 @@ internal sealed class ServiceRunner
                 IndexCursor cursor = await state.ReadCursorAsync(stop).ConfigureAwait(false);
                 IndexCatchUp plan = IndexCatchUp.Plan(cursor.Epoch, cursor.LastSeq, epoch);
                 session = new ServiceSession(definition, client, epoch, plan, state, log);
-                calls.Attach(session);
                 ServiceLog.Connected(log, definition.Name, client.Host.HostVersion, plan.FromSeq, plan.DiscardIndex);
                 await service.OnConnectedAsync(session, stop).ConfigureAwait(false);
+
+                // Calls reach the service only once it said it is ready; those that came meanwhile go ahead now.
+                calls.Ready(session);
                 if (cursor.Epoch != epoch)
                     await state.DiscardAsync(epoch, stop).ConfigureAwait(false);
 
@@ -207,6 +209,7 @@ internal sealed class ServiceRunner
         }
         finally
         {
+            calls.Abandon();
             if (session is not null)
                 await DisconnectedAsync(session).ConfigureAwait(false);
         }

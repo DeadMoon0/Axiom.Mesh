@@ -11,7 +11,7 @@ namespace Axiom.Mesh.Local;
 /// (<c>HelloAck</c> capability bit 0), else with <c>GetObject</c>. A file that is not there (never stored, or evicted
 /// since) falls back to <c>GetObject</c>, which answers <c>NotFound</c> for what is not stored.
 /// </summary>
-internal sealed class ObjectReader
+public sealed class ObjectReader
 {
     private readonly LocalClient client;
     private readonly string? storePath;

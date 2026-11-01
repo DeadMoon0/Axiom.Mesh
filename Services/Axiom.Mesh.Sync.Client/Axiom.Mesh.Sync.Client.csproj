@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Title>Axiom.Mesh.Sync.Client</Title>
+    <Authors>DeadMoon0</Authors>
+    <Product>Axiom</Product>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>Axiom;Mesh;sync;client;namespace</PackageTags>
+    <PackageIcon>Icon.png</PackageIcon>
+    <Description>Part of the Axiom family. The sync service's namespace axiom-mesh-sync/1 for every app: its methods, events, records and statuses, typed, with one call helper over ServiceCall and one reader of its events.</Description>
+    <Version>0.2.0</Version>
+    <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
+    <RootNamespace>Axiom.Mesh.Sync</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The package's own test project, and nobody else. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Axiom.Mesh.Sync.Client.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- A client of the local protocol only (S-D7): the records ride ServiceCall and Emit payloads. -->
+    <ProjectReference Include="..\..\Axiom.Mesh.Local\Axiom.Mesh.Local.csproj" />
+  </ItemGroup>
+
+</Project>

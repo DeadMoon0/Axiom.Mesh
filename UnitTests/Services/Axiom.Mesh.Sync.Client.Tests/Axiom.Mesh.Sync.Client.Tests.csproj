@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Axiom.Mesh.Sync.Client.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Services\Axiom.Mesh.Sync.Client\Axiom.Mesh.Sync.Client.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Local;
 using Axiom.Mesh.Service.Tests.Support;
+using Axiom.LDB.Storage.InMemory;
 using Axiom.Mesh.Testing;
 
 namespace Axiom.Mesh.Service.Tests.Rules;
@@ -56,5 +57,24 @@ public sealed class CallsTests
 
         Assert.True(echoed.IsOk);
         Assert.Equal(300, service.Count);
+    }
+    // §9.8 through the runtime: a call that arrives while the service is still connecting (its OnConnectedAsync has not
+    // returned, its index not in step) waits, and is answered once the service is ready, never before.
+    [Fact]
+    public async Task ACallThatArrivesWhileTheServiceConnectsWaitsUntilItIsReady()
+    {
+        await using TestMesh mesh = await ServiceMeshes.StartAsync();
+        var service = new SlowConnectingService();
+        LocalClient app = await mesh[ServiceMeshes.Node].ConnectUserAsync("app", None);
+        await using RunningService running = RunningService.Start(service, ServiceMeshes.EnvironmentOf(mesh, new InMemoryStorageEnvironment(), TestEchoService.Echo.Name));
+        await service.Entered.WaitAsync(TestMesh.Deadline);
+
+        Task<LocalResult<ReadOnlyMemory<byte>>> call = ServiceMeshes.CallAsync(app, "echo", [5]).AsTask();
+        await Task.Yield();
+        service.Release();
+        LocalResult<ReadOnlyMemory<byte>> echoed = await call.WaitAsync(TestMesh.Deadline);
+
+        Assert.True(echoed.IsOk, echoed.ToString());
+        Assert.Equal((1, 0), (service.Calls, service.CallsBeforeConnected));
     }
 }

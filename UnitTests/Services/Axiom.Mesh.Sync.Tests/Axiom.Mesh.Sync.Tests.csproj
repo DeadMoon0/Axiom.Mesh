@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Axiom.Mesh.Sync.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Services\Axiom.Mesh.Sync\Axiom.Mesh.Sync.csproj" />
+    <!-- Real nodes in memory for the service to run beside (TestMesh), and the command line run in process. -->
+    <ProjectReference Include="..\..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+    <!-- The command line itself, for its exit codes and its views (the Testing package carries it privately). -->
+    <ProjectReference Include="..\..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The service's database on LDB's in-memory storage, and the mesh's fake clock for the debounce. -->
+    <PackageReference Include="Axiom.LDB.Core" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+</Project>

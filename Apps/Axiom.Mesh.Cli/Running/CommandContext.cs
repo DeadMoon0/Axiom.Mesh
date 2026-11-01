@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Chat;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Sync;
 
 namespace Axiom.Mesh.Cli;
 
@@ -137,6 +138,25 @@ internal sealed class CommandContext : IAsyncDisposable
         LocalClient client = await UserAsync().ConfigureAwait(false);
         return await WithDeadlineAsync(token => ChatCall.SendAsync(client, request, token)).ConfigureAwait(false);
     }
+
+    /// <summary>Calls a method of the sync service as the user; a refusal leaves as a <see cref="CliFailure"/>.</summary>
+    /// <typeparam name="TRequest">The method's request.</typeparam>
+    /// <typeparam name="TReply">Its reply.</typeparam>
+    /// <param name="request">The request.</param>
+    /// <returns>The reply.</returns>
+    public async Task<TReply> SyncAsync<TRequest, TReply>(ISyncMethod<TRequest, TReply> request)
+        where TRequest : class, ISyncMethod<TRequest, TReply>
+        where TReply : class, IWireRecord<TReply>
+    {
+        LocalClient client = await UserAsync().ConfigureAwait(false);
+        LocalResult<TReply> result = await WithDeadlineAsync(token => SyncCall.SendAsync(client, request, token)).ConfigureAwait(false);
+        if (result.Status == Status.ServiceUnavailable)
+            throw CliFailure.Problem(SyncUnavailable + (result.Error?.Message is { Length: > 0 } why ? $" ({why})" : string.Empty));
+        return Ok(result);
+    }
+
+    /// <summary>The line for a sync service that is not connected.</summary>
+    public const string SyncUnavailable = "the sync service is not connected to this Host; 'axiom-mesh services' shows it";
 
     /// <summary>The OK body of a result; a refusal leaves as a <see cref="CliFailure"/>.</summary>
     /// <typeparam name="TOk">The OK body.</typeparam>

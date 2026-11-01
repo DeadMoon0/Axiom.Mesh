@@ -19,7 +19,6 @@ internal sealed class TreeWriter
     private readonly IProgress<MaterialiseProgress>? progress;
     private readonly ulong total;
     private readonly List<string> conflicts;
-    private readonly ChunkCopier copier;
     private ulong done;
     private int files;
 
@@ -33,7 +32,6 @@ internal sealed class TreeWriter
         this.progress = progress;
         total = plan.TotalBytes;
         conflicts = [.. plan.Conflicts];
-        copier = new ChunkCopier(reader, Written);
     }
 
     /// <summary>Writes the plan's directories and files into <paramref name="target"/>, which exists.</summary>
@@ -50,59 +48,16 @@ internal sealed class TreeWriter
 
         foreach (PlannedFile file in plan.Files)
         {
-            string destination = PathOf(target, file.Path);
-            if (IsLink(destination) || Directory.Exists(destination))
-            {
-                conflicts.Add(file.Path);
-                continue;
-            }
-
-            LocalResult<bool> written = await WriteFileAsync(file, destination, cancellationToken).ConfigureAwait(false);
-            if (!written.IsOk)
-                return LocalResult<MaterialisedTree>.Failure(written.Status, written.Error);
-            if (written.Value)
+            LocalResult<ulong> written = await FileWriter.WriteAsync(reader, file, PathOf(target, file.Path), Written, cancellationToken).ConfigureAwait(false);
+            if (written.IsOk)
                 files++;
-            else
+            else if (written.Status == Status.Invalid)
                 conflicts.Add(file.Path);
+            else
+                return LocalResult<MaterialisedTree>.Failure(written.Status, written.Error);
         }
 
         return LocalResult<MaterialisedTree>.Ok(new MaterialisedTree { Tree = tree, Files = files, Bytes = done, Conflicts = conflicts });
-    }
-
-    // A file or link: true when written, false for a conflict (the object is not what the mode says, or the size is off).
-    private async Task<LocalResult<bool>> WriteFileAsync(PlannedFile file, string destination, CancellationToken cancellationToken)
-    {
-        LocalResult<ParsedObject> named = await reader.ReadAsync(file.Hash, cancellationToken).ConfigureAwait(false);
-        if (!named.IsOk)
-            return LocalResult<bool>.Failure(named.Status, named.Error);
-
-        string partial = ChunkCopier.PartialOf(destination);
-        try
-        {
-            switch (named.Value)
-            {
-                case ChunkList list when file.Kind is PlannedFileKind.File or PlannedFileKind.Executable:
-                    LocalResult<bool> copied = await copier.CopyAsync(list, partial, file.Path, cancellationToken).ConfigureAwait(false);
-                    if (!copied.IsOk || !copied.Value)
-                        return copied;
-                    if (file.Kind == PlannedFileKind.Executable && !OperatingSystem.IsWindows())
-                        File.SetUnixFileMode(partial, File.GetUnixFileMode(partial) | UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute);
-                    break;
-                case Chunk link when file.Kind == PlannedFileKind.Link:
-                    await File.WriteAllBytesAsync(partial, link.Data.ToArray(), cancellationToken).ConfigureAwait(false);
-                    done += (ulong)link.Data.Length;
-                    break;
-                default:
-                    return LocalResult<bool>.Ok(false);
-            }
-
-            File.Move(partial, destination, overwrite: true);
-            return LocalResult<bool>.Ok(true);
-        }
-        finally
-        {
-            ChunkCopier.Discard(partial);
-        }
     }
 
     private void Written(ulong bytes, string name)
@@ -112,10 +67,4 @@ internal sealed class TreeWriter
     }
 
     private static string PathOf(string target, string relative) => Path.Combine(target, relative.Replace('/', Path.DirectorySeparatorChar));
-
-    private static bool IsLink(string path)
-    {
-        FileSystemInfo? existing = File.Exists(path) ? new FileInfo(path) : Directory.Exists(path) ? new DirectoryInfo(path) : null;
-        return existing is not null && existing.Attributes.HasFlag(FileAttributes.ReparsePoint);
-    }
 }

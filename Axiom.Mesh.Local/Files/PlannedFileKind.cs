@@ -1,7 +1,7 @@
 namespace Axiom.Mesh.Local;
 
 /// <summary>What a planned file is written from (SPEC.md §8.4 <c>mode</c>).</summary>
-internal enum PlannedFileKind
+public enum PlannedFileKind
 {
     /// <summary>Assigned to nothing.</summary>
     Unassigned = 0,

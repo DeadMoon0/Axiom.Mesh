@@ -127,8 +127,9 @@ public sealed class TestMesh : IMeshFixture
     /// Waits until two nodes hold an established session to each other, one each (the duplicate rule has settled), and no
     /// other connection between them is still opening: every dial either one started toward the other has reached it, and
     /// every connection either one accepted from the other is that session or closed. Both are announced again at first
-    /// and after every fact either records, as discovery would repeat them; a backoff still holds a dial back until the
-    /// clock reaches its end.
+    /// and after every fact either records, as discovery would repeat them. When both hold a backoff for each other and
+    /// nothing is open between them (both refused the other's first dial right after a pairing), the mesh's clock is moved to
+    /// the earlier end, as waiting would; otherwise the clock is left alone.
     /// </summary>
     /// <remarks>
     /// When both dial at once, the second connection may still be in its handshake while the first is established; a
@@ -156,12 +157,26 @@ public sealed class TestMesh : IMeshFixture
                     && NothingOpening(left, right) && NothingOpening(right, left))
                     return;
 
+                // Both refused each other's first dial (one dialled before the other had stored the pairing's Roster) and
+                // neither dials again until its backoff ends: move the clock there, as the waiting would.
+                if (BackoffBlocking(left, right) is { } wait)
+                    Clock.Advance(wait);
+
                 // Announce again after every change: an announcement heard while a dial was still ending is passed over.
                 left.Discovery.Announce();
                 right.Discovery.Announce();
-                await Task.WhenAny(
-                    left.Node.Facts.WaitForAsync(_ => true, leftSeen, linked.Token),
-                    right.Node.Facts.WaitForAsync(_ => true, rightSeen, linked.Token)).Unwrap().ConfigureAwait(false);
+                using var pause = new CancellationTokenSource(SettleRecheck);
+                using var either = CancellationTokenSource.CreateLinkedTokenSource(pause.Token, linked.Token);
+                try
+                {
+                    await Task.WhenAny(
+                        left.Node.Facts.WaitForAsync(_ => true, leftSeen, either.Token),
+                        right.Node.Facts.WaitForAsync(_ => true, rightSeen, either.Token)).Unwrap().ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (pause.IsCancellationRequested && !linked.IsCancellationRequested)
+                {
+                    // Nothing recorded meanwhile; look again (a backoff is read from the peer tables, not from a fact).
+                }
             }
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
@@ -425,6 +440,24 @@ public sealed class TestMesh : IMeshFixture
     private static TimeSpan SettleRecheck { get; } = TimeSpan.FromMilliseconds(5);
 
     private static bool IsEstablishedWith(MeshNode node, DeviceId peer) => MeshWaits.IsEstablishedWith(node, peer);
+
+    // How far the clock must move before either of two nodes dials the other again: both hold a backoff for the other, no
+    // session and no connection is open between them, so nothing happens until a backoff ends. Null when a dial can happen.
+    private TimeSpan? BackoffBlocking(TestNode left, TestNode right)
+    {
+        if (!NothingOpening(left, right) || !NothingOpening(right, left))
+            return null;
+        DateTimeOffset now = Clock.GetUtcNow();
+        DateTimeOffset? leftUntil = BackoffOf(left.Node, right.Device, now);
+        DateTimeOffset? rightUntil = BackoffOf(right.Node, left.Device, now);
+        if (leftUntil is null || rightUntil is null)
+            return null;
+        DateTimeOffset first = leftUntil.Value < rightUntil.Value ? leftUntil.Value : rightUntil.Value;
+        return first - now + TimeSpan.FromMilliseconds(1);
+    }
+
+    private static DateTimeOffset? BackoffOf(MeshNode node, DeviceId peer, DateTimeOffset now) =>
+        node.Peers.FirstOrDefault(p => p.Device == peer) is { Sessions: 0, BackoffUntil: { } until } && until > now ? until : null;
 
     private static bool IsSettled(TestNode[] running) => MeshWaits.IsSettled([.. running.Select(n => n.Node)]);
 
