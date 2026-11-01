@@ -202,6 +202,37 @@ Eve's device as `established` (it may not list it at all: a key in no roster is 
 **Pass:** Eve never becomes Established on A. Stop Eve's Host afterwards (Ctrl-C, or `Stop-Process -Name axiom-meshd`
 for the one started with `AXIOM_MESH_HOME` set, `kill %1` on Linux) and delete its home.
 
+## Step 11: chat through the chat service
+
+Both PCs run `axiom-mesh-chat` beside the Host (the zip ships it; the Host starts it). On A, with the Channel `Family`
+of step 4 and Bob's write grant of step 8:
+
+```text
+axiom-mesh services                      # chat: spawned, connected
+axiom-mesh chat send Family --text "holiday" --file <a photo or a folder>
+```
+
+On B:
+
+```text
+axiom-mesh chat show Family
+axiom-mesh chat get <entry from the first column> <attachment name> --out <a new path>
+axiom-mesh chat send Family --text "lovely" --reply <entry>
+axiom-mesh chat show Family --json > b.json
+```
+
+On A: `axiom-mesh chat show Family --json > a.json`, then `axiom-mesh chat withdraw <B's reply>` (A owns the Channel).
+On B: `axiom-mesh chat withdraw <A's message>` is refused.
+
+**Expected:** both `chat show` list the same entries in the same order; the fetched attachment equals the original byte
+for byte; `a.json` and `b.json` are equal before the withdrawal; after it both show B's reply as `(withdrawn)` and never
+its text; B's attempt says only the device that wrote the message or a device of the owner may withdraw it.
+
+**Then** end `axiom-mesh-chat` on A from the Task Manager (`Stop-Process -Name axiom-mesh-chat`, `pkill axiom-mesh-chat`):
+within a few seconds `axiom-mesh services` shows it connected again and `axiom-mesh chat show Family` works.
+
+**Pass:** same order on both, withdrawn on both, byte-equal attachment, the service restarted by the Host.
+
 ## Cleaning up
 
 `axiom-mesh host uninstall` stops the Host and removes its logon start; `install.ps1 -Uninstall` / `install.sh
@@ -228,7 +259,8 @@ Step 7  offline catch-up             pass / fail   seconds until B held the Entr
 Step 8  write grant, B to A          pass / fail   entry:
 Step 9  revoke                       pass / fail   notes:
 Step 10 Eve never established        pass / fail   what Eve's peers showed:
+Step 11 chat (0.2.0)                 pass / fail   same order: yes / no   attachment byte-equal: yes / no   restarted: yes / no
 
 Anything unexpected (copy the exact line):
-Verdict: phase 1a accepted / not accepted
+Verdict: phase 1a accepted / not accepted; chat (phase 2, step 11) accepted / not accepted
 ```

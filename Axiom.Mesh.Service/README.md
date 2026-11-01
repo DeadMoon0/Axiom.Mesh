@@ -90,10 +90,14 @@ database (the runtime's cursor is one of them).
 ## What the runtime guarantees
 
 - Every Entry of the service's kinds reaches `OnEntryAsync` once per storing, in store order, across reconnects and
-  restarts; the cursor is committed after the handler, so a crash may repeat the last Entry and never skips one. Dedupe by
-  the Entry's hash.
-- More than 256 Entries behind, it pages with `ListStored` before it subscribes (`CatchUpStep`); a lapsed subscription is
-  renewed from the next store sequence; another store epoch tells the service to discard its index.
+  restarts; the cursor never moves past an Entry before its handler returned, so a crash may repeat Entries and never
+  skips one. Dedupe by the Entry's hash. The cursor is committed lazily durable (LDB `Durability.Lazy`: a crash loses only
+  the latest commits, in order) after each page, at each lull of the live stream, every 64 Entries and when the session
+  ends; commit the service's own rows the same way or more durably.
+- More than 256 Entries behind, it pages with `ListStored` before it subscribes (`CatchUpStep`) and hands each page of up
+  to 64 Entries to `OnEntriesAsync` (by default `OnEntryAsync` for each; override it to write a page in one transaction);
+  a lapsed subscription is renewed from the next store sequence; another store epoch tells the service to discard its
+  index.
 - Calls run off the read loop with their 60-second deadline; each is answered exactly once, never later than 120 seconds
   after it arrived (LOCAL-SPEC.md §9.8).
 - A lost Host is reconnected 1 s, 2 s, 4 s ... 30 s later (`ReconnectRule`); a refused name, token or version exits with

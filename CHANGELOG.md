@@ -32,6 +32,24 @@ project's `<Version>` is 0.2.0 already. What is on `main` so far (S0, service pl
   `RunningService`; scenario 15 (a service beside a node).
 - `axiom-mesh services [--json]`: the services the Host lists, how each proves its name, whether it is connected.
 
+S1, the chat service:
+
+- **The chat service `axiom-mesh-chat`** ([CHAT-SERVICE.md](Documentation/CHAT-SERVICE.md) draft 1): Channels, messages
+  with attachments and replies, withdrawals, indexed in its own database (`<home>/services/chat/index`) and offered as the
+  namespace `axiom-mesh-chat/1` (ten methods, four events, six statuses). Ships beside `axiom-meshd` in the zips (Native
+  AOT); the Host's default configuration starts it.
+- **New package `Axiom.Mesh.Chat.Client`**: the namespace's records, `ChatCall`, `ChatEventReader`, `ChatStatus` and
+  `ChatStatusText`, `ChatLimits`, `ChatCodec`; test vectors in `Documentation/vectors/chat/records.txt`.
+- **Command line:** `chat list`, `chat show`, `chat thread`, `chat send` (with `--file` once per attachment and
+  `--reply`), `chat withdraw`, `chat get`, `chat watch`. `write` goes through the chat service when it runs and writes
+  directly when it does not; `package publish` explains `KindTaken` (the sync service holds Archives).
+- `Axiom.Mesh.Local`: `StoreFiles.MaterialiseFileAsync` writes one file from its ChunkList (never partial under its name),
+  `MaterialisedFile`.
+- `Axiom.Mesh.Service`: `IMeshService.OnEntriesAsync` hands a service each page of the catch-up at once (by default one
+  `OnEntryAsync` per Entry); the cursor is committed lazily durable after a page or a lull instead of after every Entry.
+- `Axiom.Mesh.Testing`: `IMeshFixture.RunServiceAsync(name, service, stateOf, ct)` and
+  `TestNode.RunServiceAsync(service, stateOf, ct)` run a service with another node's kept state (another store epoch).
+
 ## 0.1.0
 
 The first release: the Fundamentals of [the plan's phase 1a](Documentation/DESIGN.md) (DESIGN.md §17). Two desktops on

@@ -487,8 +487,10 @@ host name of a code into addresses before admission decides on each (`Core.Tests
   `CodeGenerationFailedException` for `Dictionary<long, __Canon>.CopyTo`. The argument stays; the AOT publish of
   `Scripts/package.*` (run by `install-tests.yml` and `release.yml`, which replaced `aot.yml` in M13) publishes with it,
   so the released `axiom-mesh` is compiled without the scanner.
-- **Paid in:** the first .NET 10 servicing release whose ILCompiler compiles the command line with the scanner: remove the
-  `IlcArg` and let `install-tests.yml` prove it on both platforms.
+- **Widened in S1:** the chat service (`Services/Axiom.Mesh.Chat/Axiom.Mesh.Chat.csproj`) reaches the same codec through
+  `LocalClient` and fails the same way without the scanner; it passes `--noscan` too.
+- **Paid in:** the first .NET 10 servicing release whose ILCompiler compiles the command line and the chat service with the
+  scanner: remove both `IlcArg`s and let `install-tests.yml` prove it on both platforms.
 
 ## 48. The command line does not read `pipe.name` from `config.json`
 
@@ -706,8 +708,12 @@ and a client otherwise had to poll `ListPackages` to notice a drop.
 - **Evidence:** `UnitTests/Support/Axiom.Mesh.EchoService`; `Axiom.Mesh.Host/Supervision/SystemChildProcesses.cs`.
 - **Tolerated because:** the supervisor treats every child alike; what an AOT child adds is its publish, which is the
   service's own build.
-- **Paid in:** S1 (Chat): `aot-smoke.*` publishes `axiom-mesh-chat` beside the daemon and the install job shows `chat`
-  connected on both platforms.
+- **Narrowed in S1:** `Scripts/aot-smoke.ps1` publishes `axiom-mesh-chat` with Native AOT beside the daemon, the daemon
+  spawns it and `chat send`/`chat show` go through it (passed on win-x64 on 2026-11-01); `Integration.Tests:
+  ChatProcessTests` spawns the framework-dependent apphost from a real daemon process, kills it and sees it restarted.
+  Left: `aot-smoke.sh` and both `install-tests.yml` jobs (which now assert `chat` answering) have run nowhere, so the
+  supervisor's Linux paths are still unproved.
+- **Paid in:** the first green `install-tests.yml` run on both platforms (the user's push before `v0.2.0`).
 
 ## 65. No topic tells a client that a service connected or left
 
@@ -720,3 +726,36 @@ and a client otherwise had to poll `ListPackages` to notice a drop.
   view of services before the app.
 - **Paid in:** phase 3 (the app): a `services` topic (an extension topic id, LOCAL-SPEC.md §1.5) or a change kind on an
   existing one, decided with the app's first service view.
+
+## 66. The chat index keeps a second copy of every message's text
+
+- **Rule:** DESIGN.md §13 (S-D2): a service's index is a cache rebuilt from the Host; the bytes of an Entry are an object
+  in the Host's store, held once.
+- **Instead:** `ChatMessages.Text` holds each message's text (up to 16 KiB) and its attachments as parsed, beside the Entry
+  object the Host stores, so a timeline page is read from the index alone.
+- **Evidence:** `Services/Axiom.Mesh.Chat/Index/MessageRow.cs`; CHAT-SERVICE.md §10.
+- **Tolerated because:** reading 256 Entry objects through the pipe or the store directory per page would cost a file per
+  message; the copy is a cache, dropped with its Channel and rebuilt by store sequence.
+- **Paid in:** phase 3, when the app's timeline shows what the chat service needs to keep: read texts from the store
+  directory (LOCAL-SPEC.md §9.7) if a page measured that way stays under the 5 ms target.
+
+## 67. The chat index's attachment key is concatenated
+
+- **Rule:** as entry 15: a two-part key is a composite key.
+- **Instead:** `ChatAttachments.Key` holds the attachment's hash followed by the message's, beside both as indexed columns
+  of their own; LDB 0.1.0 as published allows one `[Key]` property.
+- **Evidence:** `Services/Axiom.Mesh.Chat/Index/AttachmentRow.cs`, `RowBytes.Pair`.
+- **Tolerated because:** the parts are fixed-length hashes, so the concatenation is unambiguous; entry 15 pays both.
+- **Paid in:** with entry 15, when an LDB release with `[CompositeKey]` is on nuget.org.
+
+## 68. An attachment no message named stays pinned until the chat service starts again
+
+- **Rule:** LOCAL-SPEC.md §9.5, §9.6: a service releases the pins of what it put once it no longer needs them.
+- **Instead:** the objects an `attach` job put keep the chat service's pins (reason `Service`) until a `send` names the
+  attachment; one never sent is released only at the service's next start (`ChatPending`), or by the user's
+  `ReleasePins`. A store with a small budget can fill with attachments nobody sent while the service runs.
+- **Evidence:** `Services/Axiom.Mesh.Chat/ChatService.cs` (`TakeAllPendingAsync` at the first connect),
+  `Shell/ChatJobs.cs`; `Chat.Tests: ChatServiceTests.ThePinsOfAnAttachmentNoMessageNamedAreReleasedAtTheNextStart_AndTheIndexIsKept`.
+- **Tolerated because:** an attachment is put for a message about to be sent; the CLI sends right after its jobs end.
+- **Paid in:** phase 3 (the app): an expiry for pending attachments (a `ChatPending` row older than a day is released),
+  decided with the app's compose view, which may hold attachments longer.

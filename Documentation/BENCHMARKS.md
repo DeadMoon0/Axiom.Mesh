@@ -72,6 +72,31 @@ Scenarios, from the same folder: `dotnet run -c Release -- scenario <name>`.
   sampled `Func<DeviceId, bool>` and closure allocations of the first loopback measurement (68 MiB per GiB) are gone.
 - **`ObjectBuilders.Chunk`** builds one array of the exact size instead of growing a buffer to 2 MiB and copying it.
 
+## Added in S1: the chat service
+
+Measured on 2026-11-01 on the machine above. The index on disk (`dotnet run -c Release -f net10.0 -- --filter
+*ChatIndexBenchmarks* --job short` in `Benchmarks/Axiom.Mesh.Benchmarks`, a Channel of 100 000 messages):
+
+| Benchmark | Target | Measured |
+|---|---|---|
+| `ChatIndexBenchmarks.TimelinePage256Of100k`: 256 messages after the middle of 100 000, read, viewed and cut to 1 MiB | ≤ 5 ms (floor 50 ms) | 0.39 ms, 644 KB allocated |
+| `ChatIndexBenchmarks.IndexOneMessage`: one message taken in, one transaction | recorded | 1.13 ms, 145 KB allocated |
+| `ChatIndexBenchmarks.ApplyOneRedaction`: a message and its redaction, two transactions | recorded | 2.29 ms, 330 KB allocated |
+
+The scenarios on two real nodes over loopback TLS and the real pipe, the service in process beside each
+(`dotnet run -c Release -f net10.0 -- scenario chat-send` and `-- scenario chat-catchup`; the same code is the release
+floors `Integration.Tests: ChatFloorTests`, `AXIOM_MESH_FLOORS=1 dotnet test IntegrationTests/Axiom.Mesh.Integration.Tests
+-c Release --filter FullyQualifiedName~ChatFloorTests`):
+
+| Scenario | Floor | Measured (net10.0 / net8.0) |
+|---|---|---|
+| `chat-send`: a 1 MiB attachment from `chat send` on Alice to the file `chat get` wrote on Bob | ≤ 10 s | 0.17 s / 0.18 s |
+| `chat-catchup`: 10 000 messages caught up by a service started after they were stored | ≤ 10 s | 3.0 s (3 325 messages/s) / 3.0 s |
+
+What it took: one index transaction per Entry made the catch-up 20.5 s; the runtime now hands each page of the catch-up
+to `IMeshService.OnEntriesAsync` (one transaction per page of up to 64), commits its cursor lazily durable after each page
+or lull instead of after each Entry, and the chat service keeps each Channel's owner for the connection.
+
 ## Misses
 
 | Target | Debt | Why, in one line |

@@ -1,6 +1,6 @@
 # Axiom Mesh Entry payloads
 
-**Status:** Draft 1, 2026-10-31. The layouts of the Entry kinds registered in [SPEC.md](SPEC.md) §14.7, moved out of
+**Status:** Draft 2, 2026-11-01 (draft 1 2026-10-31; draft 2 states the size of a folder attachment, §3). The layouts of the Entry kinds registered in [SPEC.md](SPEC.md) §14.7, moved out of
 SPEC.md §8.5 when AMP/1 draft 5 made every payload opaque to a node. Normative for the services that own these kinds
 (Sync for `Version`, Chat for `Message` and `Redaction`) and for every program that writes or reads them, such as the
 command line. A node never parses a payload; nothing here changes what a node stores, replicates, orders or serves.
@@ -71,6 +71,11 @@ Message (kind 2):
 ```
 
 `references` holds every attachment's `hash`. `replyTo` names an Entry, not an object to fetch, and is not referenced.
+
+An attachment's `size` is for display only and a reader never trusts it: for a ChunkList it is the file's size, the
+ChunkList's own (SPEC.md §8.3); for a Tree it is the sum of the sizes of the regular files below it, at any depth, as
+their Tree entries state them (links and directories count nothing). The chat service fills it so
+(`PublishedTree.Bytes`, S-D10); what a reader shows is what it writes back, verified Chunk by Chunk (SPEC.md §11.4).
 
 ## 4. `Redaction` (kind 3)
 

@@ -151,6 +151,10 @@ SIGTERM the daemon drains every client, the services included (a service built o
 drain), and kills a child still running 5 seconds later with every process it started. `axiom-mesh services` lists
 every configured service and whether it is connected. Services are built on the `Axiom.Mesh.Service` package.
 
+The zips ship the chat service `axiom-mesh-chat` beside `axiom-meshd` (since 0.2.0), so the default `chat` entry starts
+it; its index lives in `<state>/index` ([CHAT-SERVICE.md](https://github.com/DeadMoon0/Axiom.Mesh/blob/main/Documentation/CHAT-SERVICE.md)).
+Delete that folder while the daemon is stopped to have it rebuilt from the store.
+
 ## Exit codes
 
 | Code | Name | When |

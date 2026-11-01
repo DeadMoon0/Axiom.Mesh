@@ -85,7 +85,14 @@ axiom-mesh grant revoke Family bob
 | `package publish <dir> --package <package> [--label <branch>]` | A folder as a Version of an Archive: its Chunks, ChunkLists and Trees put, a Version that references the root Tree written. |
 | `package materialise <package> <dir> [--existing fail\|replace\|merge]` | The latest Version into a folder. |
 | `grant set <package> <user> [--write]`, `grant revoke <package> <user>` | Let a known user read (or write) a Package you own; withdraw it. |
-| `write <package> --text "…"` | A message to a Channel. |
+| `write <package> --text "…"` | A message to a Channel: through the chat service when it runs, else directly. |
+| `chat list [--json]` | The Channels the chat service knows: name, owner, messages, the latest. |
+| `chat show <channel> [--limit <n>] [--reverse] [--after <entry>] [--json]` | A Channel's messages in the order every device agrees on, oldest first; `(withdrawn)` and `(broken)` shown as such. |
+| `chat thread <entry> [--json]` | A message's thread: its root and every reply under it. |
+| `chat send <channel> --text "…" [--file <path>]… [--reply <entry>]` | A message with attachments (a file or a folder per `--file`) and an optional reply, through the chat service. |
+| `chat withdraw <entry>` | Withdraw your message; every device then shows it withdrawn, never its text. |
+| `chat get <entry> <attachment> --out <path> [--existing fail\|replace\|merge]` | Fetch an attachment (by its name, or a prefix of its hash) and write it; `merge` for folders. |
+| `chat watch <channel>` | A Channel's messages and withdrawals as they come, until Ctrl-C. |
 | `history <package> [--limit <n>] [--reverse] [--json]` | A Package's Entries, oldest first; a withdrawn message shows as `(withdrawn)`. |
 | `entry <hash> [--json]`, `object <hash> [--out <file>]` | One Entry in full; one object's tag and size, or its bytes. |
 | `watch [<package>]` | Every Entry stored from now on, until Ctrl-C. |
@@ -118,7 +125,12 @@ Packages and users also by their exact name. A prefix that names two is refused 
 - **The write path:** `write` and `package publish` connect as the external service `cli` (decision D4) with the token
   `AXIOM_MESH_SERVICE_TOKEN` names, else `services.cli.token` of the Host's `config.json`, found by the Host's own rule:
   `AXIOM_MESH_HOME`, else `%LOCALAPPDATA%\Axiom.Mesh` on Windows, else `$XDG_CONFIG_HOME/axiom-mesh` (or
-  `~/.config/axiom-mesh`). The Host writes the token when it first starts.
+  `~/.config/axiom-mesh`). The Host writes the token when it first starts. A message goes through the chat service
+  instead when `services` shows it connected and allowed the Channel kind (`WritePathRule`); `package publish` explains a
+  `KindTaken` (another service, the sync service, holds Archives).
+- **The chat commands** call the chat service (`axiom-mesh-chat`, [CHAT-SERVICE.md](../../Documentation/CHAT-SERVICE.md))
+  over `ServiceCall` as the user; when it is not connected they say so (exit 3). Paths of `chat send --file` and
+  `chat get --out` are made absolute here and read or written by the service, as the Host's user.
 - **Files:** `package publish` and `package materialise` resolve a relative folder against the current directory and read
   or write it themselves, as your user, with the helpers of Axiom.Mesh.Local (`Trees.PublishDirectoryAsync`,
   `StoreFiles.MaterialiseAsync`); the Host only stores objects and parses no payload. `package materialise` fetches what

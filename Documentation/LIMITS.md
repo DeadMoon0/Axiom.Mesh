@@ -102,3 +102,23 @@ is parsed.
 | `PairHello.roster`, `PairConfirm.roster` | 4 MiB | 5.2, 5.3 | violation | `Limits.MaxObjectLength` |
 | `PairCancel.detail` | 256 bytes | 5.4 | violation | `Limits.MaxByeDetailLength` |
 | code | 512 characters; 1 to 8 addresses; hosts of at most 253 characters | 2.1, 2.2 | refused before any connection | `PairingCode.MaxLength`, `PairingCode.MaxAddresses`, `PairingAddress.MaxHostLength` |
+
+## Chat namespace (CHAT-SERVICE.md §9)
+
+The chat service's own bounds are constants of `Axiom.Mesh.Chat.ChatLimits` in the Client library, where the records are
+written and read; the payload bounds they repeat (text, attachments, names) are PAYLOADS.md's, through `Limits`.
+
+| Limit | Value | § | When reached | Constant |
+|---|---|---|---|---|
+| messages per `timeline` or `thread` page | 256 | 5.3, 5.5 | the page is cut, `more` | `ChatLimits.TimelinePage` |
+| bytes of a reply or an event | 1 MiB | 3 | the page is cut, `more` | `ChatLimits.PayloadBytes` |
+| text of a message | 16 384 bytes | 5.6 | `Invalid`, refused by the writer | `ChatLimits.TextLength` |
+| attachments of a message | 64 | 5.6 | `Invalid`, refused by the writer | `ChatLimits.Attachments` |
+| attachment name | 255 bytes | 5.8 | `Invalid` | `ChatLimits.AttachmentNameLength` |
+| preview of a `message` event | 256 bytes | 6.1 | cut between characters | `ChatLimits.PreviewLength` |
+| jobs running at once | 16 | 8 | `Busy` | `ChatLimits.MaxJobs` |
+| ended jobs remembered | 48 | 8 | the oldest forgotten | `ChatLimits.EndedJobsKept` |
+| Channels listed by `channels` | 256 | 5.2 | the list is cut | `ChatLimits.Channels` |
+| `replyTo` steps to a thread's root | 64 | 5.5 | the walk stops | `ChatLimits.ThreadDepth` |
+| progress events of a job | one a second | 6.4 | coalesced | `JobRule.ProgressInterval` |
+| Entries per catch-up page handed to a service | 64 | LOCAL §9.3 | the next page | `ServiceRunner.PageSize` |

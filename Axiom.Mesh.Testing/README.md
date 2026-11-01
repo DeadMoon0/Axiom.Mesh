@@ -23,6 +23,8 @@ lists it on the mesh's nodes as an external service with a published token (`Tes
 `Axiom.Mesh.Service` over an in-memory pair to the node's local port, its state in an in-memory LDB the node keeps across
 runs, on the mesh's clock; it returns a `RunningService` once the service is connected. `TestEchoService` is the
 smallest service (it counts the Entries of its kind, answers `echo`, `count` and `write`, emits `seen`).
+`RunServiceAsync(service, stateOf: other, ct)` runs a service on another node's kept state, which a test of another
+store epoch needs. The command line in-process (`CliAsync`) includes the `chat` commands.
 
 ## Quick Start
 

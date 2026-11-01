@@ -45,7 +45,9 @@ this survives one PC being offline. Windows and Linux desktops. What is not buil
 
 **On `main`, towards 0.2.0 (phases 1b and 2):** the plumbing for services is in (S0): the Host spawns and supervises
 services, serves `ServiceCall`, `Emit` and `UpdatePackage`, and `Axiom.Mesh.Service` is the runtime a service is built
-on; `axiom-mesh services` lists them. The Chat and Sync services themselves come next.
+on; `axiom-mesh services` lists them. The chat service is in (S1): `axiom-mesh-chat` indexes Channels and messages with
+attachments, replies and withdrawals and offers them as the namespace `axiom-mesh-chat/1`
+([CHAT-SERVICE.md](Documentation/CHAT-SERVICE.md)); `axiom-mesh chat ...` uses it. The Sync service comes next.
 
 ## What is released
 
@@ -54,21 +56,22 @@ on; `axiom-mesh services` lists them. The Chat and Sync services themselves come
 | `Axiom.Mesh.Local` | NuGet | Programs that talk to the Host: the client library (`LocalClient`), every request and record of the local protocol, the pipe, the service role, and the file helpers (`StoreFiles`, `Trees`). |
 | `Axiom.Mesh.Core` | NuGet | Embedding a node: the engine (store, trust, mutual TLS, replication, the local port) with everything dishonest injected. |
 | `Axiom.Mesh.Service` | NuGet (from 0.2.0) | Building a service: the runtime that connects it to the Host, catches it up on every Entry of its kinds, keeps it connected, hands it apps' calls and keeps its LDB state. |
+| `Axiom.Mesh.Chat.Client` | NuGet (from 0.2.0) | Apps over the chat service: the records of `axiom-mesh-chat/1`, `ChatCall`, `ChatEventReader`, its statuses and limits. |
 | `Axiom.Mesh.Testing` | NuGet | Tests of services and apps: an in-memory mesh of any number of nodes on one fake clock, scripted peers, the command line in-process, services run beside a node. |
 | `Axiom.Mesh.Model`, `.Protocol`, `.Discovery` | NuGet | Building blocks of Core and Local, published as their dependencies; not referenced directly. |
 | `Axiom.Mesh.Cli` | NuGet dotnet tool `axiom-mesh` | The command line for developers with the .NET SDK. |
-| `axiom-meshd` + `axiom-mesh` | GitHub Release, one zip per platform (win-x64, linux-x64) with `SHA256SUMS` | Everyone: self-contained Native AOT executables; what the install scripts fetch. The Host is never a NuGet package. |
+| `axiom-meshd` + `axiom-mesh` (+ `axiom-mesh-chat` from 0.2.0) | GitHub Release, one zip per platform (win-x64, linux-x64) with `SHA256SUMS` | Everyone: self-contained Native AOT executables; what the install scripts fetch. The Host is never a NuGet package. |
 
 One version covers everything; a tag `v<version>` equal to every project's `<Version>` publishes it all through
 `.github/workflows/release.yml`. Protocol versions (AMP/1, local/1, pair/1) are independent of package versions.
-Targets .NET 8 and .NET 10. Later: `Axiom.Mesh.Sync` and `Axiom.Mesh.Chat` (services), `Axiom.Mesh.App` (Avalonia),
+Targets .NET 8 and .NET 10. Later: `Axiom.Mesh.Sync` (a service), `Axiom.Mesh.App` (Avalonia),
 `Axiom.Mesh.Edge` and `Axiom.Mesh.Relay` (linking meshes).
 
 ## Documentation
 
 - [DESIGN.md](Documentation/DESIGN.md): the reasoning.
 - [SPEC.md](Documentation/SPEC.md): AMP/1, the mesh protocol (normative). [PAYLOADS.md](Documentation/PAYLOADS.md): the
-  payload formats services put into Entries. [PAIR-SPEC.md](Documentation/PAIR-SPEC.md): pairing.
+  payload formats services put into Entries. [CHAT-SERVICE.md](Documentation/CHAT-SERVICE.md): the chat service. [PAIR-SPEC.md](Documentation/PAIR-SPEC.md): pairing.
 - [LOCAL-SPEC.md](Documentation/LOCAL-SPEC.md): `axiom-mesh-local/1`, between the Host and programs on the same device
   (normative). [PIPE-ACCESS.md](Documentation/PIPE-ACCESS.md): who may open the pipe, per platform.
 - [ARCHITECTURE.md](Documentation/ARCHITECTURE.md): the rules; [ARCHITECTURE-MAP.md](Documentation/ARCHITECTURE-MAP.md):

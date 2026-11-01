@@ -163,6 +163,17 @@ with real TLS, a store and an index on disk and the real pipe (`Integration.Test
 | A service's call handler never blocks the reading of its connection, and every call is answered once. | `Local.Tests: CallbackServingTests.AHandlersOwnRequestIsAnsweredWhileItRuns`, `Local.Tests: CallbackReplyOnceTests.ACallbackIdThatArrivesTwiceIsAnsweredOnce` |
 | Every Entry of a service's kinds reaches it once, in store order, across reconnects and restarts; a handler that failed gets its Entry again. | `Service.Tests: CatchUpTests.AServiceAwayWhile300EntriesWereStoredReceivesEachOnceInOrder`, `Service.Tests: CatchUpTests.AServiceStartedAgainResumesAfterItsCursor_WithoutRepeats`, `Service.Tests: CursorReplayTests.AnEntryWhoseHandlerFailedIsHandedOverAgainOnTheNextRun`, `Testing.Tests: MeshScenarios.AServiceRunningBesideANodeReceivesEveryEntryOfItsKindsOnceInStoreOrder_AcrossAReconnect_AndAnswersCalls` |
 
+## Axiom.Mesh.Chat
+
+| Promise | Proved by |
+|---|---|
+| Two devices holding the same messages of a Channel show them in the same order, offline writes included. | `Chat.Tests: ChatScenarios.BothSendWithAttachments_AndBothShowTheSameKeysInTheSameOrder`, `Chat.Tests: ChatScenarios.MessagesWrittenWhileTheOtherWasOfflineSlotInByClock_IdenticallyOnBoth`, `Chat.Tests: ChatScenarios.ChatShowJsonIsEqualOnBothDevices` |
+| A withdrawn message is never shown, whichever of it and its Redaction arrived first; a withdrawal the specification would not honour is refused before anything is written. | `Chat.Tests: ChatScenarios.ARedactionStoredBeforeItsTargetIsAppliedWhenTheTargetArrives`, `Chat.Tests: ChatScenarios.BobWithdrawsHisOwnMessage_BothShowItWithdrawn_NeverTheText`, `Chat.Tests: ChatScenarios.TheOwnerWithdrawsBobsMessage_AndBobCannotWithdrawTheOwners` |
+| An attachment fetched with `chat get` is byte-equal to what was attached, and never partial under its name. | `Chat.Tests: ChatScenarios.AnAttachedFolderAndFileMaterialiseByteEqualOnTheOtherDevice`, `Core.Tests: StoreFilesTests.ACancelledFileMaterialiseLeavesNeitherTheFileNorAPartialOne` |
+| A restarted service catches up by store sequence without a duplicate, and an index of another store epoch is discarded. | `Chat.Tests: ChatScenarios.AServiceRestartCatchesUpByStoreSequenceWithoutDuplicates_AcrossAGapOver256`, `Chat.Tests: ChatScenarios.AnotherStoreEpochDiscardsTheIndex_AndItIsRebuiltFromTheHostItServesNow` |
+| A killed chat service is started again by its Host, and the command line reaches it again. | `Integration.Tests: ChatProcessTests.TheDaemonSpawnsTheChatService_RestartsItWhenKilled_AndChatListWorksThroughout` |
+| A 1 MiB attachment goes from `chat send` to `chat get` within 10 s, and 10 000 messages are caught up within 10 s (Release, `AXIOM_MESH_FLOORS=1`). | `Integration.Tests: ChatFloorTests.AOneMebibyteAttachmentGoesFromChatSendToChatGetWithinTenSeconds`, `Integration.Tests: ChatFloorTests.TenThousandMessagesAreCaughtUpWithinTenSeconds` |
+
 ## Axiom.Mesh.Cli
 
 | Promise | Proved by |
