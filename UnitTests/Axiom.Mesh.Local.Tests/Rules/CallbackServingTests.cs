@@ -30,15 +30,16 @@ public sealed class CallbackServingTests
         {
             await host.SendAsync(new Callback(7, Call("echo", [1, 2])));
             await host.SendAsync(new Callback(8, Call("missing", [])));
-            Reply first = await host.ReadAsync<Reply>();
-            Reply second = await host.ReadAsync<Reply>();
-            (Reply echoed, Reply failed) = first.CallbackId == 7 ? (first, second) : (second, first);
+            // A Reply's body is a view valid until the next message is read, and the two handlers may finish in either
+            // order: take each reply in before reading the next.
+            TakenReply first = TakenReply.Of(await host.ReadAsync<Reply>());
+            TakenReply second = TakenReply.Of(await host.ReadAsync<Reply>());
+            (TakenReply echoed, TakenReply failed) = first.CallbackId == 7 ? (first, second) : (second, first);
 
-            Assert.True(echoed.TryReadOk<ForwardedCall, ReadOnlyMemory<byte>>(out ReadOnlyMemory<byte> body));
-            Assert.Equal(new byte[] { 1, 2 }, body.ToArray());
+            Assert.Equal(new byte[] { 1, 2 }, echoed.Body);
             Assert.Equal((Status)40_000, failed.Status);
-            Assert.True(failed.TryReadError(out Error? error));
-            Assert.Equal(("no such channel", "channel"), (error.Message, error.Detail));
+            Assert.NotNull(failed.Error);
+            Assert.Equal(("no such channel", "channel"), (failed.Error.Message, failed.Error.Detail));
         }
     }
 
@@ -188,5 +189,15 @@ public sealed class CallbackServingTests
         }
 
         protected internal override async ValueTask<CallReply> OnForwardedCallAsync(ForwardedCall call, CancellationToken deadline) => await answer(call, deadline);
+    }
+
+    // A Reply read off the wire, decoded at once: its OK body copied, or its Error.
+    private sealed record TakenReply(uint CallbackId, Status Status, byte[]? Body, Error? Error)
+    {
+        public static TakenReply Of(Reply reply) => new(
+            reply.CallbackId,
+            reply.Status,
+            reply.TryReadOk<ForwardedCall, ReadOnlyMemory<byte>>(out ReadOnlyMemory<byte> body) ? body.ToArray() : null,
+            reply.TryReadError(out Error? error) ? error : null);
     }
 }
