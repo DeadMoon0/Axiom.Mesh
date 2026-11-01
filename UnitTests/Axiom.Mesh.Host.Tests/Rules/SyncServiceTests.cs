@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Axiom.Mesh.Host.Tests.Support;
 using Axiom.Mesh.Local;
 using Axiom.Mesh.Sync;
+using Axiom.Mesh.Tests.Shared;
 
 namespace Axiom.Mesh.Host.Tests.Rules;
 
@@ -79,7 +80,7 @@ public sealed class SyncServiceTests
             LocalResult<BindReply> bound = await SyncCall.SendAsync(app, new BindRequest { Directory = folder, PackageId = archive }, cancellationToken);
             if (bound.Status != Status.ServiceUnavailable)
                 return bound;
-            await Task.Yield();
+            await Pause.ShortAsync();
         }
     }
 
@@ -90,7 +91,7 @@ public sealed class SyncServiceTests
             LocalResult<StatusReply> status = await SyncCall.SendAsync(app, new StatusRequest { Directory = folder }, cancellationToken);
             if (status.IsOk && status.Value.Bindings is [{ Pending: false } binding] && binding.Head != default)
                 return binding;
-            await Task.Yield();
+            await Pause.ShortAsync();
         }
     }
 

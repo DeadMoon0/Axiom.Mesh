@@ -200,7 +200,17 @@ internal static class SyncMeasure
             // A guard against a hang, not a floor: publishing a hundred thousand files first takes minutes (two puts a file).
             if (watch.Elapsed > TimeSpan.FromMinutes(20))
                 throw new TimeoutException($"The sync service did not get there within twenty minutes ({status}).");
-            await Task.Yield();
+            await PauseAsync().ConfigureAwait(false);
         }
+    }
+
+    // A short pause between two status calls, without a thread held: a bare yield would flood the service with calls and keep a
+    // core busy that the nodes being measured need (the benchmarks link this file, so the test projects' Pause is not here).
+    private static Task PauseAsync()
+    {
+        var paused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var timer = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+        timer.Token.UnsafeRegister(static state => ((TaskCompletionSource)state!).TrySetResult(), paused);
+        return paused.Task;
     }
 }

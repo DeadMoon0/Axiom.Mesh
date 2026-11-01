@@ -869,3 +869,19 @@ and a client otherwise had to poll `ListPackages` to notice a drop.
   a change (0.07 s after the debounce) are well within their floors.
 - **Paid in:** phase 3, with the Host's small-object path (several objects in one `PutObject` batch and one flush, the
   replicator's per-object store cost); the service's share is already concurrent.
+
+## 78. A user connection polling a busy service was seen wedged in its write
+
+- **Rule:** LOCAL-SPEC.md §3.4: the Host reads every connection; a request is answered or refused.
+- **Instead:** once, in a full run of the solution (every suite at once), the socket scenario of 1 000 files had its test's
+  one user connection, which asked the sync service for its status in a tight loop while Bob's Host ran a large `Fetch`,
+  stop completing writes: a status call returned its reply, but the flush of that request's frame never completed, so the
+  connection's write lock stayed held and the next call waited for an hour. A dump showed nothing running: the Host's read
+  loops waited for input, the client's flush for the pipe. Not root-caused, and not seen again once the loop paused between
+  calls; the later failures of that scenario were a `Fetch` that missed arrivals after its change subscription lapsed
+  (fixed in S2, `Axiom.Mesh.Core/Local/ObjectFetcher.cs`).
+- **Evidence:** `Sync.Tests: SyncScenarios` (`SettledAsync` now opens a connection per look and bounds each call); the
+  transport is ProtoStream's `Session` over the named pipe (`AwaitFlushAsync`).
+- **Tolerated because:** it was seen once, under a load no user produces, and a fresh connection per look sidesteps it.
+- **Paid in:** phase 3, with the app (which holds one connection for its lifetime): a stress test of one connection
+  polling a service during a large `Fetch` under load.

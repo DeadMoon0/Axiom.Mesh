@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Axiom.Mesh.Local;
 using Axiom.Mesh.Payloads;
 using Axiom.Mesh.Testing;
+using Axiom.Mesh.Tests.Shared;
 
 namespace Axiom.Mesh.Sync.Tests.Support;
 
@@ -89,7 +90,7 @@ internal static class SyncMeshes
                 return binding;
             if (deadline.IsCancellationRequested)
                 throw new TestMeshException($"The binding of {directory} on {node} did not settle as expected (status: {(status.IsOk ? status.Value.Bindings.SingleOrDefault() : status)}).", "Check the service's state.");
-            await Task.Yield();
+            await Pause.ShortAsync();
         }
     }
 

@@ -17,6 +17,7 @@ namespace Axiom.Mesh.Core;
 internal sealed class ObjectFetcher
 {
     private static readonly TimeSpan WithoutSource = TimeSpan.FromSeconds(Limits.FetchWithoutSourceSeconds);
+    private const int ChangeCapacity = 4096;
 
     private readonly MeshNode node;
     private readonly PackageId package;
@@ -54,7 +55,7 @@ internal sealed class ObjectFetcher
     /// <returns><see langword="null"/> when everything is stored; else the outcome to fail with.</returns>
     public async Task<OperationOutcome?> RunAsync(ObjectHash root, OperationProgress progress, CancellationToken cancellationToken)
     {
-        using ChangeSubscription changes = node.Replicating.Bus.Subscribe(4096);
+        ChangeSubscription changes = node.Replicating.Bus.Subscribe(ChangeCapacity);
         WantScheduler wants = node.Replicating.Wants;
         TimeProvider time = node.Time;
         frontier.Enqueue(root);
@@ -120,12 +121,26 @@ internal sealed class ObjectFetcher
                 }
 
                 Arrived(changes, following);
+
+                // A lapsed subscription is taken again before the lacking objects are looked at once more (Arrived queued
+                // them), so an object stored in between is seen by that look and a later one wakes the wait. Without it a
+                // fetch whose every object has a source waited on a change of sources alone, and missed what arrived.
+                if (!following)
+                {
+                    changes.Dispose();
+                    changes = node.Replicating.Bus.Subscribe(ChangeCapacity);
+                    following = true;
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             wants.CancelFetch(missing);
             throw;
+        }
+        finally
+        {
+            changes.Dispose();
         }
     }
 

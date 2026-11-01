@@ -72,6 +72,8 @@ S2, the sync service:
   answered by each service's own gate).
 - `Axiom.Mesh.Testing`: `TestMesh.ConnectAsync` steps the fake clock past a backoff both peers hold, so a pair severed
   and healed always reconnects.
+- `Axiom.Mesh.Core`, fixed: a `Fetch` whose change subscription lapsed (thousands of objects stored while it ran) no longer
+  waits forever once every missing object has a source; it subscribes again and looks once more.
 
 ## 0.1.0
 

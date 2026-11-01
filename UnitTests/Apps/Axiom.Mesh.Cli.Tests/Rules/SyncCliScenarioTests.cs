@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Axiom.Mesh.Cli.Tests.Support;
 using Axiom.Mesh.Local;
 using Axiom.Mesh.Sync;
+using Axiom.Mesh.Tests.Shared;
 
 namespace Axiom.Mesh.Cli.Tests.Rules;
 
@@ -73,7 +74,7 @@ public sealed class SyncCliScenarioTests
             if (status.IsOk && status.Value.Bindings is [{ Pending: false, Runs: > 0 }])
                 return;
             deadline.Token.ThrowIfCancellationRequested();
-            await Task.Yield();
+            await Pause.ShortAsync();
         }
     }
 }

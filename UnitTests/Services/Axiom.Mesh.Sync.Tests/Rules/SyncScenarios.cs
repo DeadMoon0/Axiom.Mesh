@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Axiom.Mesh.Local;
 using Axiom.Mesh.Payloads;
 using Axiom.Mesh.Testing;
+using Axiom.Mesh.Tests.Shared;
 
 namespace Axiom.Mesh.Sync.Tests.Rules;
 
@@ -37,6 +38,9 @@ public abstract class SyncScenarios
 
     /// <summary>How long a scenario waits for one step at most; longer on sockets for scenario 6.</summary>
     protected virtual TimeSpan StepDeadline => TimeSpan.FromSeconds(30);
+
+    // How long one status call may take: the Host answers a call its service does not within 60 s (LOCAL-SPEC.md §9.8).
+    private static TimeSpan CallDeadline { get; } = TimeSpan.FromSeconds(75);
 
     // 1. Alice's folder appears byte-equal in Bob's empty bound directory.
     [Fact]
@@ -184,7 +188,7 @@ public abstract class SyncScenarios
         await SettledAsync(mesh, Alice, folders.Path("alice"), b => b.Head != default);
         await mesh.SettleAsync(None);
         await BindAsync(mesh, Bob, folders.Path("bob"), archive);
-        await SettledAsync(mesh, Bob, folders.Path("bob"), b => b.Files == (ulong)(small + 1));
+        await SettledAsync(mesh, Bob, folders.Path("bob"), b => b.Files == (ulong)(small + 1), connected: (Alice, Bob));
 
         Assert.True(folders.Same("alice", "bob"));
     }
@@ -211,7 +215,7 @@ public abstract class SyncScenarios
             while (Directory.GetFiles(folders.Path("bob"), "f*.txt").Length == 0)
             {
                 deadline.Token.ThrowIfCancellationRequested();
-                await Task.Yield();
+                await Pause.ShortAsync();
             }
         }
 
@@ -524,19 +528,37 @@ public abstract class SyncScenarios
         return await SettledAsync(mesh, node, directory, b => b.Runs > before);
     }
 
-    // Asks the service until no run is pending and the condition holds, within the step's deadline.
-    private async Task<Binding> SettledAsync(IMeshFixture mesh, string node, string directory, Func<Binding, bool> condition)
+    // Asks the service until no run is pending and the condition holds, within the step's deadline. Each look is a connection
+    // of its own and bounded by itself: one connection held through a long run was seen wedged in its write under the full
+    // suite's load (STRUCTURAL-DEBT.md 78), and a step must report where the binding stood, not a cancelled write.
+    // With connected, the two nodes are kept established meanwhile (the run's Fetch needs the other as its source): under the
+    // full suite's load a session can end and come back only after its backoff, which is not what the step is about.
+    private async Task<Binding> SettledAsync(IMeshFixture mesh, string node, string directory, Func<Binding, bool> condition, (string A, string B)? connected = null)
     {
         using var deadline = new CancellationTokenSource(StepDeadline);
-        await using LocalClient app = await mesh.ConnectUserAsync(node, "sync-scenario", None);
         while (true)
         {
-            LocalResult<StatusReply> status = await SyncCall.SendAsync(app, new StatusRequest { Directory = directory }, None);
+            LocalResult<StatusReply> status;
+            using (var call = new CancellationTokenSource(CallDeadline))
+            await using (LocalClient app = await mesh.ConnectUserAsync(node, "sync-scenario", None))
+            {
+                try
+                {
+                    status = await SyncCall.SendAsync(app, new StatusRequest { Directory = directory }, call.Token);
+                }
+                catch (OperationCanceledException) when (call.IsCancellationRequested)
+                {
+                    throw new TestMeshException($"A status call to the sync service on {node} did not return within {CallDeadline.TotalSeconds:0} s.", "Check that the Host reads the connection and the service is connected.");
+                }
+            }
+
             if (status.IsOk && status.Value.Bindings is [{ Pending: false } binding] && condition(binding))
                 return binding;
             if (deadline.IsCancellationRequested)
                 throw new TestMeshException($"The binding of {directory} on {node} did not settle as expected within {StepDeadline.TotalSeconds:0} s ({Folders.LastDifference}; status: {(status.IsOk ? status.Value.Bindings.SingleOrDefault() : status)}).", "Check that the node stores the Archive's Versions and that the service is connected.");
-            await Task.Yield();
+            if (connected is { } pair)
+                await mesh.ConnectAsync(pair.A, pair.B, None);
+            await Pause.ShortAsync();
         }
     }
 

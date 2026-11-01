@@ -18,7 +18,8 @@ namespace Axiom.Mesh.Integration.Tests.Rules;
 public sealed class SocketSyncScenarios : SyncScenarios
 {
     /// <inheritdoc />
-    protected override TimeSpan StepDeadline => TimeSpan.FromSeconds(90);
+    // Real disks and real flushes, with every suite of the solution running at once: a thousand files take minutes then.
+    protected override TimeSpan StepDeadline => TimeSpan.FromSeconds(180);
 
     /// <inheritdoc />
     protected override async Task<IMeshFixture> StartAsync(IReadOnlyList<string> nodes) =>
