@@ -885,3 +885,21 @@ and a client otherwise had to poll `ListPackages` to notice a drop.
 - **Tolerated because:** it was seen once, under a load no user produces, and a fresh connection per look sidesteps it.
 - **Paid in:** phase 3, with the app (which holds one connection for its lifetime): a stress test of one connection
   polling a service during a large `Fetch` under load.
+
+## 79. Windows Defender flags the unsigned command line as persistence malware after `host install`
+
+- **Rule:** DESIGN.md §17 and ACCEPTANCE.md step 1: `install.ps1` installs the zip, registers the Host to run at logon and
+  prints `axiom-mesh status`; nothing needs administrator rights.
+- **Instead:** on the first acceptance run (2026-11-02, Windows 11 Enterprise 26200, Defender with cloud protection) the
+  install succeeded and printed the status block, then Defender's behaviour model raised `Behavior:Win32/Persistence.A!ml`
+  (severity 5) against `axiom-mesh.exe`: an unsigned executable had just created a scheduled task (`host install`). From
+  that moment every copy of that file, by hash, is refused at start ("the file contains a virus or potentially unwanted
+  software"), including the untouched publish folder. The Host and both services kept running; only the command line was
+  blocked. The user must allow it in Windows Security (Protection history → Allow) or exclude the install directory.
+- **Evidence:** `Get-MpThreatDetection` on the laptop; the second PC of the acceptance run.
+- **Tolerated because:** the binaries are unsigned (a code-signing certificate is a purchase), and the detection is a
+  reputation model over an unknown file performing persistence, not a finding in the code.
+- **Paid in:** before 0.3.0, one of: sign the executables (Authenticode, which also quiets SmartScreen); let `install.ps1`
+  register the scheduled task itself so the persistence actor is PowerShell, not the unknown executable, with
+  `host install` kept for hand installs; submit the file to Microsoft as a false positive per release. Until then
+  ACCEPTANCE.md step 1 names the allow step.

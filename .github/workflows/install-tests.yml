@@ -29,8 +29,6 @@ jobs:
     name: install (linux-x64)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      AXIOM_MESH_HOME: ${{ runner.temp }}/mesh-home
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,6 +65,9 @@ jobs:
             sleep 1
           done
           XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-system-running || true
+
+      - name: A home for the Host
+        run: echo "AXIOM_MESH_HOME=$RUNNER_TEMP/mesh-home" >> "$GITHUB_ENV"
 
       - name: Install from the local zip
         run: |
@@ -126,8 +127,6 @@ jobs:
     name: install (win-x64)
     runs-on: windows-latest
     timeout-minutes: 30
-    env:
-      AXIOM_MESH_HOME: ${{ runner.temp }}\mesh-home
     defaults:
       run:
         shell: pwsh
@@ -153,6 +152,10 @@ jobs:
             ${{ runner.temp }}/dist/axiom-mesh-*.zip
             ${{ runner.temp }}/dist/SHA256SUMS
           if-no-files-found: error
+
+      - name: A home for the Host
+        run: |
+          "AXIOM_MESH_HOME=$env:RUNNER_TEMP\mesh-home" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Install from the local zip
         run: |

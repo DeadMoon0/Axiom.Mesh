@@ -42,6 +42,11 @@ status block with `Identity  none`. Open a new terminal so the PATH change appli
 
 **Pass:** `axiom-mesh status` answers on both PCs (exit 0).
 
+If a later `axiom-mesh` command fails with "the file contains a virus or potentially unwanted software", Windows Defender's
+behaviour model flagged the unsigned command line for creating the logon task (`Behavior:Win32/Persistence.A!ml`,
+STRUCTURAL-DEBT.md entry 79). Open Windows Security → Virus & threat protection → Protection history, pick that item and
+choose Allow on device; then the command works again. The Host and the services are not affected. Note it in the run log.
+
 If either PC ran a build from before 0.1.0, the Host refuses its old store at start (`axiom-mesh status` says the Host is
 not reachable; the Host's log or `axiom-meshd run` in a terminal shows "written by a pre-release build"): stop the Host
 (`axiom-mesh host uninstall`), delete the old `data` and `keys` directories it names, and run `axiom-mesh host install`.

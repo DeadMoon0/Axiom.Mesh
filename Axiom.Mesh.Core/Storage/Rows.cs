@@ -25,12 +25,21 @@ internal sealed class Rows<T>
     public Rows(WriteTransaction transaction)
     {
         table = transaction.Table(T.Model.Schema.Name);
-        keyColumn = T.Model.Schema.Columns[T.Model.Key].Name;
+        keyColumn = T.Model.Schema.Columns[SingleKeyColumn()].Name;
         keyIndex = T.Model.Schema.Indexes.First(i => i.Unique && i.Columns.Count == 1 && i.Columns[0] == keyColumn).Name;
     }
 
     /// <summary>The table's name.</summary>
     public static string Table => T.Model.Schema.Name;
+
+    /// <summary>
+    /// The position of the entity's one key column. Every entity of the store keys on one column (the concatenated keys of
+    /// STRUCTURAL-DEBT.md 15); a composite key would need the key's every column in the lookups below.
+    /// </summary>
+    private static int SingleKeyColumn() =>
+        T.Model.Key.Count == 1
+            ? T.Model.Key[0]
+            : throw new System.InvalidOperationException($"{T.Model.Schema.Name} keys on {T.Model.Key.Count} columns; the store writer handles one.");
 
     /// <summary>A query over the table as the transaction sees it, own writes included.</summary>
     /// <returns>The query.</returns>

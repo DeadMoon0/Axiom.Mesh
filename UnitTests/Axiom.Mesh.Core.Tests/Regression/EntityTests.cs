@@ -79,7 +79,7 @@ public sealed class EntityTests
         }
 
         object?[] expected = T.Model.Values(row);
-        T read = Assert.Single(await node.RowsAsync<T>(), r => Same(T.Model.Values(r)[T.Model.Key], expected[T.Model.Key]));
+        T read = Assert.Single(await node.RowsAsync<T>(), r => Same(T.Model.Values(r)[T.Model.Key[0]], expected[T.Model.Key[0]]));
         object?[] actual = T.Model.Values(read);
         for (int i = 0; i < expected.Length; i++)
             Assert.True(Same(expected[i], actual[i]), $"{typeof(T).Name}.{T.Model.Schema.Columns[i].Name}: wrote {expected[i]}, read {actual[i]}.");
