@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Title>Axiom.Mesh.Chat</Title>
+    <Authors>DeadMoon0</Authors>
+    <Product>Axiom</Product>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>Axiom;Mesh;chat;service</PackageTags>
+    <PackageIcon>Icon.png</PackageIcon>
+    <Description>Part of the Axiom family. axiom-mesh-chat, the chat service of Axiom.Mesh: Channels, messages with attachments, replies and withdrawals, indexed in its own database and offered to every app as the namespace axiom-mesh-chat/1.</Description>
+    <Version>0.2.0</Version>
+    <!-- The service ships as a GitHub Release asset beside axiom-meshd (Native AOT, one zip per platform), never as a NuGet package (S-D1, fundamentals plan §6e). -->
+    <IsPackable>false</IsPackable>
+    <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
+    <RootNamespace>Axiom.Mesh.Chat</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    The published executable is named for the Host's default configuration (S-D11), the assembly for the layering
+    conventions: a Native AOT publish writes axiom-mesh-chat; every other build keeps Axiom.Mesh.Chat.
+  -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <TargetName>axiom-mesh-chat</TargetName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The service's own test project, and the benchmark suite, which measures the index directly (plan §9.3 item 6). -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Axiom.Mesh.Chat.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Axiom.Mesh.Benchmarks</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Axiom.Mesh.Service\Axiom.Mesh.Service.csproj" />
+    <ProjectReference Include="..\Axiom.Mesh.Chat.Client\Axiom.Mesh.Chat.Client.csproj" />
+    <!-- The index's rows (DESIGN.md §13, S-D2), in the service's own database. -->
+    <PackageReference Include="Axiom.LDB.Entity" />
+    <PackageReference Include="Axiom.LDB.Query" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

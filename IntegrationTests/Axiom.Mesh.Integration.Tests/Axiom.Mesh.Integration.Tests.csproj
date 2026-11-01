@@ -14,11 +14,15 @@
     <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
     <ProjectReference Include="..\..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
     <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
+    <!-- The chat service, run in process over the real pipe (SocketChatScenarios) and spawned by a real Host as its own
+         program from the apphost the build puts beside its assembly (ChatProcessTests). -->
+    <ProjectReference Include="..\..\Services\Axiom.Mesh.Chat\Axiom.Mesh.Chat.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The scenario suite, unchanged: the same file the in-memory suite compiles (MeshScenarios, plan §5). -->
+    <!-- The scenario suites, unchanged: the same files the in-memory suites compile (MeshScenarios, plan §5; ChatScenarios, plan §9.3). -->
     <Compile Include="..\..\UnitTests\Axiom.Mesh.Testing.Tests\Rules\MeshScenarios.cs" Link="Rules\MeshScenarios.cs" />
+    <Compile Include="..\..\UnitTests\Services\Axiom.Mesh.Chat.Tests\Rules\ChatScenarios.cs" Link="Rules\ChatScenarios.cs" />
   </ItemGroup>
 
 </Project>

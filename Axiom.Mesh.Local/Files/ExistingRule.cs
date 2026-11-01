@@ -33,5 +33,29 @@ internal static class ExistingRule
         };
     }
 
+    /// <summary>
+    /// Decides for one file (<see cref="StoreFiles.MaterialiseFileAsync"/>): <c>Fail</c> refuses anything there with
+    /// <c>AlreadyExists</c>; <c>Replace</c> replaces a regular file, never a directory or a link; <c>Merge</c> means
+    /// nothing for a file and is <c>Invalid</c>, whatever is there.
+    /// </summary>
+    /// <param name="mode">What the caller asked for.</param>
+    /// <param name="state">What is at the target path.</param>
+    /// <returns>The decision: <see cref="ExistingAction.Create"/>, <see cref="ExistingAction.ReplaceFile"/> or a refusal.</returns>
+    public static ExistingDecision DecideFile(ExistingPath mode, PathState state)
+    {
+        if (mode is not (ExistingPath.Fail or ExistingPath.Replace))
+            return Refuse(Status.Invalid, mode == ExistingPath.Merge ? "A file cannot be merged; use Fail or Replace." : $"Existing value {(byte)mode} names nothing; use Fail or Replace.");
+        if (state == PathState.Absent)
+            return new ExistingDecision(ExistingAction.Create, Status.Ok, string.Empty);
+        if (mode == ExistingPath.Fail)
+            return Refuse(Status.AlreadyExists, "The file exists.");
+        return state switch
+        {
+            PathState.File => new ExistingDecision(ExistingAction.ReplaceFile, Status.Ok, string.Empty),
+            PathState.Link => Refuse(Status.Invalid, "The path is a symlink or reparse point; nothing is written through one."),
+            _ => Refuse(Status.Invalid, "The path is a directory; a file never replaces one."),
+        };
+    }
+
     private static ExistingDecision Refuse(Status status, string problem) => new(ExistingAction.Refuse, status, problem);
 }

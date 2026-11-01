@@ -54,6 +54,14 @@ internal static class CommandSpecs
         Spec(["object"], [ArgumentSpec.Of("hash")], [OptionSpec.Valued("--out", "file", "write the object's bytes to a file")], "one stored object", a => new ObjectCommand(a[0], a.Value("--out"))),
         Spec(["watch"], [ArgumentSpec.Optional("package")], [], "print every Entry stored from now on, until Ctrl-C", a => new WatchCommand(a.Optional(0))),
 
+        Spec(["chat", "list"], [], [JsonOption], "the Channels the chat service knows", a => new ChatListCommand(a.Flag("--json"))),
+        new(["chat", "show"], [ArgumentSpec.Of("channel")], [OptionSpec.Valued("--limit", "n", "how many messages at most (default 50)"), OptionSpec.Flag("--reverse", "newest first"), OptionSpec.Valued("--after", "entry", "start after this message"), JsonOption], "a Channel's messages in the order every device agrees on, oldest first", ChatShow),
+        Spec(["chat", "thread"], [ArgumentSpec.Of("entry")], [JsonOption], "a message's thread: its root and every reply under it", a => new ChatThreadCommand(a[0], a.Flag("--json"))),
+        Spec(["chat", "send"], [ArgumentSpec.Of("channel")], [OptionSpec.Needed("--text", "text", "the message"), OptionSpec.Repeated("--file", "path", "attach a file or a folder; give it once per attachment"), OptionSpec.Valued("--reply", "entry", "the message this one answers")], "write a message, with attachments, through the chat service", a => new ChatSendCommand(a[0], a.Value("--text")!, a.Values("--file"), a.Value("--reply"))),
+        Spec(["chat", "withdraw"], [ArgumentSpec.Of("entry")], [], "withdraw a message; every device then shows it withdrawn, never its text", a => new ChatWithdrawCommand(a[0])),
+        new(["chat", "get"], [ArgumentSpec.Of("entry"), ArgumentSpec.Of("attachment")], [OptionSpec.Needed("--out", "path", "where to write it"), OptionSpec.Valued("--existing", "fail|replace|merge", "what to do when the path exists (default fail; merge for folders)")], "fetch an attachment of a message and write it to disk", ChatGet),
+        Spec(["chat", "watch"], [ArgumentSpec.Of("channel")], [], "print a Channel's messages and withdrawals as they come, until Ctrl-C", a => new ChatWatchCommand(a[0])),
+
         Spec(["store"], [], [JsonOption], "the store's size, budget and what is pinned", a => new StoreCommand(a.Flag("--json"))),
         Spec(["pins"], [], [JsonOption], "every pin and why it holds its object", a => new PinsCommand(a.Flag("--json"))),
         Spec(["pin"], [ArgumentSpec.Of("hash")], [], "keep a stored object whatever the policies say", a => new PinCommand(a[0])),
@@ -119,6 +127,29 @@ internal static class CommandSpecs
         return existing is null
             ? a.Problem($"--existing is fail, replace or merge, not '{a.Value("--existing")}'")
             : new ParsedCommand(new PackageMaterialiseCommand(a[0], a[1], existing.Value));
+    }
+
+    private static ParseResult ChatShow(ParsedArguments a)
+    {
+        string? text = a.Value("--limit");
+        int limit = ChatShowCommand.DefaultLimit;
+        if (text is not null && (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out limit) || limit is < 1 or > ChatShowCommand.MaxLimit))
+            return a.Problem($"--limit is a number from 1 to {ChatShowCommand.MaxLimit}, not '{text}'");
+        return new ParsedCommand(new ChatShowCommand(a[0], limit, a.Flag("--reverse"), a.Value("--after"), a.Flag("--json")));
+    }
+
+    private static ParseResult ChatGet(ParsedArguments a)
+    {
+        ExistingPath? existing = a.Value("--existing") switch
+        {
+            null or "fail" => ExistingPath.Fail,
+            "replace" => ExistingPath.Replace,
+            "merge" => ExistingPath.Merge,
+            _ => null,
+        };
+        return existing is null
+            ? a.Problem($"--existing is fail, replace or merge, not '{a.Value("--existing")}'")
+            : new ParsedCommand(new ChatGetCommand(a[0], a[1], a.Value("--out")!, existing.Value));
     }
 
     private static ParseResult History(ParsedArguments a)

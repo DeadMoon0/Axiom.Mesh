@@ -34,6 +34,8 @@
       (Axiom.Mesh.Local) are this package's already.
     -->
     <ProjectReference Include="..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" PrivateAssets="all" />
+    <!-- What the command line inside this package references beyond Local: the chat namespace's Client library (a package). -->
+    <ProjectReference Include="..\Services\Axiom.Mesh.Chat.Client\Axiom.Mesh.Chat.Client.csproj" />
     <!-- The in-memory database every node of a mesh runs on. -->
     <PackageReference Include="Axiom.LDB.Core" />
     <!-- One fake clock per mesh, wired into every node's server, sessions and database. -->

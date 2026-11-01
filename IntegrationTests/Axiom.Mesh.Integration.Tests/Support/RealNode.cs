@@ -166,10 +166,10 @@ internal sealed class RealNode
     /// text, its state in a real LDB directory of this node (<c>services/&lt;name&gt;/index</c>) kept across runs and restarts,
     /// the system's clock. Returns once it is connected.
     /// </summary>
-    public async Task<RunningService> RunServiceAsync(IMeshService service, CancellationToken cancellationToken)
+    public async Task<RunningService> RunServiceAsync(IMeshService service, RealNode stateOf, CancellationToken cancellationToken)
     {
         string name = service.Definition.Name;
-        string state = System.IO.Path.Combine(Directory, "services", name);
+        string state = System.IO.Path.Combine(stateOf.Directory, "services", name);
         System.IO.Directory.CreateDirectory(state);
         RunningService running = RunningService.Start(service, new ServiceEnvironment
         {

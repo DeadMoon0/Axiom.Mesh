@@ -407,6 +407,10 @@ public sealed class TestMesh : IMeshFixture
     Task<RunningService> IMeshFixture.RunServiceAsync(string name, IMeshService service, CancellationToken cancellationToken) => this[name].RunServiceAsync(service, cancellationToken);
 
     /// <inheritdoc />
+    Task<RunningService> IMeshFixture.RunServiceAsync(string name, IMeshService service, string stateOf, CancellationToken cancellationToken) =>
+        this[name].RunServiceAsync(service, this[stateOf], cancellationToken);
+
+    /// <inheritdoc />
     Task<ScriptedPeer> IMeshFixture.ConnectScriptedPeerAsync(string target, TestIdentity identity, CancellationToken cancellationToken) =>
         ScriptedPeer.ConnectAsync(this[target], identity, ScriptedPeerOptions.Default, cancellationToken);
 

@@ -9,8 +9,9 @@ namespace Axiom.Mesh.Local;
 /// <summary>
 /// Carries out a <see cref="MaterialisePlan"/> (SPEC.md §11.4): every file written to a hidden temporary name beside it
 /// (<see cref="StoreFiles.PartialPrefix"/>) and renamed into place only once every Chunk was written and the ChunkList's
-/// size holds, so a cancelled or failed write leaves no partial file visible; executable mode where the file system has
-/// it; a symlink as a regular file holding its target. The file system shell of <see cref="StoreFiles.MaterialiseAsync"/>.
+/// size holds (<see cref="ChunkCopier"/>), so a cancelled or failed write leaves no partial file visible; executable mode
+/// where the file system has it; a symlink as a regular file holding its target. The file system shell of
+/// <see cref="StoreFiles.MaterialiseAsync"/>.
 /// </summary>
 internal sealed class TreeWriter
 {
@@ -18,6 +19,7 @@ internal sealed class TreeWriter
     private readonly IProgress<MaterialiseProgress>? progress;
     private readonly ulong total;
     private readonly List<string> conflicts;
+    private readonly ChunkCopier copier;
     private ulong done;
     private int files;
 
@@ -31,6 +33,7 @@ internal sealed class TreeWriter
         this.progress = progress;
         total = plan.TotalBytes;
         conflicts = [.. plan.Conflicts];
+        copier = new ChunkCopier(reader, Written);
     }
 
     /// <summary>Writes the plan's directories and files into <paramref name="target"/>, which exists.</summary>
@@ -73,13 +76,13 @@ internal sealed class TreeWriter
         if (!named.IsOk)
             return LocalResult<bool>.Failure(named.Status, named.Error);
 
-        string partial = Path.Combine(Path.GetDirectoryName(destination)!, StoreFiles.PartialPrefix + Path.GetFileName(destination));
+        string partial = ChunkCopier.PartialOf(destination);
         try
         {
             switch (named.Value)
             {
                 case ChunkList list when file.Kind is PlannedFileKind.File or PlannedFileKind.Executable:
-                    LocalResult<bool> copied = await CopyChunksAsync(list, partial, file.Path, cancellationToken).ConfigureAwait(false);
+                    LocalResult<bool> copied = await copier.CopyAsync(list, partial, file.Path, cancellationToken).ConfigureAwait(false);
                     if (!copied.IsOk || !copied.Value)
                         return copied;
                     if (file.Kind == PlannedFileKind.Executable && !OperatingSystem.IsWindows())
@@ -98,34 +101,14 @@ internal sealed class TreeWriter
         }
         finally
         {
-            if (File.Exists(partial))
-                File.Delete(partial);
+            ChunkCopier.Discard(partial);
         }
     }
 
-    // SPEC.md §11.4: written only with every Chunk at hand and the ChunkList's size verified.
-    private async Task<LocalResult<bool>> CopyChunksAsync(ChunkList list, string partial, string name, CancellationToken cancellationToken)
+    private void Written(ulong bytes, string name)
     {
-        ulong written = 0;
-        await using var output = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 0, useAsync: true);
-        foreach (ObjectHash hash in list.Chunks)
-        {
-            LocalResult<ParsedObject> read = await reader.ReadAsync(hash, cancellationToken).ConfigureAwait(false);
-            if (!read.IsOk)
-                return LocalResult<bool>.Failure(read.Status, read.Error);
-            if (read.Value is not Chunk chunk)
-                return LocalResult<bool>.Ok(false);
-
-            await output.WriteAsync(chunk.Data, cancellationToken).ConfigureAwait(false);
-            written += (ulong)chunk.Data.Length;
-            done += (ulong)chunk.Data.Length;
-            progress?.Report(new MaterialiseProgress(done, total, name));
-        }
-
-        if (written != list.Size)
-            return LocalResult<bool>.Ok(false);
-        output.Flush(flushToDisk: true);
-        return LocalResult<bool>.Ok(true);
+        done += bytes;
+        progress?.Report(new MaterialiseProgress(done, total, name));
     }
 
     private static string PathOf(string target, string relative) => Path.Combine(target, relative.Replace('/', Path.DirectorySeparatorChar));

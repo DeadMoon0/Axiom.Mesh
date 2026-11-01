@@ -104,6 +104,18 @@ public interface IMeshFixture : IAsyncDisposable
     /// <returns>The running service.</returns>
     Task<RunningService> RunServiceAsync(string name, IMeshService service, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Runs a service in process beside a node with the state another node keeps for it: a service whose state outlived the
+    /// store it indexed, so it meets another store epoch (LOCAL-SPEC.md §9.3). Otherwise as
+    /// <see cref="RunServiceAsync(string, IMeshService, CancellationToken)"/>; no other run may hold that state meanwhile.
+    /// </summary>
+    /// <param name="name">The node it connects to.</param>
+    /// <param name="service">The service.</param>
+    /// <param name="stateOf">The node whose kept state of the service it opens.</param>
+    /// <param name="cancellationToken">Stops waiting for the connection.</param>
+    /// <returns>The running service.</returns>
+    Task<RunningService> RunServiceAsync(string name, IMeshService service, string stateOf, CancellationToken cancellationToken);
+
     /// <summary>Runs one <c>axiom-mesh</c> command line against a node, as the command line runs against its Host.</summary>
     /// <param name="name">The node.</param>
     /// <param name="commandLine">The arguments after <c>axiom-mesh</c>, quoted as a shell would.</param>

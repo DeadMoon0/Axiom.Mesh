@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Axiom.Mesh.Chat.Client.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Services\Axiom.Mesh.Chat.Client\Axiom.Mesh.Chat.Client.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -10,7 +10,7 @@ namespace Axiom.Mesh.Testing;
 
 /// <summary>
 /// Services as a test mesh's local port lists them (LOCAL-SPEC.md §4.2): external, each with a published token derived from
-/// its name, so that a service run in process (<see cref="TestNode.RunServiceAsync"/>) proves its name the way a program
+/// its name, so that a service run in process (<see cref="TestNode.RunServiceAsync(IMeshService, System.Threading.CancellationToken)"/>) proves its name the way a program
 /// the user starts does.
 /// </summary>
 public static class TestServices

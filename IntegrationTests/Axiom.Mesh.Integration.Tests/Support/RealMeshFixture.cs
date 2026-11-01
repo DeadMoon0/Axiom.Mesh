@@ -199,7 +199,11 @@ internal sealed class RealMeshFixture : IMeshFixture
     }
 
     /// <inheritdoc />
-    public Task<RunningService> RunServiceAsync(string name, IMeshService service, CancellationToken cancellationToken) => this[name].RunServiceAsync(service, cancellationToken);
+    public Task<RunningService> RunServiceAsync(string name, IMeshService service, CancellationToken cancellationToken) => this[name].RunServiceAsync(service, this[name], cancellationToken);
+
+    /// <inheritdoc />
+    public Task<RunningService> RunServiceAsync(string name, IMeshService service, string stateOf, CancellationToken cancellationToken) =>
+        this[name].RunServiceAsync(service, this[stateOf], cancellationToken);
 
     /// <inheritdoc />
     public async Task<ScriptedPeer> ConnectScriptedPeerAsync(string target, TestIdentity identity, CancellationToken cancellationToken)

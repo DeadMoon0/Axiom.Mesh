@@ -6,8 +6,8 @@ using Axiom.Mesh.Service;
 namespace Axiom.Mesh.Testing;
 
 /// <summary>
-/// A service running in process beside a test node (<see cref="TestNode.RunServiceAsync"/>,
-/// <see cref="IMeshFixture.RunServiceAsync"/>): the runtime of <see cref="ServiceProgram"/> over the node's local port, with
+/// A service running in process beside a test node (<see cref="TestNode.RunServiceAsync(IMeshService, System.Threading.CancellationToken)"/>,
+/// <see cref="IMeshFixture.RunServiceAsync(string, IMeshService, System.Threading.CancellationToken)"/>): the runtime of <see cref="ServiceProgram"/> over the node's local port, with
 /// its state kept by the node across runs, as a service's state directory is kept across restarts. Disposing it stops it
 /// as Ctrl-C would.
 /// </summary>

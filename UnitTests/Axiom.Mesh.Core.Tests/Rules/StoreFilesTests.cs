@@ -177,6 +177,58 @@ public sealed class StoreFilesTests
         Assert.True((await cli.SendAsync(new GetStorePath(), None)).Status is Status.Ok or Status.NotPermitted);
     }
 
+    // §9.5, SPEC.md §8.3, §11.4: one file stored with PutFile is written back byte-equal from its ChunkList, under its
+    // name and with no partial file left; existing Fail is AlreadyExists, Replace rewrites a file and never a directory,
+    // Merge means nothing for a file; a hash that is no ChunkList is Invalid, a ChunkList not stored is NotFound.
+    [Fact]
+    public async Task AFileStoredWithPutFileMaterialisesByteEqualFromItsChunkList_AndExistingIsHonoured()
+    {
+        await using TestMesh mesh = await LocalMeshes.StartAsync();
+        using var temp = new TempDirectory();
+        LocalClient cli = await ArchiveServiceAsync(mesh);
+        byte[] content = DistinctChunks(2, 4_321, 70);
+        string source = Path.Combine(temp.Path, "photo.jpg");
+        File.WriteAllBytes(source, content);
+        StoredFile stored = Ok(await StoreFiles.PutFileAsync(cli, source, null, None));
+        string target = Path.Combine(temp.Path, "copy.jpg");
+        var reports = new List<MaterialiseProgress>();
+
+        MaterialisedFile written = Ok(await StoreFiles.MaterialiseFileAsync(cli, stored.ChunkList, target, ExistingPath.Fail, new Recorder<MaterialiseProgress>(reports), None));
+
+        Assert.Equal(content, File.ReadAllBytes(target));
+        Assert.Equal((stored.ChunkList, (ulong)content.Length), (written.ChunkList, written.Bytes));
+        Assert.Equal(((ulong)content.Length, (ulong)content.Length), (reports[^1].Done, reports[^1].Total));
+        Assert.DoesNotContain(Directory.EnumerateFiles(temp.Path), f => Path.GetFileName(f).StartsWith(StoreFiles.PartialPrefix, StringComparison.Ordinal));
+        Assert.Equal(Status.AlreadyExists, (await StoreFiles.MaterialiseFileAsync(cli, stored.ChunkList, target, ExistingPath.Fail, null, None)).Status);
+        Assert.Equal(Status.Invalid, (await StoreFiles.MaterialiseFileAsync(cli, stored.ChunkList, target, ExistingPath.Merge, null, None)).Status);
+        File.WriteAllText(target, "changed");
+        Ok(await StoreFiles.MaterialiseFileAsync(cli, stored.ChunkList, target, ExistingPath.Replace, null, None));
+        Assert.Equal(content, File.ReadAllBytes(target));
+        Assert.Equal(Status.Invalid, (await StoreFiles.MaterialiseFileAsync(cli, stored.ChunkList, temp.Path, ExistingPath.Replace, null, None)).Status);
+        Assert.Equal(Status.Invalid, (await StoreFiles.MaterialiseFileAsync(cli, stored.Chunks[0], Path.Combine(temp.Path, "chunk"), ExistingPath.Fail, null, None)).Status);
+        Assert.Equal(Status.NotFound, (await StoreFiles.MaterialiseFileAsync(cli, ObjectBuilders.ChunkList(1, [ObjectBuilders.Chunk("x"u8).Hash]).Hash, Path.Combine(temp.Path, "none"), ExistingPath.Fail, null, None)).Status);
+    }
+
+    // SPEC.md §11.4: a file write cancelled part-way leaves neither the file nor a partial one.
+    [Fact]
+    public async Task ACancelledFileMaterialiseLeavesNeitherTheFileNorAPartialOne()
+    {
+        await using TestMesh mesh = await LocalMeshes.StartAsync();
+        using var temp = new TempDirectory();
+        LocalClient cli = await ArchiveServiceAsync(mesh);
+        string source = Path.Combine(temp.Path, "big.bin");
+        File.WriteAllBytes(source, DistinctChunks(3, 10, 90));
+        StoredFile stored = Ok(await StoreFiles.PutFileAsync(cli, source, null, None));
+        string target = Path.Combine(temp.Path, "out.bin");
+        using var cancel = new CancellationTokenSource();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            StoreFiles.MaterialiseFileAsync(cli, stored.ChunkList, target, ExistingPath.Fail, new Recorder<MaterialiseProgress>([], _ => cancel.Cancel()), cancel.Token));
+
+        Assert.False(File.Exists(target));
+        Assert.DoesNotContain(Directory.EnumerateFiles(temp.Path), f => Path.GetFileName(f).StartsWith(StoreFiles.PartialPrefix, StringComparison.Ordinal));
+    }
+
     // Content whose every 1 MiB part differs (ObjectFixtures.Content repeats every 64 KiB, so its Chunks would be one object).
     private static byte[] DistinctChunks(int chunks, int remainder, byte seed) =>
         [.. Enumerable.Range(0, chunks).SelectMany(i => ObjectFixtures.Content(Limits.ChunkLength, (byte)(seed + i))), .. ObjectFixtures.Content(remainder, (byte)(seed + chunks))];

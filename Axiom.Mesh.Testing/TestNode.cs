@@ -328,20 +328,27 @@ public sealed class TestNode
     /// <param name="cancellationToken">Stops waiting for the connection.</param>
     /// <returns>The running service; dispose it to stop it.</returns>
     /// <exception cref="InvalidOperationException">The node's configuration does not list the service as external.</exception>
-    public async Task<RunningService> RunServiceAsync(IMeshService service, CancellationToken cancellationToken)
+    public Task<RunningService> RunServiceAsync(IMeshService service, CancellationToken cancellationToken) => RunServiceAsync(service, this, cancellationToken);
+
+    /// <summary>
+    /// Runs a service in process beside this node with the state another node keeps for it, as a service whose state
+    /// directory outlived the store it was built against (LOCAL-SPEC.md §9.3: the store epoch differs, so its index is
+    /// discarded). Otherwise as <see cref="RunServiceAsync(IMeshService, CancellationToken)"/>.
+    /// </summary>
+    /// <param name="service">The service; its definition's name must be configured on this node.</param>
+    /// <param name="stateOf">The node whose kept state the service opens; no other run may hold it meanwhile.</param>
+    /// <param name="cancellationToken">Stops waiting for the connection.</param>
+    /// <returns>The running service; dispose it to stop it.</returns>
+    /// <exception cref="InvalidOperationException">The node's configuration does not list the service as external.</exception>
+    public async Task<RunningService> RunServiceAsync(IMeshService service, TestNode stateOf, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(stateOf);
         string name = service.Definition.Name;
         if (!LocalOptions.Services.Any(s => s.Name == name && s.Provenance == ServiceProvenance.External))
             throw new InvalidOperationException($"{Name} does not list the service '{name}'; start the mesh with Local = TestServices.With(TestCliService.Local, definition).");
 
-        InMemoryStorageEnvironment storage;
-        lock (serviceStates)
-        {
-            if (!serviceStates.TryGetValue(name, out storage!))
-                serviceStates[name] = storage = new InMemoryStorageEnvironment();
-        }
-
+        InMemoryStorageEnvironment storage = stateOf.ServiceState(name);
         RunningService running = RunningService.Start(service, new ServiceEnvironment
         {
             Version = "test",
@@ -364,6 +371,17 @@ public sealed class TestNode
         }
 
         return running;
+    }
+
+    // The in-memory state this node keeps for a service across its runs.
+    private InMemoryStorageEnvironment ServiceState(string name)
+    {
+        lock (serviceStates)
+        {
+            if (!serviceStates.TryGetValue(name, out InMemoryStorageEnvironment? storage))
+                serviceStates[name] = storage = new InMemoryStorageEnvironment();
+            return storage;
+        }
     }
 
     private static string Hex(ServiceToken token)

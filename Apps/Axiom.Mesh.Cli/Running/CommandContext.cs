@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Axiom.Mesh.Chat;
 using Axiom.Mesh.Local;
 
 namespace Axiom.Mesh.Cli;
@@ -108,6 +109,34 @@ internal sealed class CommandContext : IAsyncDisposable
     public async Task<Subscription<TEvent>> SubscribeAsync<TEvent>(LocalClient client, Filter filter)
         where TEvent : LocalEvent, IEvent<TEvent> =>
         Ok(await WithDeadlineAsync(token => client.SubscribeAsync<TEvent>(filter, token).AsTask()).ConfigureAwait(false));
+
+    /// <summary>Calls a method of the chat service as the user; a refusal leaves as a <see cref="CliFailure"/>.</summary>
+    /// <typeparam name="TRequest">The method's request.</typeparam>
+    /// <typeparam name="TReply">Its reply.</typeparam>
+    /// <param name="request">The request.</param>
+    /// <returns>The reply.</returns>
+    public async Task<TReply> ChatAsync<TRequest, TReply>(IChatMethod<TRequest, TReply> request)
+        where TRequest : class, IChatMethod<TRequest, TReply>
+        where TReply : class, IWireRecord<TReply>
+    {
+        LocalResult<TReply> result = await TryChatAsync(request).ConfigureAwait(false);
+        if (result.Status == Status.ServiceUnavailable)
+            throw CliFailure.Problem($"the chat service is not connected to this Host{(result.Error?.Message is { Length: > 0 } why ? $" ({why})" : string.Empty)}; 'axiom-mesh services' shows it");
+        return Ok(result);
+    }
+
+    /// <summary>Calls a method of the chat service as the user and returns the result, refusals included.</summary>
+    /// <typeparam name="TRequest">The method's request.</typeparam>
+    /// <typeparam name="TReply">Its reply.</typeparam>
+    /// <param name="request">The request.</param>
+    /// <returns>The result.</returns>
+    public async Task<LocalResult<TReply>> TryChatAsync<TRequest, TReply>(IChatMethod<TRequest, TReply> request)
+        where TRequest : class, IChatMethod<TRequest, TReply>
+        where TReply : class, IWireRecord<TReply>
+    {
+        LocalClient client = await UserAsync().ConfigureAwait(false);
+        return await WithDeadlineAsync(token => ChatCall.SendAsync(client, request, token)).ConfigureAwait(false);
+    }
 
     /// <summary>The OK body of a result; a refusal leaves as a <see cref="CliFailure"/>.</summary>
     /// <typeparam name="TOk">The OK body.</typeparam>

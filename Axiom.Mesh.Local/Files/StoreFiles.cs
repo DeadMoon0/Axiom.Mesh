@@ -150,6 +150,74 @@ public static class StoreFiles
         }
     }
 
+    /// <summary>
+    /// Writes one file from its ChunkList (SPEC.md §8.3, §11.4), the single-file counterpart of
+    /// <see cref="MaterialiseAsync"/>: the Chunks in order into a hidden temporary name beside <paramref name="path"/>
+    /// (<see cref="PartialPrefix"/>), renamed into place only once every Chunk was written and their lengths add up to the
+    /// ChunkList's size, so a cancelled or failed write leaves nothing under the name. Objects are read as
+    /// <see cref="MaterialiseAsync"/> reads them; every one must be stored here already (fetch it first).
+    /// </summary>
+    /// <param name="client">The connection.</param>
+    /// <param name="chunkList">The file's ChunkList.</param>
+    /// <param name="path">The file to write; relative to the current directory unless absolute. Its directory must exist.</param>
+    /// <param name="existing">
+    /// What to do when something is at <paramref name="path"/>: <see cref="ExistingPath.Fail"/> or
+    /// <see cref="ExistingPath.Replace"/> (a regular file only); <see cref="ExistingPath.Merge"/> is <c>Invalid</c> for a file.
+    /// </param>
+    /// <param name="progress">Bytes written so far, or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancels writing; no partial file is left.</param>
+    /// <returns>
+    /// What was written, or why not: <c>NotFound</c> for an object not stored here, <c>Invalid</c> for a hash that is no
+    /// ChunkList, Chunks that do not add up to its size, an <paramref name="existing"/> that does not allow the write or a
+    /// directory that does not exist, <c>AlreadyExists</c> under <see cref="ExistingPath.Fail"/>, <c>IoError</c> when the
+    /// file system refuses.
+    /// </returns>
+    public static async Task<LocalResult<MaterialisedFile>> MaterialiseFileAsync(LocalClient client, ObjectHash chunkList, string path, ExistingPath existing, IProgress<MaterialiseProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        string target = Path.GetFullPath(path);
+        ExistingDecision decision = ExistingRule.DecideFile(existing, StateOf(target));
+        if (decision.Action == ExistingAction.Refuse)
+            return Refused<MaterialisedFile>(decision.Status, $"{target}: {decision.Problem}");
+        if (!Directory.Exists(Path.GetDirectoryName(target)))
+            return Refused<MaterialisedFile>(Status.Invalid, $"{Path.GetDirectoryName(target)} does not exist; the file's directory must.");
+
+        ObjectReader reader = await ObjectReader.OpenAsync(client, cancellationToken).ConfigureAwait(false);
+        LocalResult<ParsedObject> named = await reader.ReadAsync(chunkList, cancellationToken).ConfigureAwait(false);
+        if (!named.IsOk)
+            return LocalResult<MaterialisedFile>.Failure(named.Status, named.Error);
+        if (named.Value is not ChunkList list)
+            return Refused<MaterialisedFile>(Status.Invalid, $"{chunkList} is not a ChunkList.");
+
+        ulong done = 0;
+        string name = Path.GetFileName(target);
+        var copier = new ChunkCopier(reader, (bytes, file) =>
+        {
+            done += bytes;
+            progress?.Report(new MaterialiseProgress(done, list.Size, file));
+        });
+        string partial = ChunkCopier.PartialOf(target);
+        try
+        {
+            LocalResult<bool> copied = await copier.CopyAsync(list, partial, name, cancellationToken).ConfigureAwait(false);
+            if (!copied.IsOk)
+                return LocalResult<MaterialisedFile>.Failure(copied.Status, copied.Error);
+            if (!copied.Value)
+                return Refused<MaterialisedFile>(Status.Invalid, $"The Chunks of {chunkList} do not add up to the {list.Size} bytes it states (SPEC.md §11.4); nothing was written.");
+            File.Move(partial, target, overwrite: decision.Action == ExistingAction.ReplaceFile);
+            return LocalResult<MaterialisedFile>.Ok(new MaterialisedFile { ChunkList = chunkList, Bytes = list.Size });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Refused<MaterialisedFile>(Status.IoError, $"{target} cannot be written: {ex.Message}");
+        }
+        finally
+        {
+            ChunkCopier.Discard(partial);
+        }
+    }
+
     private static async Task<LocalResult<StoredFile>> PutAsync(LocalClient client, FileStream file, string path, int chunksInFlight, IProgress<long>? progress, CancellationToken cancellationToken)
     {
         long length = file.Length;

@@ -6,15 +6,15 @@ namespace Axiom.Mesh.Cli;
 internal sealed class ParsedArguments
 {
     private readonly IReadOnlyList<string> positionals;
-    private readonly IReadOnlyDictionary<string, string> values;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> values;
     private readonly IReadOnlySet<string> flags;
 
     /// <summary>Parsed arguments.</summary>
     /// <param name="spec">The command they belong to.</param>
     /// <param name="positionals">The positional arguments, in order.</param>
-    /// <param name="values">The options given with a value.</param>
+    /// <param name="values">The options given with a value, each value in the order given.</param>
     /// <param name="flags">The flags given.</param>
-    public ParsedArguments(CommandSpec spec, IReadOnlyList<string> positionals, IReadOnlyDictionary<string, string> values, IReadOnlySet<string> flags)
+    public ParsedArguments(CommandSpec spec, IReadOnlyList<string> positionals, IReadOnlyDictionary<string, IReadOnlyList<string>> values, IReadOnlySet<string> flags)
     {
         Spec = spec;
         this.positionals = positionals;
@@ -41,7 +41,12 @@ internal sealed class ParsedArguments
     /// <summary>The value of an option.</summary>
     /// <param name="option">The option with its dashes.</param>
     /// <returns>The value, or <see langword="null"/> when it was not given.</returns>
-    public string? Value(string option) => values.TryGetValue(option, out string? value) ? value : null;
+    public string? Value(string option) => values.TryGetValue(option, out IReadOnlyList<string>? given) ? given[^1] : null;
+
+    /// <summary>Every value of an option that may be given more than once, in order.</summary>
+    /// <param name="option">The option with its dashes.</param>
+    /// <returns>The values; empty when it was not given.</returns>
+    public IReadOnlyList<string> Values(string option) => values.TryGetValue(option, out IReadOnlyList<string>? given) ? given : [];
 
     /// <summary>Whether a flag was given.</summary>
     /// <param name="flag">The flag with its dashes.</param>

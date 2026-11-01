@@ -27,7 +27,12 @@ internal sealed record PackagePublishCommand(string Directory, string Package, s
         string folder = Path.GetFullPath(Path.Combine(context.Environment.CurrentDirectory, Directory));
         PackageId package = await IdResolver.PackageAsync(context, Package).ConfigureAwait(false);
         LocalClient service = await context.ServiceAsync().ConfigureAwait(false);
-        await context.SendAsServiceAsync(new RegisterKind { Kind = PackageKind.Archive, EntryKinds = [EntryKind.Version] }).ConfigureAwait(false);
+        LocalResult<KindRegistration> registered = await context.TrySendAsync(service, new RegisterKind { Kind = PackageKind.Archive, EntryKinds = [EntryKind.Version] }).ConfigureAwait(false);
+
+        // S-D5: publishing stays direct; while the sync service runs it holds Archives, and the folder is its to publish.
+        if (registered.Status == Status.KindTaken)
+            throw CliFailure.Problem("the sync service holds Archives on this Host; use 'axiom-mesh sync add <dir> --package <archive>' to keep the folder in sync instead");
+        context.Ok(registered);
 
         IProgress<long>? progress = context.Environment.ErrorIsTerminal ? new BytesProgress(context, "storing") : null;
         PublishedTree published = context.Ok(await Trees.PublishDirectoryAsync(service, folder, progress, context.Cancellation).ConfigureAwait(false));

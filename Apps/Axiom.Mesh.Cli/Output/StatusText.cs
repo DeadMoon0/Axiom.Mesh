@@ -1,3 +1,4 @@
+using Axiom.Mesh.Chat;
 using Axiom.Mesh.Local;
 
 namespace Axiom.Mesh.Cli;
@@ -47,6 +48,7 @@ internal static class StatusText
         Status.ClockExhausted => "the Package's clock is exhausted on this device; it is read-only here",
         Status.GapTooLarge => "too much happened since; list the history first",
         Status.StoreFull => "the store is full: pinned objects fill the budget; unpin something or raise the budget",
+        _ when ChatStatusText.IsChatStatus(status, out ChatStatus chat) => ChatStatusText.Explain(chat),
         _ => $"the Host refused with status {(ushort)status}",
     };
 }

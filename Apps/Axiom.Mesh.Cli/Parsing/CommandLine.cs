@@ -37,7 +37,7 @@ internal static class CommandLine
     private static ParseResult Arguments(CommandSpec spec, List<string> words)
     {
         var positionals = new List<string>();
-        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        var values = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var flags = new HashSet<string>(StringComparer.Ordinal);
         bool optionsEnded = false;
         for (int i = 0; i < words.Count; i++)
@@ -69,8 +69,11 @@ internal static class CommandLine
 
             if (i + 1 >= words.Count)
                 return new UsageError($"{word} needs a value <{option.Value}>", spec);
-            if (!values.TryAdd(word, words[++i]))
+            if (values.TryGetValue(word, out List<string>? given) && !option.Repeatable)
                 return new UsageError($"{word} is given twice", spec);
+            if (given is null)
+                values[word] = given = [];
+            given.Add(words[++i]);
         }
 
         int required = spec.Arguments.Count(a => a.Required);
@@ -82,6 +85,6 @@ internal static class CommandLine
         if (spec.Options.FirstOrDefault(o => o.Required && !values.ContainsKey(o.Name)) is { } missing)
             return new UsageError($"missing {missing.Name} <{missing.Value}>", spec);
 
-        return spec.Build(new ParsedArguments(spec, positionals, values, flags));
+        return spec.Build(new ParsedArguments(spec, positionals, values.ToDictionary(p => p.Key, p => (IReadOnlyList<string>)p.Value, StringComparer.Ordinal), flags));
     }
 }

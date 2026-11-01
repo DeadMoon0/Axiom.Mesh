@@ -44,6 +44,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Axiom.Mesh.Local\Axiom.Mesh.Local.csproj" />
+    <!-- The chat commands are an app over the chat namespace (S-D7, S-D13): its Client library, never the service. -->
+    <ProjectReference Include="..\..\Services\Axiom.Mesh.Chat.Client\Axiom.Mesh.Chat.Client.csproj" />
   </ItemGroup>
 
 </Project>

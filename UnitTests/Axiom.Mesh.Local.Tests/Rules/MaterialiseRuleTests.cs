@@ -80,6 +80,24 @@ public sealed class MaterialiseRuleTests
         Assert.Equal((System.Enum.Parse<ExistingAction>(action), status), (decision.Action, decision.Status));
     }
 
+    // LOCAL-SPEC.md draft 5 (MaterialiseFileAsync): one file is created where nothing is; Fail refuses anything there;
+    // Replace replaces a regular file and never a directory or a link; Merge means nothing for a file.
+    [Theory]
+    [InlineData(ExistingPath.Fail, "Absent", "Create", Status.Ok)] // nothing there: create
+    [InlineData(ExistingPath.Replace, "Absent", "Create", Status.Ok)] // Replace with nothing there creates too
+    [InlineData(ExistingPath.Fail, "File", "Refuse", Status.AlreadyExists)] // Fail: anything there
+    [InlineData(ExistingPath.Replace, "File", "ReplaceFile", Status.Ok)] // a regular file is replaced
+    [InlineData(ExistingPath.Replace, "MarkedDirectory", "Refuse", Status.Invalid)] // a directory never gives way to a file
+    [InlineData(ExistingPath.Replace, "Directory", "Refuse", Status.Invalid)] // nor someone else's directory
+    [InlineData(ExistingPath.Replace, "Link", "Refuse", Status.Invalid)] // never through a link
+    [InlineData(ExistingPath.Merge, "Absent", "Refuse", Status.Invalid)] // Merge is for Trees only
+    [InlineData(ExistingPath.Unassigned, "Absent", "Refuse", Status.Invalid)] // an unknown mode
+    public void WhatIsAtTheTargetDecidesWhetherOneFileIsCreatedReplacedOrRefused(ExistingPath mode, string state, string action, Status status)
+    {
+        ExistingDecision decision = ExistingRule.DecideFile(mode, System.Enum.Parse<PathState>(state));
+        Assert.Equal((System.Enum.Parse<ExistingAction>(action), status), (decision.Action, decision.Status));
+    }
+
     // LOCAL-SPEC.md §9.7 and decision 17: direct reads are for a service the Host reports the store readable to; the file of
     // an object is objects/<h0h1>/<h2h3>/<hash>.
     [Fact]
