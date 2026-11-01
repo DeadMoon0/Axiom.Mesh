@@ -12,7 +12,7 @@
     <PackageTags>Axiom;Mesh;cli;tool</PackageTags>
     <PackageIcon>Icon.png</PackageIcon>
     <Description>Part of the Axiom family. axiom-mesh, the command line of Axiom.Mesh: a user client of the local protocol that explains every failure in one line.</Description>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

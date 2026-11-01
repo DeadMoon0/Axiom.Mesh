@@ -19,7 +19,7 @@ internal static class PutObjectScenario
 
     public static async Task RunAsync(TextWriter output)
     {
-        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync([TwoNodes.Alice], [], [], ScenarioRunner.None).ConfigureAwait(false);
+        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync([TwoNodes.Alice], [], [], [], ScenarioRunner.None).ConfigureAwait(false);
         await using LocalClient service = await mesh.ConnectCliServiceAsync(TwoNodes.Alice, ScenarioRunner.None).ConfigureAwait(false);
         long seed = 0;
         foreach (int window in new[] { 1, 8, 16, 32 })

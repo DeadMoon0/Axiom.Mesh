@@ -39,6 +39,13 @@ internal static class Samples
 
     public static Store Store { get; } = new() { Path = string.Empty, Objects = 12, Bytes = 3_500_000, Budget = 0, PinnedBytes = 1_048_576, EvictableBytes = 2_451_424, HeldBytes = 0 };
 
+    public static IReadOnlyList<Local.Service> Services { get; } =
+    [
+        new Local.Service { Name = "chat", Connected = true, InProcess = false, Version = "0.2.0", Spawned = true, Kinds = [PackageKind.Channel], EntryKinds = [EntryKind.Message, EntryKind.Redaction] },
+        new Local.Service { Name = "cli", Connected = false, InProcess = false, Version = "", Spawned = false, Kinds = [PackageKind.Archive, PackageKind.Channel], EntryKinds = [EntryKind.Version, EntryKind.Message, EntryKind.Redaction] },
+        new Local.Service { Name = "sync", Connected = false, InProcess = false, Version = "", Spawned = true, Kinds = [PackageKind.Archive], EntryKinds = [EntryKind.Version] },
+    ];
+
     public static IReadOnlyList<Peer> Peers { get; } =
     [
         new Peer { DeviceId = Desktop, UserId = Bob, Known = true, Addresses = ["192.168.1.20:41810"], Sources = PeerSources.Mdns, FirstSeen = Time, LastSeen = Time + 60_000, State = PeerState.Established, BackoffUntil = 0, Violations = 0 },

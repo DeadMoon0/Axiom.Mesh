@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Title>Axiom.Mesh.Service</Title>
+    <Authors>DeadMoon0</Authors>
+    <Product>Axiom</Product>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>Axiom;Mesh;service;runtime;ldb</PackageTags>
+    <PackageIcon>Icon.png</PackageIcon>
+    <Description>Part of the Axiom family. Build a service on Axiom.Mesh: the connect sequence, catch-up by store sequence, reconnects, callbacks, an LDB state with its cursor, and the program shell a Host spawns.</Description>
+    <Version>0.2.0</Version>
+    <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Copyright>Copyright (c) DeadMoon0 2026</Copyright>
+    <RootNamespace>Axiom.Mesh.Service</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The package's own test project, and nobody else. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Axiom.Mesh.Service.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Axiom.Mesh.Local\Axiom.Mesh.Local.csproj" />
+    <!-- A service's state: its own rows and the runtime's cursor, in one LDB database under its state directory. -->
+    <PackageReference Include="Axiom.LDB.Core" />
+    <PackageReference Include="Axiom.LDB.Entity" />
+    <PackageReference Include="Axiom.LDB.Query" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

@@ -6,7 +6,7 @@ using Axiom.Mesh.Tests.Shared;
 namespace Axiom.Mesh.Cli.Tests.Regression;
 
 /// <summary>
-/// The output of <c>status</c>, <c>package list</c>, <c>history</c> and <c>peers</c>, as text and as <c>--json</c>, for fixed
+/// The output of <c>status</c>, <c>package list</c>, <c>history</c>, <c>peers</c> and <c>services</c>, as text and as <c>--json</c>, for fixed
 /// records: what scripts and people read today. The snapshots live in <c>Regression/Snapshots</c>.
 /// </summary>
 public sealed class OutputSnapshotTests
@@ -24,6 +24,8 @@ public sealed class OutputSnapshotTests
     [InlineData("history.json")] // history --json
     [InlineData("peers.txt")] // peers as text
     [InlineData("peers.json")] // peers --json
+    [InlineData("services.txt")] // services as text
+    [InlineData("services.json")] // services --json
     public void TheOutputOfTheListsIsUnchanged(string snapshot)
     {
         string actual = Render(snapshot);
@@ -42,6 +44,8 @@ public sealed class OutputSnapshotTests
         "history.json" => HistoryView.Json(Samples.History) + "\n",
         "peers.txt" => Lines(PeersView.Text(Samples.Peers)),
         "peers.json" => PeersView.Json(Samples.Peers) + "\n",
+        "services.txt" => Lines(ServicesView.Text(Samples.Services)),
+        "services.json" => ServicesView.Json(Samples.Services) + "\n",
         _ => throw new ArgumentException("No such snapshot: " + snapshot, nameof(snapshot)),
     };
 

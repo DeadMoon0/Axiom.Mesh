@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.LDB;
@@ -15,8 +16,9 @@ namespace Axiom.Mesh.Host;
 /// <summary>
 /// The running daemon (fundamentals plan §2.6, DESIGN.md §10.2): configuration, keys, the store and database on disk,
 /// discovery, the TCP dialler, the node, and the pipe, whose connections it admits by the process identity of each
-/// (LOCAL-SPEC.md §2.2) and hands to the node's local port. The pipe opens first, so a daemon whose pipe is taken
-/// touches nothing of the store another one holds.
+/// (LOCAL-SPEC.md §2.2) and hands to the node's local port, and the services it spawns and supervises (§4.2, §9.1). The
+/// pipe opens first, so a daemon whose pipe is taken touches nothing of the store another one holds; the services start
+/// once the pipe serves, and stop last.
 /// </summary>
 internal sealed class HostRuntime : IAsyncDisposable
 {
@@ -27,6 +29,8 @@ internal sealed class HostRuntime : IAsyncDisposable
     private readonly ILogger log;
     private readonly CancellationTokenSource stopping = new();
     private readonly List<Task> loops = [];
+    private readonly List<ServiceSupervisor> supervisors = [];
+    private TimeSpan serviceGrace = LocalPortOptions.Default.DrainGrace;
     private int stopped;
 
     private HostRuntime(HostPaths paths, HostOptions options, PipeHost pipe, Database database, IdentityGatedDiscovery gated, MeshNode node, ILoggerFactory loggers)
@@ -70,6 +74,8 @@ internal sealed class HostRuntime : IAsyncDisposable
         {
             builder.SetMinimumLevel(LogLevel.Information);
             builder.AddProvider(new RollingFileLoggerProvider(paths.Logs, start.Time));
+            if (start.AlsoLogTo is { } extra)
+                builder.AddProvider(extra);
             if (start.ConsoleLog)
                 builder.AddSimpleConsole(console => { console.SingleLine = true; console.TimestampFormat = "HH:mm:ss "; });
         });
@@ -105,6 +111,7 @@ internal sealed class HostRuntime : IAsyncDisposable
             var runtime = new HostRuntime(paths, options, pipe, database, gated, node, loggers);
             runtime.Note(pipe);
             pipe.Serve(node);
+            runtime.Supervise(start, pipe.Location);
             runtime.loops.Add(Task.Run(() => runtime.LogDiscoveryAsync(facts, runtime.stopping.Token), CancellationToken.None));
             runtime.loops.Add(Task.Run(() => runtime.AnnounceWhenIdentifiedAsync(self, runtime.stopping.Token), CancellationToken.None));
             HostLog.Started(runtime.log, start.Version, paths.Home, pipe.Location, node.MeshEndpoint.ToString());
@@ -152,13 +159,47 @@ internal sealed class HostRuntime : IAsyncDisposable
             return;
         HostLog.Stopping(log, LocalPortOptions.Default.DrainGrace.TotalMilliseconds);
         await stopping.CancelAsync().ConfigureAwait(false);
+
+        // A child that exits from now on is not restarted; the node's drain tells each child to finish, and whatever is
+        // left after the grace is killed. Children go last, so that their connections drain like any client's.
+        foreach (ServiceSupervisor supervisor in supervisors)
+            supervisor.MarkStopping();
         await pipe.DisposeAsync().ConfigureAwait(false);
         await Node.StopAsync(CancellationToken.None).ConfigureAwait(false);
+        await Task.WhenAll(supervisors.Select(s => s.StopAsync(serviceGrace))).ConfigureAwait(false);
         await gated.DisposeAsync().ConfigureAwait(false);
         await Task.WhenAll(loops).ConfigureAwait(false);
         await database.DisposeAsync().ConfigureAwait(false);
         loggers.Dispose();
         stopping.Dispose();
+    }
+
+    // Every spawned service whose executable is there gets a supervisor; one whose executable is absent is noted once and
+    // left alone (S-D11): a development build without the service executables stays quiet.
+    private void Supervise(HostStart start, string pipeLocation)
+    {
+        serviceGrace = start.ServiceGrace;
+        foreach ((string name, ServiceSection service) in Options.Services.OrderBy(s => s.Key, StringComparer.Ordinal))
+        {
+            if (service.Spawn is not { } spawn)
+                continue;
+            string executable = SpawnPathRule.Resolve(spawn, start.HostDirectory, HostPlatform.Current);
+            if (!start.Processes.Exists(executable))
+            {
+                HostLog.ConfigurationNote(log, $"services.{name}: \"{executable}\" is not there, so the service is not started; install it beside axiom-meshd or set services.{name}.spawn.");
+                continue;
+            }
+
+            var supervisor = new ServiceSupervisor(
+                new SupervisedService(name, executable, [.. service.Args], Paths.ServiceState(name), pipeLocation, Paths.Home),
+                Node.Local,
+                start.Processes,
+                start.Entropy,
+                start.Time,
+                log);
+            supervisors.Add(supervisor);
+            supervisor.Start();
+        }
     }
 
     private async Task LogDiscoveryAsync(DiscoveryFacts facts, CancellationToken cancellationToken)
@@ -194,8 +235,6 @@ internal sealed class HostRuntime : IAsyncDisposable
             HostLog.ConfigurationNote(log, "pipe.allowUsers applies to a daemon that runs as a system service; this one runs as a user and admits that user alone.");
         foreach ((string name, ServiceSection service) in Options.Services)
         {
-            if (service.Spawn is not null)
-                HostLog.ConfigurationNote(log, $"services.{name}: this version does not spawn services yet; start it yourself, or list it as external with a token.");
             if (service.InProcess)
                 HostLog.ConfigurationNote(log, $"services.{name}: no in-process service is compiled into this version; the name stays unused.");
         }

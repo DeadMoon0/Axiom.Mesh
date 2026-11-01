@@ -32,6 +32,7 @@ internal static class CommandSpecs
         Spec(["devices"], [ArgumentSpec.Optional("user")], [JsonOption], "the devices of a user's Roster, yours by default", a => new DevicesCommand(a.Optional(0), a.Flag("--json"))),
         Spec(["peers"], [], [OptionSpec.Flag("--discovered", "what discovery heard, instead of the peer table"), JsonOption], "the devices this Host knows of and where each stands", a => new PeersCommand(a.Flag("--discovered"), a.Flag("--json"))),
         Spec(["sessions"], [], [JsonOption], "the established sessions and their traffic", a => new SessionsCommand(a.Flag("--json"))),
+        Spec(["services"], [], [JsonOption], "the services this Host lists and whether each is connected", a => new ServicesCommand(a.Flag("--json"))),
         Spec(["dial"], [ArgumentSpec.Of("device|ip:port")], [], "dial a known device, or an address once", a => new DialCommand(a[0])),
         Spec(["peer", "add"], [ArgumentSpec.Of("host:port")], [], "add a static peer, dialled now and after every restart", a => new PeerAddCommand(a[0])),
         Spec(["peer", "remove"], [ArgumentSpec.Of("host:port")], [], "remove a static peer", a => new PeerRemoveCommand(a[0])),

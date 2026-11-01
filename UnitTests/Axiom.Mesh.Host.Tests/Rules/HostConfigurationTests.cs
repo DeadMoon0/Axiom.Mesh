@@ -41,6 +41,12 @@ public sealed class HostConfigurationTests
         Assert.Equal([1, 2, 3], cli.EntryKinds.Select(k => (int)k));
         Assert.Matches("^[0-9a-f]{64}$", cli.Token);
         Assert.True(File.Exists(file));
+        ServiceSection chat = options.Services["chat"];
+        ServiceSection sync = options.Services["sync"];
+        Assert.Equal(("axiom-mesh-chat", false, string.Empty), (chat.Spawn, chat.External, chat.Token));
+        Assert.Equal(([2], [2, 3]), (chat.Kinds.Select(k => (int)k).ToArray(), chat.EntryKinds.Select(k => (int)k).ToArray()), new ArrayPairComparer());
+        Assert.Equal(("axiom-mesh-sync", 1, 1), (sync.Spawn, (int)sync.Kinds.Single(), (int)sync.EntryKinds.Single()));
+        Assert.False(chat.ReleasePinsOnDisconnect || sync.ReleasePinsOnDisconnect);
 
         HostOptions again = await HostConfiguration.LoadAsync(file, new DeterministicEntropy(8), None);
         Assert.Equal(cli.Token, again.Services["cli"].Token);
@@ -68,6 +74,8 @@ public sealed class HostConfigurationTests
     [InlineData("{ \"services\": { \"cli\": { \"external\": true, \"inProcess\": true } } }", "exactly one")] // two provenances
     [InlineData("{ \"services\": { \"a b\": { \"external\": true } } }", "service name")] // a name outside the character set
     [InlineData("{ \"userKeyRequests\": { \"confineTo\": [\"relative/tool\"] } }", "userKeyRequests.confineTo")] // not an absolute path
+    [InlineData("{ \"services\": { \"chat\": { \"spawn\": \"tools/axiom-mesh-chat\" } } }", "neither an absolute path nor a bare file name")] // a relative path with a directory
+    [InlineData("{ \"services\": { \"tool\": { \"external\": true, \"args\": [\"--x\"] } } }", "services.tool.args is for a spawned service only")] // arguments for a program the daemon does not start
     public async Task AValueOutOfRangeIsRefusedAtStart(string json, string named)
     {
         using var home = new TempHome();
@@ -103,6 +111,31 @@ public sealed class HostConfigurationTests
         Assert.Equal(["/usr/bin/axiom-mesh"], node.Local.ConfineUserKeyRequestsTo);
         Assert.Equal("tester", node.Local.HostUser);
         Assert.Equal("axiom-meshd/1.2.3", node.Local.HostVersion);
+    }
+
+    // §4.2, §9.6: a spawned entry is a spawned service with no token until its child starts, and its release-on-disconnect
+    // setting reaches the node.
+    [Fact]
+    public void ASpawnedEntryIsASpawnedServiceWithoutAToken_AndItsReleaseSettingReachesTheNode()
+    {
+        HostOptions options = new HostOptions() with
+        {
+            Services = new() { ["chat"] = ServiceSection.DefaultChat with { ReleasePinsOnDisconnect = true, Args = ["--verbose"] } },
+        };
+
+        LocalService chat = Assert.Single(HostConfiguration.NodeOptionsOf(options, "tester", "1.2.3").Local.Services);
+
+        Assert.Equal((ServiceProvenance.Spawned, true), (chat.Provenance, chat.ReleasePinsOnDisconnect));
+        Assert.True(chat.Token.IsNone);
+        Assert.Equal([PackageKind.Channel], chat.Kinds);
+        Assert.Empty(HostConfiguration.Problems(options));
+    }
+
+    private sealed class ArrayPairComparer : System.Collections.Generic.IEqualityComparer<(int[], int[])>
+    {
+        public bool Equals((int[], int[]) x, (int[], int[]) y) => x.Item1.SequenceEqual(y.Item1) && x.Item2.SequenceEqual(y.Item2);
+
+        public int GetHashCode((int[], int[]) obj) => 0;
     }
 
     [OsFact("linux")]

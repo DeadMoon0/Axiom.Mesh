@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Axiom.Mesh.Service.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Axiom.Mesh.Service\Axiom.Mesh.Service.csproj" />
+    <!-- A real node in memory for the runtime to connect to (TestMesh), and the echo service (TestEchoService). -->
+    <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- An entity of this assembly beside the runtime's cursor on one database (StateTests). -->
+    <PackageReference Include="Axiom.LDB.Entity" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+</Project>

@@ -20,9 +20,15 @@ internal sealed record HostOptions
 
     /// <summary>
     /// The services, by name (LOCAL-SPEC.md §4.2). Default: <c>cli</c>, external, with a token generated on first start,
-    /// Package kinds 1 and 2 and Entry kinds 1 to 3.
+    /// Package kinds 1 and 2 and Entry kinds 1 to 3; <c>chat</c> and <c>sync</c>, spawned from <c>axiom-mesh-chat</c> and
+    /// <c>axiom-mesh-sync</c> beside the daemon when they are there (S-D11).
     /// </summary>
-    public Dictionary<string, ServiceSection> Services { get; set; } = new() { ["cli"] = ServiceSection.DefaultCli };
+    public Dictionary<string, ServiceSection> Services { get; set; } = new()
+    {
+        ["cli"] = ServiceSection.DefaultCli,
+        ["chat"] = ServiceSection.DefaultChat,
+        ["sync"] = ServiceSection.DefaultSync,
+    };
 
     /// <summary>The user-key requests (LOCAL-SPEC.md §2.2).</summary>
     public UserKeyRequestsSection UserKeyRequests { get; set; } = new();

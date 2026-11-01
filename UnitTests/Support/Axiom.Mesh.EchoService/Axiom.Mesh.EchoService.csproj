@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The echo service (Axiom.Mesh.Testing's TestEchoService) as a program of its own, over the service runtime: what the
+    Host's supervision tests spawn, as the Host spawns axiom-mesh-chat and axiom-mesh-sync. Not shipped.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Axiom.Mesh.EchoService</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+  </ItemGroup>
+
+</Project>

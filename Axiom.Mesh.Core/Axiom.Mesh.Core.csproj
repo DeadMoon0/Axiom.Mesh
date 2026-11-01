@@ -9,7 +9,7 @@
     <PackageTags>Axiom;Mesh;p2p;replication;store;tls;lwse;ldb</PackageTags>
     <PackageIcon>Icon.png</PackageIcon>
     <Description>Part of the Axiom family. The engine of an Axiom.Mesh node: the object store and its index, trust (rosters, grants), mutual TLS pinned to the rosters, replication, pins and eviction, and the local port the pipe's clients reach.</Description>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

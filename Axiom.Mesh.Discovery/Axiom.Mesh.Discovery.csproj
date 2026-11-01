@@ -9,7 +9,7 @@
     <PackageTags>Axiom;Mesh;discovery;mdns;dns-sd;broadcast;lan</PackageTags>
     <PackageIcon>Icon.png</PackageIcon>
     <Description>Part of the Axiom family. Finding Axiom.Mesh nodes on a local network: DNS-SD over mDNS, UDP broadcast and static peers, as pure codecs with thin socket shells. A hint, never trusted; usable alone.</Description>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

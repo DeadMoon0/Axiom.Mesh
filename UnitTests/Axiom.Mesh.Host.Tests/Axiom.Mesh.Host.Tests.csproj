@@ -8,6 +8,10 @@
     <ProjectReference Include="..\..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
     <!-- The command line keeps its own copy of the Host's home rule; a regression test compares the two. -->
     <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
+    <!-- So does the service runtime (ServicePaths); and the echo service is the child the supervision tests spawn. -->
+    <ProjectReference Include="..\..\Axiom.Mesh.Service\Axiom.Mesh.Service.csproj" />
+    <ProjectReference Include="..\Support\Axiom.Mesh.EchoService\Axiom.Mesh.EchoService.csproj" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 
 </Project>

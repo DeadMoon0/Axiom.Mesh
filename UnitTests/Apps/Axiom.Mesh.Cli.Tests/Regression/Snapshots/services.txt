@@ -1,0 +1,4 @@
+NAME  PROVENANCE  CONNECTED  VERSION  KINDS  ENTRY KINDS
+chat  spawned     yes        0.2.0    2      2,3
+cli   external    no         -        1,2    1,2,3
+sync  spawned     no         -        1      1

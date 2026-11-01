@@ -32,6 +32,7 @@
   <Project Path="Axiom.Mesh.Discovery/Axiom.Mesh.Discovery.csproj" />
   <Project Path="Axiom.Mesh.Core/Axiom.Mesh.Core.csproj" />
   <Project Path="Axiom.Mesh.Host/Axiom.Mesh.Host.csproj" />
+  <Project Path="Axiom.Mesh.Service/Axiom.Mesh.Service.csproj" />
   <Project Path="Axiom.Mesh.Testing/Axiom.Mesh.Testing.csproj" />
   <Folder Name="/Apps/">
     <Project Path="Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj" />
@@ -43,9 +44,11 @@
     <Project Path="UnitTests/Axiom.Mesh.Discovery.Tests/Axiom.Mesh.Discovery.Tests.csproj" />
     <Project Path="UnitTests/Axiom.Mesh.Core.Tests/Axiom.Mesh.Core.Tests.csproj" />
     <Project Path="UnitTests/Axiom.Mesh.Host.Tests/Axiom.Mesh.Host.Tests.csproj" />
+    <Project Path="UnitTests/Axiom.Mesh.Service.Tests/Axiom.Mesh.Service.Tests.csproj" />
     <Project Path="UnitTests/Axiom.Mesh.Testing.Tests/Axiom.Mesh.Testing.Tests.csproj" />
     <Project Path="UnitTests/Apps/Axiom.Mesh.Cli.Tests/Axiom.Mesh.Cli.Tests.csproj" />
     <Project Path="UnitTests/Axiom.Mesh.ReadmeSamples.Tests/Axiom.Mesh.ReadmeSamples.Tests.csproj" />
+    <Project Path="UnitTests/Support/Axiom.Mesh.EchoService/Axiom.Mesh.EchoService.csproj" />
   </Folder>
   <Folder Name="/IntegrationTests/">
     <Project Path="IntegrationTests/Axiom.Mesh.Integration.Tests/Axiom.Mesh.Integration.Tests.csproj" />

@@ -27,6 +27,7 @@ public sealed class HostRegressionTests
             "cli": {
               "inProcess": false,
               "spawn": null,
+              "args": [],
               "external": true,
               "token": "<token>",
               "kinds": [
@@ -37,7 +38,37 @@ public sealed class HostRegressionTests
                 1,
                 2,
                 3
-              ]
+              ],
+              "releasePinsOnDisconnect": false
+            },
+            "chat": {
+              "inProcess": false,
+              "spawn": "axiom-mesh-chat",
+              "args": [],
+              "external": false,
+              "token": "",
+              "kinds": [
+                2
+              ],
+              "entryKinds": [
+                2,
+                3
+              ],
+              "releasePinsOnDisconnect": false
+            },
+            "sync": {
+              "inProcess": false,
+              "spawn": "axiom-mesh-sync",
+              "args": [],
+              "external": false,
+              "token": "",
+              "kinds": [
+                1
+              ],
+              "entryKinds": [
+                1
+              ],
+              "releasePinsOnDisconnect": false
             }
           },
           "userKeyRequests": {

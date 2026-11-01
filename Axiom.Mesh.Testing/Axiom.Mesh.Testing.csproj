@@ -9,7 +9,7 @@
     <PackageTags>Axiom;Mesh;testing;in-memory;fake-clock</PackageTags>
     <PackageIcon>Icon.png</PackageIcon>
     <Description>Part of the Axiom family. An in-memory Axiom.Mesh of any number of nodes for tests: fake clock, fake discovery, in-memory store and pipe, scripted peers and the CLI run in-process.</Description>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -26,6 +26,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Axiom.Mesh.Core\Axiom.Mesh.Core.csproj" />
+    <!-- Services run in process beside a node (TestNode.RunServiceAsync, TestEchoService). -->
+    <ProjectReference Include="..\Axiom.Mesh.Service\Axiom.Mesh.Service.csproj" />
     <!--
       The command line, run in-process against a node (TestNode.CliAsync). Its package is a dotnet tool, which no package
       can depend on, so its assembly travels inside this package (IncludeCliInPackage below); its own dependencies

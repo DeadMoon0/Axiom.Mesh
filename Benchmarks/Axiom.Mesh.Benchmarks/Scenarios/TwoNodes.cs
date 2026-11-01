@@ -15,7 +15,7 @@ internal static class TwoNodes
     /// <returns>The mesh.</returns>
     public static async Task<RealMeshFixture> StartAsync()
     {
-        RealMeshFixture mesh = await RealMeshFixture.StartAsync([Alice, Bob], [], [], ScenarioRunner.None).ConfigureAwait(false);
+        RealMeshFixture mesh = await RealMeshFixture.StartAsync([Alice, Bob], [], [], [], ScenarioRunner.None).ConfigureAwait(false);
         await mesh.PairAsync(Alice, Bob, ScenarioRunner.None).ConfigureAwait(false);
         await mesh.ConnectAsync(Alice, Bob, ScenarioRunner.None).ConfigureAwait(false);
         return mesh;

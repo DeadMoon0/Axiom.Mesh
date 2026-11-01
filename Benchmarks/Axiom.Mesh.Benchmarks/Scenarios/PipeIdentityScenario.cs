@@ -19,7 +19,7 @@ internal static class PipeIdentityScenario
 
     public static async Task RunAsync(TextWriter output)
     {
-        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync([TwoNodes.Alice], [], [], ScenarioRunner.None).ConfigureAwait(false);
+        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync([TwoNodes.Alice], [], [], [], ScenarioRunner.None).ConfigureAwait(false);
         await using LocalClient client = await mesh.ConnectUserAsync(TwoNodes.Alice, "benchmark", ScenarioRunner.None).ConfigureAwait(false);
         var request = new GetIdentity();
         for (int i = 0; i < Warmup; i++)

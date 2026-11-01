@@ -9,7 +9,7 @@
     <PackageTags>Axiom;Mesh;pipe;ipc;protocol;protostream;client</PackageTags>
     <PackageIcon>Icon.png</PackageIcon>
     <Description>Part of the Axiom family. axiom-mesh-local/1, the protocol every program on a device speaks to the Axiom.Mesh Host over the pipe, both roles, with the client library; the one package an app, a script or a service references.</Description>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

@@ -10,7 +10,7 @@
     <PackageTags>Axiom;Mesh;daemon;host;pipe</PackageTags>
     <PackageIcon>Icon.png</PackageIcon>
     <Description>Part of the Axiom family. axiom-meshd, the Axiom.Mesh daemon: the one process on a device that holds the keys, the store, the database and every connection, with its configuration and the pipe its clients connect to.</Description>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <!-- The daemon ships as a GitHub Release asset (Native AOT, one zip per platform), never as a NuGet package (fundamentals plan §6e). -->
     <IsPackable>false</IsPackable>
     <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>

@@ -16,7 +16,7 @@ public sealed class StaticPeerTests
     [Fact]
     public async Task ADeviceNamedAsAStaticPeerOnTheCommandLineIsDialledAndEstablished()
     {
-        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop", "alice-phone"], [], [("alice-laptop", "alice-phone")], None);
+        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop", "alice-phone"], [], [("alice-laptop", "alice-phone")], [], None);
         string phone = mesh.Node("alice-phone").MeshEndpoint.ToString();
 
         CliResult added = await mesh.CliAsync("alice-laptop", "peer add " + phone, None);

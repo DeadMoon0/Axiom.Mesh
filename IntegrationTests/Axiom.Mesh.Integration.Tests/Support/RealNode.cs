@@ -11,6 +11,7 @@ using Axiom.Mesh.Core.Storage;
 using Axiom.Mesh.Discovery;
 using Axiom.Mesh.Host;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Service;
 using Axiom.Mesh.Testing;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -26,13 +27,15 @@ internal sealed class RealNode
 {
     private readonly InMemoryNetwork board;
     private readonly List<LocalClient> clients = [];
+    private readonly List<RunningService> services = [];
     private PipeHost? pipe;
     private Database? database;
     private MeshNode? node;
     private bool adopted;
 
-    public RealNode(TestIdentity identity, IPAddress address, string directory, InMemoryNetwork board, bool withIdentity)
+    public RealNode(TestIdentity identity, IPAddress address, string directory, InMemoryNetwork board, bool withIdentity, LocalPortOptions local)
     {
+        Local = local;
         Identity = identity;
         Address = address;
         Directory = directory;
@@ -46,6 +49,9 @@ internal sealed class RealNode
     }
 
     public string Name => Identity.Name;
+
+    /// <summary>The local port's configuration: <c>cli</c> and the scenario's services, all external.</summary>
+    public LocalPortOptions Local { get; }
 
     public TestIdentity Identity { get; }
 
@@ -98,7 +104,7 @@ internal sealed class RealNode
                 MeshPort = endpoint.Port,
                 ListenAddress = Address,
                 DeviceName = Name,
-                Local = TestCliService.Local with { HostUser = pipe.HostUser },
+                Local = Local with { HostUser = pipe.HostUser },
             };
             node = await MeshNode.StartAsync(options, environment, cancellationToken).ConfigureAwait(false);
             pipe.Serve(node);
@@ -128,6 +134,15 @@ internal sealed class RealNode
 
         foreach (LocalClient client in open)
             await client.DisposeAsync().ConfigureAwait(false);
+        RunningService[] started;
+        lock (services)
+        {
+            started = [.. services];
+            services.Clear();
+        }
+
+        foreach (RunningService service in started)
+            await service.DisposeAsync().ConfigureAwait(false);
         if (Interlocked.Exchange(ref node, null) is { } running)
             await running.StopAsync(cancellationToken).ConfigureAwait(false);
         if (Interlocked.Exchange(ref pipe, null) is { } open2)
@@ -144,6 +159,41 @@ internal sealed class RealNode
         lock (clients)
             clients.Add(client);
         return client;
+    }
+
+    /// <summary>
+    /// Runs a service in process over the real pipe, as a program the user started would: its token from the configuration's
+    /// text, its state in a real LDB directory of this node (<c>services/&lt;name&gt;/index</c>) kept across runs and restarts,
+    /// the system's clock. Returns once it is connected.
+    /// </summary>
+    public async Task<RunningService> RunServiceAsync(IMeshService service, CancellationToken cancellationToken)
+    {
+        string name = service.Definition.Name;
+        string state = System.IO.Path.Combine(Directory, "services", name);
+        System.IO.Directory.CreateDirectory(state);
+        RunningService running = RunningService.Start(service, new ServiceEnvironment
+        {
+            Version = "integration",
+            ConnectHost = ct => LocalPipe.ConnectAsync(Pipe, ct),
+            HostAddress = Pipe.ToString(),
+            OpenState = ct => Database.OpenAsync(System.IO.Path.Combine(state, "index"), DatabaseOptions.Default, ct),
+            StateDirectory = state,
+            ReadConfig = () => TestServices.ConfigOf(name),
+            ConfigFile = $"the configuration of {Name}",
+        });
+        try
+        {
+            await running.WhenConnectedAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await running.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        lock (services)
+            services.Add(running);
+        return running;
     }
 
     // A port the system hands out now on this address; the node binds it a moment later. The listener is closed before

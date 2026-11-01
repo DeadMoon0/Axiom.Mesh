@@ -16,6 +16,7 @@
     <ProjectReference Include="..\..\Axiom.Mesh.Discovery\Axiom.Mesh.Discovery.csproj" />
     <ProjectReference Include="..\..\Axiom.Mesh.Core\Axiom.Mesh.Core.csproj" />
     <ProjectReference Include="..\..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
+    <ProjectReference Include="..\..\Axiom.Mesh.Service\Axiom.Mesh.Service.csproj" />
     <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
     <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
   </ItemGroup>

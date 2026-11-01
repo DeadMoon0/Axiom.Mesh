@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Local;
 using Axiom.Mesh.Payloads;
+using Axiom.Mesh.Service;
 using LocalEntry = Axiom.Mesh.Local.Entry;
 using LocalPackage = Axiom.Mesh.Local.Package;
 using LocalPackageState = Axiom.Mesh.Local.PackageState;
@@ -381,6 +382,42 @@ public abstract class MeshScenarios
         Assert.Equal([first, second], (await HistoryAsync(mesh, "bob-desktop", channel)).Select(e => e.Hash));
     }
 
+    // 15. Services (LOCAL-SPEC.md §9.3, §9.8, DESIGN.md §10.3): a service running beside each of two devices receives every
+    // Entry of its kinds once and in store order, those its twin wrote for an app on the other device included; stopped and
+    // started again on its state it resumes after its cursor, without a repeat; and it answers an app's calls.
+    [Fact]
+    public async Task AServiceRunningBesideANodeReceivesEveryEntryOfItsKindsOnceInStoreOrder_AcrossAReconnect_AndAnswersCalls()
+    {
+        await using IMeshFixture mesh = await StartAsync(Setup.Of("alice-laptop", "alice-phone") with { Services = [TestEchoService.Echo] });
+        PackageId notes = await CreateAsync(mesh, "alice-laptop", "Notes", TestEchoService.Kind);
+        await mesh.ConnectAsync("alice-laptop", "alice-phone", None);
+        await mesh.SettleAsync(None);
+        await FollowAsync(mesh, "alice-phone", notes);
+        await mesh.SettleAsync(None);
+        await using RunningService writer = await mesh.RunServiceAsync("alice-laptop", new TestEchoService(), None);
+        var phone = new TestEchoService();
+        RunningService watching = await mesh.RunServiceAsync("alice-phone", phone, None);
+        await using LocalClient app = await mesh.ConnectUserAsync("alice-laptop", "notes-app", None);
+
+        ObjectHash first = await EchoWriteAsync(app, notes, "first");
+        ObjectHash second = await EchoWriteAsync(app, notes, "second");
+        await mesh.SettleAsync(None);
+        await phone.WaitForCountAsync(2, None);
+        await watching.DisposeAsync();
+        ObjectHash third = await EchoWriteAsync(app, notes, "third");
+        await mesh.SettleAsync(None);
+        var again = new TestEchoService();
+        await using RunningService restarted = await mesh.RunServiceAsync("alice-phone", again, None);
+        await again.WaitForCountAsync(1, None);
+
+        Assert.Equal([first, second], phone.Seen.Select(e => e.Hash));
+        Assert.True(phone.Seen[0].StoreSeq < phone.Seen[1].StoreSeq);
+        Assert.Equal([third], again.Seen.Select(e => e.Hash));
+        await using LocalClient phoneApp = await mesh.ConnectUserAsync("alice-phone", "notes-app", None);
+        LocalResult<ReadOnlyMemory<byte>> echoed = await phoneApp.SendAsync(new ServiceCall { Service = "echo", Method = "echo", Payload = new byte[] { 4, 2 } }, None);
+        Assert.Equal(new byte[] { 4, 2 }, echoed.Value.ToArray());
+    }
+
     private const int CliExitCodeOk = 0;
 
     private static DeviceId DeviceOf(string node) => TestIdentity.Of(node).DeviceId;
@@ -434,6 +471,13 @@ public abstract class MeshScenarios
         Match entry = Regex.Match(written.Stdout, "entry ([0-9a-f]{64})");
         Assert.True(entry.Success && Hash32.TryParseHex(entry.Groups[1].Value, out _), written.ToString());
         return new ObjectHash(Hash32.TryParseHex(entry.Groups[1].Value, out Hash32 hash) ? hash : default);
+    }
+
+    // An app asks the echo service to write an Entry of its kind; the service answers with the Entry's hash.
+    private static async Task<ObjectHash> EchoWriteAsync(LocalClient app, PackageId package, string text)
+    {
+        ReadOnlyMemory<byte> hash = await Ok(app.SendAsync(new ServiceCall { Service = "echo", Method = "write", Payload = TestEchoService.WritePayload(package, System.Text.Encoding.UTF8.GetBytes(text)) }, None), "ServiceCall(echo.write)");
+        return new ObjectHash(new Hash32(hash.Span));
     }
 
     private static async Task<IReadOnlyList<LocalEntry>> HistoryAsync(IMeshFixture mesh, string node, PackageId package)
@@ -491,6 +535,9 @@ public abstract class MeshScenarios
 
         /// <summary>Pairs of nodes that never hear of each other: no announcement of one reaches the other.</summary>
         public IReadOnlyList<(string A, string B)> Severed { get; init; } = [];
+
+        /// <summary>The services every node's local port lists as external, beside <c>cli</c> (<see cref="TestServices.With"/>).</summary>
+        public IReadOnlyList<ServiceDefinition> Services { get; init; } = [];
 
         /// <summary>A mesh of the named nodes, each a device of its own user.</summary>
         /// <param name="nodes">The nodes.</param>

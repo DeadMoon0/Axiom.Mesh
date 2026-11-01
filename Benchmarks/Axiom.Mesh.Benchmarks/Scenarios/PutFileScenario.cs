@@ -18,7 +18,7 @@ internal static class PutFileScenario
 
     public static async Task RunAsync(TextWriter output)
     {
-        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync([TwoNodes.Alice], [], [], ScenarioRunner.None).ConfigureAwait(false);
+        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync([TwoNodes.Alice], [], [], [], ScenarioRunner.None).ConfigureAwait(false);
         await using LocalClient service = await mesh.ConnectCliServiceAsync(TwoNodes.Alice, ScenarioRunner.None).ConfigureAwait(false);
         string folder = Path.Combine(Path.GetTempPath(), "axiom-mesh-bench", "putfile-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(folder);

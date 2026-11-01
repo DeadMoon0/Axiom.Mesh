@@ -24,6 +24,7 @@ public abstract class ConventionTests<TAnchor>
     private const string Discovery = "Axiom.Mesh.Discovery";
     private const string Core = "Axiom.Mesh.Core";
     private const string Host = "Axiom.Mesh.Host";
+    private const string Service = "Axiom.Mesh.Service";
     private const string Testing = "Axiom.Mesh.Testing";
     private const string Cli = "Axiom.Mesh.Cli";
     private const string ProtoStream = "Axiom.ProtoStream";
@@ -64,10 +65,12 @@ public abstract class ConventionTests<TAnchor>
             Discovery => [Model],
             Core => core,
             Host => host,
+            // The runtime of every service (S-D6): a client of the local protocol with an LDB state of its own.
+            Service => [Local, Model, ProtoStream, "Axiom.LDB.Core", "Axiom.LDB.Entity", "Axiom.LDB.Primitives", "Axiom.LDB.Query"],
             // Testing runs every node of a mesh on LDB's in-memory storage (shipped in the Axiom.LDB.Core package).
             // It runs the command line in-process against a node (TestNode.CliAsync), the Cli assembly packed inside it. The
             // Host is never a package (fundamentals plan §6e), so the Testing package must not depend on it.
-            Testing => [.. core, Core, Cli, "Axiom.LWSE.Testing", "Axiom.ProtoStream.Testing", "Axiom.LDB.Storage.InMemory", "Axiom.LDB.Storage.Abstractions"],
+            Testing => [.. core, Core, Cli, Service, "Axiom.LWSE.Testing", "Axiom.ProtoStream.Testing", "Axiom.LDB.Storage.InMemory", "Axiom.LDB.Storage.Abstractions"],
             Cli => [Local, Model, ProtoStream],
             _ => null,
         };

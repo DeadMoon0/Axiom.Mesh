@@ -17,7 +17,7 @@ public sealed class InMemoryScenarios : MeshScenarios
             {
                 WithoutIdentity = setup.WithoutIdentity,
                 Severed = setup.Severed,
-                Local = TestCliService.Local,
+                Local = TestServices.With(TestCliService.Local, [.. setup.Services]),
             },
             CancellationToken.None);
 }

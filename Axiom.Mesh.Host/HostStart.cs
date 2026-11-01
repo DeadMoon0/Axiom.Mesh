@@ -1,5 +1,6 @@
 using System;
 using Axiom.Mesh.Core;
+using Microsoft.Extensions.Logging;
 
 namespace Axiom.Mesh.Host;
 
@@ -23,4 +24,16 @@ internal sealed record HostStart
 
     /// <summary>Whether it also logs to the console. Default true.</summary>
     public bool ConsoleLog { get; init; } = true;
+
+    /// <summary>Where spawned services' processes come from. Default the operating system's.</summary>
+    public IChildProcesses Processes { get; init; } = new SystemChildProcesses();
+
+    /// <summary>The directory a bare <c>spawn</c> name is found in: the daemon's own. Default the application's base directory.</summary>
+    public string HostDirectory { get; init; } = AppContext.BaseDirectory;
+
+    /// <summary>How long a spawned service may take to exit once the daemon drained, before it is killed. Default 5 s, the drain's grace.</summary>
+    public TimeSpan ServiceGrace { get; init; } = LocalPortOptions.Default.DrainGrace;
+
+    /// <summary>One more place the daemon logs to, beside its files and console; a test reads the log there. Default none.</summary>
+    public ILoggerProvider? AlsoLogTo { get; init; }
 }

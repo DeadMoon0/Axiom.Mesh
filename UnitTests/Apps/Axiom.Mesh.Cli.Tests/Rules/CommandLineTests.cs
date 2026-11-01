@@ -29,6 +29,7 @@ public sealed class CommandLineTests
     [InlineData("devices bob", typeof(DevicesCommand))] // devices of another user
     [InlineData("peers --discovered --json", typeof(PeersCommand))] // peers
     [InlineData("sessions", typeof(SessionsCommand))] // sessions
+    [InlineData("services --json", typeof(ServicesCommand))] // services
     [InlineData("dial 10.0.0.2:41810", typeof(DialCommand))] // dial an address
     [InlineData("peer add example.org:41810", typeof(PeerAddCommand))] // peer add
     [InlineData("peer remove example.org:41810", typeof(PeerRemoveCommand))] // peer remove

@@ -1,0 +1,42 @@
+[
+  {
+    "name": "chat",
+    "provenance": "spawned",
+    "connected": true,
+    "version": "0.2.0",
+    "kinds": [
+      2
+    ],
+    "entryKinds": [
+      2,
+      3
+    ]
+  },
+  {
+    "name": "cli",
+    "provenance": "external",
+    "connected": false,
+    "version": "",
+    "kinds": [
+      1,
+      2
+    ],
+    "entryKinds": [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "name": "sync",
+    "provenance": "spawned",
+    "connected": false,
+    "version": "",
+    "kinds": [
+      1
+    ],
+    "entryKinds": [
+      1
+    ]
+  }
+]

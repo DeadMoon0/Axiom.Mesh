@@ -50,6 +50,25 @@ public sealed class CliScenarioTests
         Assert.Contains("user alice", status.Stdout, StringComparison.Ordinal);
     }
 
+    // LOCAL-SPEC.md §5.12, §6.7: services lists every service the Host configures, how it proves its name and whether it is
+    // connected; --json for scripts (the install job reads it).
+    [Fact]
+    public async Task ServicesListsTheConfiguredServices_WithProvenanceAndConnection()
+    {
+        await using TestMesh mesh = await CliMeshes.StartAsync(TestMeshOptions.Of("alice-laptop"));
+        TestNode alice = mesh["alice-laptop"];
+
+        CliResult text = await CliMeshes.OkAsync(alice.CliAsync("services", None));
+        await using (LocalClient cli = await alice.ConnectServiceAsync("cli", CliMeshes.Token, None))
+        {
+            CliResult json = await CliMeshes.OkAsync(alice.CliAsync("services --json", None));
+            Assert.Contains("\"connected\": true", json.Stdout, StringComparison.Ordinal);
+            Assert.Contains("\"provenance\": \"external\"", json.Stdout, StringComparison.Ordinal);
+        }
+
+        Assert.Matches(@"cli\s+external\s+no\s", text.Stdout);
+    }
+
     [Fact]
     public async Task APublishedFolderMaterialisesByteEqualOnASecondNodeThatFollowsIt()
     {

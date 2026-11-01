@@ -15,5 +15,5 @@ public sealed class SocketScenarios : MeshScenarios
 {
     /// <inheritdoc />
     protected override async Task<IMeshFixture> StartAsync(Setup setup) =>
-        await RealMeshFixture.StartAsync(setup.Nodes, setup.WithoutIdentity, setup.Severed, CancellationToken.None);
+        await RealMeshFixture.StartAsync(setup.Nodes, setup.WithoutIdentity, setup.Severed, setup.Services, CancellationToken.None);
 }

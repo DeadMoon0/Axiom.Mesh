@@ -177,6 +177,7 @@ internal static class HostConfiguration
         Token = service.External && ServiceToken.TryParseHex(service.Token, out ServiceToken token) ? token : ServiceToken.None,
         Kinds = [.. service.Kinds.Order().Select(k => (PackageKind)k)],
         EntryKinds = [.. service.EntryKinds.Order().Select(k => (EntryKind)k)],
+        ReleasePinsOnDisconnect = service.ReleasePinsOnDisconnect,
     };
 
     private static IEnumerable<string> ServiceProblems(string name, ServiceSection? service)
@@ -193,8 +194,12 @@ internal static class HostConfiguration
         int provenances = (service.InProcess ? 1 : 0) + (service.Spawn is not null ? 1 : 0) + (service.External ? 1 : 0);
         if (provenances != 1)
             yield return $"services.{name} needs exactly one of inProcess, spawn and external";
-        if (service.Spawn is { } spawn && !Path.IsPathFullyQualified(spawn))
-            yield return $"services.{name}.spawn \"{spawn}\" is not an absolute path";
+        if (service.Spawn is { } spawn && !SpawnPathRule.IsAbsoluteOrBareName(spawn))
+            yield return $"services.{name}.spawn \"{spawn}\" is neither an absolute path nor a bare file name beside the daemon";
+        if (service.Args is null || service.Args.Any(a => a is null))
+            yield return $"services.{name}.args is a list of strings";
+        else if (service.Spawn is null && service.Args.Count != 0)
+            yield return $"services.{name}.args is for a spawned service only";
         if (service.Token is null || (service.Token.Length != 0 && !ServiceToken.TryParseHex(service.Token, out _)))
             yield return $"services.{name}.token is not 64 hex characters; remove it and the daemon generates a new one";
         if (!service.External && service.Token is { Length: > 0 })

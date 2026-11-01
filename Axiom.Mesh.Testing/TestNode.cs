@@ -5,10 +5,13 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Axiom.LDB;
+using Axiom.LDB.Storage.InMemory;
 using Axiom.Mesh.Cli;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Local;
 using Axiom.Mesh.Payloads;
+using Axiom.Mesh.Service;
 
 namespace Axiom.Mesh.Testing;
 
@@ -25,6 +28,7 @@ public sealed class TestNode
 {
     private readonly PackageBook packages;
     private readonly List<LocalClient> clients = [];
+    private readonly Dictionary<string, InMemoryStorageEnvironment> serviceStates = new(StringComparer.Ordinal);
     private MeshNode? node;
 
     internal TestNode(TestIdentity identity, IPEndPoint address, TestNodeEnvironment environment, FakeDiscovery discovery, InMemoryDialer dialer, PackageBook packages, LocalPortOptions local)
@@ -312,6 +316,54 @@ public sealed class TestNode
         using var error = new StringWriter();
         CliExitCode exit = await CliProgram.RunAsync(CliWords.Split(commandLine), output, error, environment, cancellationToken).ConfigureAwait(false);
         return new CliResult(exit, output.Written.ReplaceLineEndings("\n"), error.ToString().ReplaceLineEndings("\n"));
+    }
+
+    /// <summary>
+    /// Runs a service in process beside this node (DESIGN.md §10.3), as a program the user starts would run: the runtime of
+    /// <see cref="ServiceProgram"/> over an in-memory pair to the local port, as the external service the node's configuration
+    /// lists (<see cref="TestServices.With"/>), its token read from the configuration, its state in memory kept by this node
+    /// across runs and restarts, its clock the mesh's. Returns once the service is connected.
+    /// </summary>
+    /// <param name="service">The service; its definition's name must be configured on this node.</param>
+    /// <param name="cancellationToken">Stops waiting for the connection.</param>
+    /// <returns>The running service; dispose it to stop it.</returns>
+    /// <exception cref="InvalidOperationException">The node's configuration does not list the service as external.</exception>
+    public async Task<RunningService> RunServiceAsync(IMeshService service, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        string name = service.Definition.Name;
+        if (!LocalOptions.Services.Any(s => s.Name == name && s.Provenance == ServiceProvenance.External))
+            throw new InvalidOperationException($"{Name} does not list the service '{name}'; start the mesh with Local = TestServices.With(TestCliService.Local, definition).");
+
+        InMemoryStorageEnvironment storage;
+        lock (serviceStates)
+        {
+            if (!serviceStates.TryGetValue(name, out storage!))
+                serviceStates[name] = storage = new InMemoryStorageEnvironment();
+        }
+
+        RunningService running = RunningService.Start(service, new ServiceEnvironment
+        {
+            Version = "test",
+            ConnectHost = _ => Task.FromResult(ConnectRaw(TestProcess.Served)),
+            HostAddress = $"the in-memory node {Name}",
+            OpenState = ct => Database.OpenAsync(storage, DatabaseOptions.Default with { TimeProvider = Environment.Clock }, ct),
+            ReadConfig = () => TestServices.ConfigOf(name),
+            ConfigFile = $"the configuration of {Name}",
+            Time = Environment.Clock,
+            Loggers = Environment.Loggers,
+        });
+        try
+        {
+            await running.WhenConnectedAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await running.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        return running;
     }
 
     private static string Hex(ServiceToken token)

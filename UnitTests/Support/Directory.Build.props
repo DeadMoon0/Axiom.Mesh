@@ -1,0 +1,14 @@
+<Project>
+
+  <!--
+    Programs the test suites start as child processes (the Host's supervision tests spawn the echo service under dotnet).
+    They are neither shipped nor test projects: never packed, no AOT or trimming promise, no documentation comments.
+    IsLibrary must be decided before the repository's props read it, so it is set here and the root props are imported after it.
+  -->
+  <PropertyGroup>
+    <IsLibrary>false</IsLibrary>
+  </PropertyGroup>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+</Project>

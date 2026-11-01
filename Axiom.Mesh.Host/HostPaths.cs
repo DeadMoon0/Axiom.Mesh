@@ -5,8 +5,8 @@ using Axiom.Mesh.Local;
 namespace Axiom.Mesh.Host;
 
 /// <summary>
-/// Where the daemon keeps everything (fundamentals plan §2.6): its configuration, its keys, its store and database, and
-/// its logs. One directory when <c>--home</c> or <c>AXIOM_MESH_HOME</c> names it; else the platform's places: on Windows
+/// Where the daemon keeps everything (fundamentals plan §2.6): its configuration, its keys, its store and database, its
+/// logs and its spawned services' state. One directory when <c>--home</c> or <c>AXIOM_MESH_HOME</c> names it; else the platform's places: on Windows
 /// <c>%LOCALAPPDATA%\Axiom.Mesh</c>, on Linux the XDG configuration, data and state directories.
 /// </summary>
 internal sealed record HostPaths
@@ -28,6 +28,17 @@ internal sealed record HostPaths
 
     /// <summary>The log directory.</summary>
     public required string Logs { get; init; }
+
+    /// <summary>
+    /// Where the spawned services keep their state (S-D2): <c>services</c> beside the store, one directory per service, which
+    /// the daemon creates for the user alone and hands each child in <c>AXIOM_MESH_SERVICE_STATE</c>.
+    /// </summary>
+    public required string Services { get; init; }
+
+    /// <summary>A spawned service's state directory.</summary>
+    /// <param name="serviceName">The service's name.</param>
+    /// <returns>The directory.</returns>
+    public string ServiceState(string serviceName) => Path.Combine(Services, serviceName);
 
     /// <summary>Where the daemon keeps everything, from its platform, its environment and its command line.</summary>
     /// <param name="platform">The platform.</param>
@@ -61,6 +72,7 @@ internal sealed record HostPaths
             Keys = Path.Combine(data, "keys"),
             Data = Path.Combine(data, "data"),
             Logs = Path.Combine(state, "logs"),
+            Services = Path.Combine(data, "services"),
         };
     }
 
@@ -71,6 +83,7 @@ internal sealed record HostPaths
         Keys = Path.Combine(home, "keys"),
         Data = Path.Combine(home, "data"),
         Logs = Path.Combine(home, "logs"),
+        Services = Path.Combine(home, "services"),
     };
 
     // XDG Base Directory: a variable that is unset, empty or not absolute is ignored.

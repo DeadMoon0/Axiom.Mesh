@@ -3,19 +3,32 @@ using System.Collections.Generic;
 namespace Axiom.Mesh.Host;
 
 /// <summary>
-/// One entry of <c>services</c> (LOCAL-SPEC.md §4.2, §5.12): how the service proves its name (exactly one of
-/// <see cref="InProcess"/>, <see cref="Spawn"/> and <see cref="External"/>), its token, and the kinds it may register.
+/// One entry of <c>services</c> (LOCAL-SPEC.md §4.2, §5.12, §9.6): how the service proves its name (exactly one of
+/// <see cref="InProcess"/>, <see cref="Spawn"/> and <see cref="External"/>), its token, the kinds it may register, what the
+/// daemon starts it with, and whether its pins outlive its connection.
 /// </summary>
 internal sealed record ServiceSection
 {
     /// <summary>The default <c>cli</c> entry: external, kinds Archive and Channel, Entry kinds Version, Message, Redaction (plan D4).</summary>
     public static ServiceSection DefaultCli => new() { External = true, Kinds = [1, 2], EntryKinds = [1, 2, 3] };
 
+    /// <summary>The default <c>chat</c> entry (S-D11): <c>axiom-mesh-chat</c> beside the daemon, Channel with Message and Redaction.</summary>
+    public static ServiceSection DefaultChat => new() { Spawn = "axiom-mesh-chat", Kinds = [2], EntryKinds = [2, 3] };
+
+    /// <summary>The default <c>sync</c> entry (S-D11): <c>axiom-mesh-sync</c> beside the daemon, Archive with Version.</summary>
+    public static ServiceSection DefaultSync => new() { Spawn = "axiom-mesh-sync", Kinds = [1], EntryKinds = [1] };
+
     /// <summary>Compiled into the daemon and connected in process. Default false.</summary>
     public bool InProcess { get; set; }
 
-    /// <summary>The executable the daemon spawns and supervises; <see langword="null"/> for none. Default null.</summary>
+    /// <summary>
+    /// The executable the daemon spawns and supervises: an absolute path, or a bare file name found beside the daemon
+    /// (<c>.exe</c> added on Windows); <see langword="null"/> for none. Default null.
+    /// </summary>
     public string? Spawn { get; set; }
+
+    /// <summary>The arguments a spawned service is started with, after the executable. Default none.</summary>
+    public List<string> Args { get; set; } = [];
 
     /// <summary>A program the user starts, presenting <see cref="Token"/>. Default false.</summary>
     public bool External { get; set; }
@@ -30,4 +43,7 @@ internal sealed record ServiceSection
 
     /// <summary>The Entry kinds it may register (SPEC.md §14.7). Default none.</summary>
     public List<ushort> EntryKinds { get; set; } = [];
+
+    /// <summary>Whether the daemon releases the service's <c>Service</c> pins when its connection ends (§9.6). Default false: they stay for a restart.</summary>
+    public bool ReleasePinsOnDisconnect { get; set; }
 }

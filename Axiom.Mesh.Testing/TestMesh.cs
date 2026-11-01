@@ -8,6 +8,7 @@ using Axiom.Mesh.Core;
 using Axiom.Mesh.Core.Storage;
 using Axiom.Mesh.Discovery;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Service;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Axiom.Mesh.Testing;
@@ -401,6 +402,9 @@ public sealed class TestMesh : IMeshFixture
 
     /// <inheritdoc />
     Task<CliResult> IMeshFixture.CliAsync(string name, string commandLine, CancellationToken cancellationToken) => this[name].CliAsync(commandLine, cancellationToken);
+
+    /// <inheritdoc />
+    Task<RunningService> IMeshFixture.RunServiceAsync(string name, IMeshService service, CancellationToken cancellationToken) => this[name].RunServiceAsync(service, cancellationToken);
 
     /// <inheritdoc />
     Task<ScriptedPeer> IMeshFixture.ConnectScriptedPeerAsync(string target, TestIdentity identity, CancellationToken cancellationToken) =>

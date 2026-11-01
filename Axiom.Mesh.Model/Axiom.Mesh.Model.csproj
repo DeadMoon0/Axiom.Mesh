@@ -9,7 +9,7 @@
     <PackageTags>Axiom;Mesh;p2p;lan;content-addressed;signing;replication</PackageTags>
     <PackageIcon>Icon.png</PackageIcon>
     <Description>Part of the Axiom family. The honest core of Axiom.Mesh: ids, objects, Entries and their signatures, the history's order and the rules that decide what is valid, as pure functions with no socket, disk or clock.</Description>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <PackageProjectUrl>https://github.com/DeadMoon0/Axiom.Mesh</PackageProjectUrl>
     <RepositoryUrl>https://github.com/DeadMoon0/Axiom.Mesh.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

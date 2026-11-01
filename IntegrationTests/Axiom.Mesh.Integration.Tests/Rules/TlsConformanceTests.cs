@@ -74,7 +74,7 @@ public sealed class TlsConformanceTests
     // Alice's laptop alone on loopback, knowing Bob, so Bob's desktop passes the peer check of §4.3.
     private static async Task<RealMeshFixture> TrustingBobAsync()
     {
-        RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], None);
+        RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], [], None);
         await mesh.Node("alice-laptop").AcceptUserAsync(TestIdentity.RosterOf("bob"), None);
         return mesh;
     }

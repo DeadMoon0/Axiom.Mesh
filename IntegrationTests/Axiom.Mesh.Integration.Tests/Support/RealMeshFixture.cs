@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Axiom.Mesh.Cli;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Service;
 using Axiom.Mesh.Testing;
 
 namespace Axiom.Mesh.Integration.Tests.Support;
@@ -44,9 +45,10 @@ internal sealed class RealMeshFixture : IMeshFixture
     /// <param name="names">Published device names.</param>
     /// <param name="withoutIdentity">The nodes that start without an identity.</param>
     /// <param name="severed">Pairs of nodes that never hear each other's announcement.</param>
+    /// <param name="services">The services every node's local port lists as external, beside <c>cli</c>.</param>
     /// <param name="cancellationToken">Cancels starting.</param>
     /// <returns>The running mesh.</returns>
-    public static async Task<RealMeshFixture> StartAsync(IReadOnlyList<string> names, IReadOnlyList<string> withoutIdentity, IReadOnlyList<(string A, string B)> severed, CancellationToken cancellationToken)
+    public static async Task<RealMeshFixture> StartAsync(IReadOnlyList<string> names, IReadOnlyList<string> withoutIdentity, IReadOnlyList<(string A, string B)> severed, IReadOnlyList<ServiceDefinition> services, CancellationToken cancellationToken)
     {
         string root = Path.Combine(Path.GetTempPath(), "axiom-mesh-it", Guid.NewGuid().ToString("N")[..12]);
         var board = new InMemoryNetwork();
@@ -55,7 +57,7 @@ internal sealed class RealMeshFixture : IMeshFixture
         {
             string directory = Path.Combine(root, names[i]);
             Directory.CreateDirectory(directory);
-            nodes[names[i]] = new RealNode(TestIdentity.Of(names[i]), new IPAddress([127, 0, 0, (byte)(i + 2)]), directory, board, !withoutIdentity.Contains(names[i]));
+            nodes[names[i]] = new RealNode(TestIdentity.Of(names[i]), new IPAddress([127, 0, 0, (byte)(i + 2)]), directory, board, !withoutIdentity.Contains(names[i]), TestServices.With(TestCliService.Local, [.. services]));
         }
 
         var fixture = new RealMeshFixture(nodes, root);
@@ -195,6 +197,9 @@ internal sealed class RealMeshFixture : IMeshFixture
         CliExitCode exit = await CliProgram.RunAsync(CliWords.Split(commandLine), output, error, environment, cancellationToken).ConfigureAwait(false);
         return new CliResult(exit, output.ToString().ReplaceLineEndings("\n"), error.ToString().ReplaceLineEndings("\n"));
     }
+
+    /// <inheritdoc />
+    public Task<RunningService> RunServiceAsync(string name, IMeshService service, CancellationToken cancellationToken) => this[name].RunServiceAsync(service, cancellationToken);
 
     /// <inheritdoc />
     public async Task<ScriptedPeer> ConnectScriptedPeerAsync(string target, TestIdentity identity, CancellationToken cancellationToken)

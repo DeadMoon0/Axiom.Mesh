@@ -103,7 +103,7 @@ public sealed class FloorTests(ITestOutputHelper output)
 
     private static async Task<RealMeshFixture> PairedAsync()
     {
-        RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop", "bob-desktop"], [], [], None);
+        RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop", "bob-desktop"], [], [], [], None);
         await mesh.PairAsync("alice-laptop", "bob-desktop", None);
         await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
         return mesh;

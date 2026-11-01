@@ -33,7 +33,7 @@ public sealed class PipeTests
     {
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
             return;
-        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], None);
+        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], [], None);
         long before = mesh.Node("alice-laptop").Facts.LastSequence;
 
         LocalClient client = await mesh.ConnectUserAsync("alice-laptop", "pid probe", None);
@@ -51,7 +51,7 @@ public sealed class PipeTests
     {
         if (!OperatingSystem.IsWindows())
             return;
-        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], None);
+        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], [], None);
         long before = mesh.Node("alice-laptop").Facts.LastSequence;
         using var remote = new NamedPipeClientStream(Environment.MachineName, mesh["alice-laptop"].Pipe.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
@@ -68,7 +68,7 @@ public sealed class PipeTests
     {
         if (!OperatingSystem.IsWindows())
             return;
-        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], None);
+        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], [], None);
         using var client = new NamedPipeClientStream(".", mesh["alice-laptop"].Pipe.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(5_000, None);
 
@@ -116,7 +116,7 @@ public sealed class PipeTests
     {
         if (!OperatingSystem.IsLinux())
             return;
-        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], None);
+        await using RealMeshFixture mesh = await RealMeshFixture.StartAsync(["alice-laptop"], [], [], [], None);
         string path = mesh["alice-laptop"].Pipe.Path;
         OpenUp(Path.GetDirectoryName(path)!);
 

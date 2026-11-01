@@ -52,4 +52,49 @@ internal static partial class HostLog
     /// <param name="flush">What a directory flush does here.</param>
     [LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "store {Data}: directory flush {Flush}")]
     public static partial void StoreFlush(ILogger logger, string data, StoreDirectoryFlush flush);
+
+    /// <summary>A spawned service's child started (LOCAL-SPEC.md §4.2); its token is never logged.</summary>
+    /// <param name="logger">The daemon's logger.</param>
+    /// <param name="name">The service.</param>
+    /// <param name="pid">The child's process id.</param>
+    /// <param name="executable">Its executable.</param>
+    [LoggerMessage(EventId = 7, Level = LogLevel.Information, Message = "service {Name} started: pid {Pid}, \"{Executable}\"")]
+    public static partial void ServiceStarted(ILogger logger, string name, int pid, string executable);
+
+    /// <summary>A line a spawned service wrote to its standard output or error: its log.</summary>
+    /// <param name="logger">The daemon's logger.</param>
+    /// <param name="name">The service.</param>
+    /// <param name="line">The line.</param>
+    [LoggerMessage(EventId = 8, Level = LogLevel.Information, Message = "service {Name}: {Line}")]
+    public static partial void ServiceOutput(ILogger logger, string name, string line);
+
+    /// <summary>A spawned service's child exited, and what the supervisor does about it.</summary>
+    /// <param name="logger">The daemon's logger.</param>
+    /// <param name="name">The service.</param>
+    /// <param name="exitCode">Its exit code; -1 when it did not start.</param>
+    /// <param name="decision">The supervisor's decision, in words.</param>
+    [LoggerMessage(EventId = 9, Level = LogLevel.Information, Message = "service {Name} exited with {ExitCode}: {Decision}")]
+    public static partial void ServiceExited(ILogger logger, string name, int exitCode, string decision);
+
+    /// <summary>The supervisor gave a spawned service up until the daemon restarts; never silent.</summary>
+    /// <param name="logger">The daemon's logger.</param>
+    /// <param name="name">The service.</param>
+    /// <param name="why">Why.</param>
+    [LoggerMessage(EventId = 10, Level = LogLevel.Error, Message = "service {Name} is given up and stays stopped: {Why}")]
+    public static partial void ServiceGaveUp(ILogger logger, string name, string why);
+
+    /// <summary>A spawned service did not exit within the stop grace and was killed with every process it started.</summary>
+    /// <param name="logger">The daemon's logger.</param>
+    /// <param name="name">The service.</param>
+    /// <param name="grace">The grace, in milliseconds.</param>
+    [LoggerMessage(EventId = 11, Level = LogLevel.Warning, Message = "service {Name} did not exit within {Grace} ms of the stop and is killed")]
+    public static partial void ServiceKilled(ILogger logger, string name, double grace);
+
+    /// <summary>A spawned service's child could not be started.</summary>
+    /// <param name="logger">The daemon's logger.</param>
+    /// <param name="name">The service.</param>
+    /// <param name="executable">Its executable.</param>
+    /// <param name="why">The system's message.</param>
+    [LoggerMessage(EventId = 12, Level = LogLevel.Error, Message = "service {Name} could not be started from \"{Executable}\": {Why}")]
+    public static partial void ServiceNotStarted(ILogger logger, string name, string executable, string why);
 }

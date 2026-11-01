@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Core;
 using Axiom.Mesh.Local;
+using Axiom.Mesh.Service;
 
 namespace Axiom.Mesh.Testing;
 
@@ -91,6 +92,17 @@ public interface IMeshFixture : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the opening.</param>
     /// <returns>The client, Ready; the fixture closes it when the node stops.</returns>
     Task<LocalClient> ConnectCliServiceAsync(string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs a service in process beside a node, connected to its local port as the external service the node's configuration
+    /// lists for it (<see cref="TestServices.With"/>), its state kept across runs: in memory on one fake clock, or in a
+    /// directory of the node over the real pipe. Returns once the service is connected; dispose the result to stop it.
+    /// </summary>
+    /// <param name="name">The node.</param>
+    /// <param name="service">The service.</param>
+    /// <param name="cancellationToken">Stops waiting for the connection.</param>
+    /// <returns>The running service.</returns>
+    Task<RunningService> RunServiceAsync(string name, IMeshService service, CancellationToken cancellationToken);
 
     /// <summary>Runs one <c>axiom-mesh</c> command line against a node, as the command line runs against its Host.</summary>
     /// <param name="name">The node.</param>
