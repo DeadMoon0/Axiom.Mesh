@@ -1,0 +1,25 @@
+<identity>
+    <package>Axiom.Mesh.Sync</package>
+    <role>addon-skill</role>
+    <requires>Axiom.Mesh.Service.SKILL.md, Axiom.Mesh.Sync.Client.SKILL.md, Axiom.Mesh.Local.SKILL.md</requires>
+</identity>
+
+<objective>
+    Teach an agent to change the sync service axiom-mesh-sync: bindings of folders to Archives, the crash-safe run that publishes local changes and merges the branch's leaves by SPEC.md §9.5, its pure rules, its LDB database, its shell and how it is tested and shipped, keeping it a service without a user interface.
+</objective>
+
+<package_scope>
+    Executable Services/Axiom.Mesh.Sync (namespace Axiom.Mesh.Sync; Native AOT TargetName axiom-mesh-sync with IlcArg --noscan, STRUCTURAL-DEBT 47; not packable). Public: SyncService : IMeshService (ctor() = SyncServiceOptions.Default, ctor(SyncServiceOptions { Time, Stability })), SyncProgram { Version, Definition (sync, Archive kind 1 with Version 1) }; Program.cs is one line over ServiceProgram.Run. Internal (open to Sync.Tests and Axiom.Mesh.Benchmarks): Rules/ (pure, no System.IO, clock, client or task, proved by PureRulesTests: VersionFact.TryOf, Leaves.Of/Head, Ancestor.Of, FlatEntry, FlatTree, TreeFlattener.TryOf, TreeSet.TryBuild/EmptyTree, Merge.TryOf -> MergedTree { Root, Made, Copies, EqualsLater }, ConflictName.Of, ConflictCopy, ChangeDetection.Of (racy window 2 s) -> ChangeSet, Fingerprint, ScannedFile, ModeMemory.Of, IgnoreRule.TryParse/Matches, VirtualLeaf.Key, BindingRule.Check -> BindingVerdict, BindingIdentity.Of, Debounce.Next, LocalTree.Of, SyncPlanner.Plan(PlanInput) -> SyncPlan (PlanKind Nothing|Publish|Pull|MergeChain|PublishThenMerge|FirstSync|PullReadOnly), DiskDiff.Of -> DiskPlan, TreeName.MayHold, TextCut, RunStep), Store/ (SyncMetaRow, BindingRow, FingerprintRow, VersionRow, ConflictRow, PutRow, RowBytes, SyncStore, VersionIndex), Engine/ (SyncRun, RunOutcome, RunStoppedException), Shell/ (IDirectoryScanner/DirectoryScanner, IFolderWatcher(Factory)/FileSystemFolderWatcher, FileHasher, TreeLoader, ObjectFetcher, Publisher, Materialiser, MarkerFile, BindingSpec, BindingWorker, BindingBook, BindingContext, SessionHolder, SyncHandlers, Refusal, SyncAnswer<T>, ConflictViews, SyncLog), SyncServiceOptions.Scanner/Watchers/CrashAt (test seams).
+</package_scope>
+
+<architecture>
+    One BindingWorker per binding runs one SyncRun at a time behind a gate of 4 runs, triggered by the watcher after its debounce (2 s quiet, 30 s cap, on SyncServiceOptions.Time), the 10-minute rescan, the start, a new Version of its Archive in the runtime's stream, a Package change, bind and scan. A run: GetPackage (rights, latest clock); refuse to plan while the Version DAG is behind the Host (ListStored beyond VersionIndex.LastSeq); scan, detect, read changed files with StoreFiles.PutFileAsync (3 at a time, PutRow per object), build the local Trees (LocalTree keeps the base's state for ignored, refused, busy and unwritten-symlink paths); resume a PendingTree, else plan; publish (WriteEntry with explicit ascending parents, never when an own leaf already names the Tree, then BaseTree/BaseLeaves committed); merge leaves two lowest first (merge Versions written before the disk changes, elided when the merge equals the later of the last two leaves); a first sync merges the folder against the empty tree as the virtual leaf and publishes that merge naming the leaf; record PendingTree, write the DiskPlan with StoreFiles.WriteFileAsync and a fingerprint per file, commit the base, then unpin every PutRow. Versions, fingerprints and puts commit Durability.Lazy; bindings and conflicts Full. Another store epoch drops the DAG and every binding's leaves and pending Tree, keeping base Trees and fingerprints, so the next run is a first sync.
+</architecture>
+
+<best_practices>
+    Keep decisions in Rules/ with a test from SPEC.md §9.5 or SYNC-SERVICE.md per point (Sync.Tests Rules/); keep the shell thin. Prove a new crash point with RunStep and CrashResumeTests. Scenarios go into SyncScenarios (one file, run in memory and on sockets): start runs with scan, wait on status (Pending false, Runs grown), never on time; use SyncServiceOptions { Time = mesh.Clock, Stability = TimeSpan.Zero } in tests. Add a method by adding its records to Sync.Client (SyncMethods, request, reply), a row to SYNC-SERVICE.md §5 (SyncServiceDocTests), a case to SyncHandlers.CallAsync (MethodTableTests) and a sample to SyncSamples plus the vector file (AXIOM_MESH_WRITE_VECTORS=1).
+</best_practices>
+
+<pitfalls>
+    No System.Console outside Program.cs, no reference to the CLI or a UI framework (ServiceConventionTests). A merge must not depend on which leaf is ours or on the platform: names compare case-insensitively everywhere, the later leaf by EntryKey. Never let the Host choose parents. File write times come from the system clock, not SyncServiceOptions.Time: stability and the racy window compare against DateTimeOffset.UtcNow. LocalClient allows 64 outstanding requests: keep FileHasher's concurrency low. Fetch refuses a Tree no stored Entry reaches: fetch leaves' Trees, never a merge made in memory.
+</pitfalls>

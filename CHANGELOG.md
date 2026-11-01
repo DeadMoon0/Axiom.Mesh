@@ -50,6 +50,29 @@ S1, the chat service:
 - `Axiom.Mesh.Testing`: `IMeshFixture.RunServiceAsync(name, service, stateOf, ct)` and
   `TestNode.RunServiceAsync(service, stateOf, ct)` run a service with another node's kept state (another store epoch).
 
+S2, the sync service:
+
+- **The sync service `axiom-mesh-sync`** ([SYNC-SERVICE.md](Documentation/SYNC-SERVICE.md) draft 1): a folder bound to an
+  Archive and one of its branches, kept in step both ways. Local changes are published as Versions naming their parents
+  explicitly; concurrent leaves are merged by SPEC.md §9.5 (pays STRUCTURAL-DEBT.md 5); a path changed on two devices
+  keeps the later leaf's file and the other side's file or subtree beside it as `<name>.conflict-<8 hex>`; every run is
+  crash-safe (the target recorded before the disk changes, the base after). Its own database
+  (`<home>/services/sync/index`), the namespace `axiom-mesh-sync/1` (six methods, two events, seven statuses). Ships beside
+  `axiom-meshd` in the zips (Native AOT); the Host's default configuration starts it.
+- **New package `Axiom.Mesh.Sync.Client`**: the namespace's records, `SyncCall`, `SyncEventReader`, `SyncStatus` and
+  `SyncStatusText`, `SyncLimits`, `SyncCodec`, `SyncProtocol`; test vectors in `Documentation/vectors/sync/records.txt`.
+- **Command line:** `sync add <dir> (--package <id|name> | --create <name>) [--label] [--symlinks asfile|ignore]
+  [--ignore …]`, `sync remove`, `sync list`, `sync status [<dir>]`, `sync scan [<dir>]`, `sync conflicts [<dir>]`,
+  `sync watch`. `host install` adds `services.sync` to a `config.json` an older Host wrote (`--no-sync` leaves it out);
+  `package publish` points at `sync add` when the sync service holds Archives.
+- `Axiom.Mesh.Local`: the file helpers' pure parts are public (STRUCTURAL-DEBT.md 55 narrowed): `FileNameRule` with
+  `ReservedPrefix` (`.axiom-mesh-` names are never published nor written), `FolderTrees.TryBuild` over `FolderFile`s,
+  `MaterialisePlan`, `PlannedFile`, `PlannedFileKind`, `ObjectReader`; `StoreFiles.WriteFileAsync` writes one planned file.
+- `Axiom.Mesh.Service`: a call that reaches a service while it connects waits until `OnConnectedAsync` returned (it was
+  answered by each service's own gate).
+- `Axiom.Mesh.Testing`: `TestMesh.ConnectAsync` steps the fake clock past a backoff both peers hold, so a pair severed
+  and healed always reconnects.
+
 ## 0.1.0
 
 The first release: the Fundamentals of [the plan's phase 1a](Documentation/DESIGN.md) (DESIGN.md §17). Two desktops on

@@ -97,6 +97,36 @@ What it took: one index transaction per Entry made the catch-up 20.5 s; the runt
 to `IMeshService.OnEntriesAsync` (one transaction per page of up to 64), commits its cursor lazily durable after each page
 or lull instead of after each Entry, and the chat service keeps each Channel's owner for the connection.
 
+## Added in S2: the sync service
+
+Measured on 2026-11-01 on the machine above. The pure rules (`dotnet run -c Release -f net10.0 -- --filter
+*SyncBenchmarks* --job short --memory` in `Benchmarks/Axiom.Mesh.Benchmarks`):
+
+| Benchmark | Target | Measured |
+|---|---|---|
+| `SyncBenchmarks.DetectChangesIn100kUnchanged`: 100 000 scanned files against their fingerprints, none changed | ≤ 100 ms | 6.9 ms, 8.9 MB allocated (the result lists, about 89 bytes per file; nothing else per file) |
+| `SyncBenchmarks.MergeOf10kEntriesBothSidesChanged`: an ancestor of 10 000 files, one side changed 1 000 and the other another 1 000 and 100 of the first | ≤ 50 ms | 6.3 ms, 11.4 MB allocated |
+| `SyncBenchmarks.FlattenAndRebuild10kEntries`: a Tree of 10 000 files flattened and built again to the same root | ≤ 50 ms | 10.9 ms, 13.2 MB allocated |
+
+The floors on real nodes over loopback TLS and the real pipe, the service in process beside each on the system's clock
+(`AXIOM_MESH_FLOORS=1 dotnet test IntegrationTests/Axiom.Mesh.Integration.Tests -c Release -f net10.0 --filter
+FullyQualifiedName~SyncFloorTests`; `dotnet run -c Release -f net10.0 -- scenario sync` runs the same code):
+
+| Floor | Bound | Measured |
+|---|---|---|
+| An unchanged folder of 100 000 files, scanned by a run that publishes nothing | ≤ 2 s | 0.59 s |
+| A changed 1 MiB file, from the end of the 2 s debounce to its Version stored | ≤ 1 s | 0.07 s |
+| Scenario 6: a folder of 10 000 small files and one of 64 MiB bound on Alice, from the bind to the last byte in Bob's empty bound folder | ≤ 120 s (target 60 s) | 78 to 84 s (three runs) |
+
+What it took: the first run of scenario 6 took 254 s, and the 100 000-file folder could not even be published within five
+minutes. A probe of each step found the service's per-file tables keyed with the binding's id first: LDB keys a byte
+column by its first 8 bytes, so every row of a binding shared one key and each insert checked them all (16 s to record
+8 500 puts). The keys now lead with the path's or the object's hash (`Sync.Tests: StoreKeyTests`); files are read into the
+store 16 requests in flight and written 8 at a time. What
+remains is the Hosts': two `PutObject`s per small file at about 1.2 ms each on the publishing Host (flat from 16 to 60 in
+flight), about 1.4 ms per object replicated to the other, and about 1.7 ms per file written there, most of it the flush
+before the rename (STRUCTURAL-DEBT.md 77).
+
 ## Misses
 
 | Target | Debt | Why, in one line |
@@ -105,6 +135,7 @@ or lull instead of after each Entry, and the chat service keeps each Channel's o
 | 1 000 entries in one LDB transaction ≤ 50 ms | 62 | LDB 0.1.0 maintains five indexes per Entry row and allocates about 50 KB per row inside the transaction. |
 | 1 GiB over loopback ≥ 400 MiB/s | 60 | Every object is a file flushed on its own, and every stored, served and checked object costs index reads and writes; the receiver's writer bounds the stream. |
 | ≤ 2 allocations in the Host for `GetIdentity` | 63 | The local port's request path (state machines, the answer, the outbox entry, the record) allocates per request. |
+| Sync scenario 6 (10 000 files and 64 MiB between two nodes) ≤ 60 s | 77 | Two `PutObject`s per small file on one Host, one replicated object each on the other and a flushed write per file; the floor holds 120 s. |
 
 ## CI guard
 

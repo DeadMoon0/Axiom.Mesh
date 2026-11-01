@@ -122,3 +122,28 @@ written and read; the payload bounds they repeat (text, attachments, names) are 
 | `replyTo` steps to a thread's root | 64 | 5.5 | the walk stops | `ChatLimits.ThreadDepth` |
 | progress events of a job | one a second | 6.4 | coalesced | `JobRule.ProgressInterval` |
 | Entries per catch-up page handed to a service | 64 | LOCAL §9.3 | the next page | `ServiceRunner.PageSize` |
+
+## Sync namespace (SYNC-SERVICE.md §9)
+
+The sync service's own bounds are constants of `Axiom.Mesh.Sync.SyncLimits` in the Client library, where the records are
+written and read; the bounds they repeat (a Tree's entries and names, a Version's label, a payload) are SPEC.md's and
+PAYLOADS.md's, through `Limits`.
+
+| Limit | Value | § | When reached | Constant |
+|---|---|---|---|---|
+| bindings of a service | 64 | 2, 5.2 | `Busy` | `SyncLimits.Bindings` |
+| ignore patterns of a binding | 64 | 2, 5.2 | `Invalid` | `SyncLimits.IgnorePatterns` |
+| ignore pattern | 255 bytes | 5.2 | `Invalid` | `SyncLimits.PatternLength` |
+| directory or path in a record | 4 096 bytes | 4 | `Invalid` | `SyncLimits.PathLength` |
+| entries of a directory published | 8 192 | 3, 9 | a `TooManyEntries` conflict, the directory keeps the branch's state | `SyncLimits.EntriesPerDirectory` |
+| conflicts per `conflicts` page | 1 024 | 5.6 | the page is cut, `more` | `SyncLimits.ConflictsPage` |
+| bytes of a reply or an event | 1 MiB | 5.6 | the page is cut, `more` | `SyncLimits.PayloadBytes` |
+| branch label | 64 bytes | 5.2 | `Invalid` | `SyncLimits.LabelLength` |
+| error text of a binding | 256 bytes | 4 | cut between characters | `SyncLimits.ErrorLength` |
+| debounce | 2 s quiet, 30 s at most after the first change | 3 | the run starts | `SyncLimits.DebounceQuiet`, `SyncLimits.DebounceCap` |
+| a file changed this recently is busy | 2 s | 3 | read at a later run | `SyncLimits.Stability` |
+| a fingerprint taken this soon after the write is racy | 2 s | 3 | the file is read again | `ChangeDetection.RacyWindow` |
+| rescan of every binding | 10 minutes | 3 | a run | `SyncLimits.Rescan` |
+| runs at once over all bindings | 4 | 3 | the next run waits | `BindingContext.RunsAtOnce` |
+| retry of a binding waiting for objects | 2 s, doubling to 1 minute | 3 | the run is tried again | `WaitRetry.First`, `WaitRetry.Longest` |
+| `binding` events of a run | one a second, and its end | 6.1 | coalesced | `BindingWorker.EventGap` |

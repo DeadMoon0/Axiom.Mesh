@@ -93,11 +93,17 @@ axiom-mesh grant revoke Family bob
 | `chat withdraw <entry>` | Withdraw your message; every device then shows it withdrawn, never its text. |
 | `chat get <entry> <attachment> --out <path> [--existing fail\|replace\|merge]` | Fetch an attachment (by its name, or a prefix of its hash) and write it; `merge` for folders. |
 | `chat watch <channel>` | A Channel's messages and withdrawals as they come, until Ctrl-C. |
+| `sync add <dir> (--package <archive> \| --create <name>) [--label <branch>] [--ignore <pattern>]… [--symlinks asfile\|ignore]` | Keep a folder in sync with an Archive, both ways, through the sync service; `--package` follows the Archive here first. |
+| `sync remove <dir>` | Stop keeping a folder in sync; its files stay. |
+| `sync list [--json]`, `sync status [<dir>] [--json]` | The folders kept in sync; one in detail (the current directory's by default): state, files, head, leaves, local changes, conflicts. |
+| `sync scan [<dir>]` | Look at a synced folder now instead of waiting for its watcher. |
+| `sync conflicts [<dir>] [--json]` | The conflicts the sync service recorded: the path, the copy written beside it, the other device. |
+| `sync watch [<dir>]` | Every run and conflict of the synced folders as they come, until Ctrl-C. |
 | `history <package> [--limit <n>] [--reverse] [--json]` | A Package's Entries, oldest first; a withdrawn message shows as `(withdrawn)`. |
 | `entry <hash> [--json]`, `object <hash> [--out <file>]` | One Entry in full; one object's tag and size, or its bytes. |
 | `watch [<package>]` | Every Entry stored from now on, until Ctrl-C. |
 | `store`, `pins [--json]`, `pin <hash>`, `unpin <hash>` | The store; pins; keep or release an object. |
-| `host install [--daemon <path>] [--no-start] [--json]` | Start the Host at every logon (a per-user scheduled task on Windows, a systemd user unit on Linux, as the install scripts do), and now; the daemon next to this tool unless `--daemon` names one. |
+| `host install [--daemon <path>] [--no-start] [--no-sync] [--json]` | Start the Host at every logon (a per-user scheduled task on Windows, a systemd user unit on Linux, as the install scripts do), and now; the daemon next to this tool unless `--daemon` names one. |
 | `host uninstall [--daemon <path>] [--json]` | Stop the Host and remove its start at logon; nothing registered is no failure. Binaries and data stay. |
 | `version`, `help [<command>]` | This tool's version; every command, or one command's options. |
 
@@ -131,6 +137,10 @@ Packages and users also by their exact name. A prefix that names two is refused 
 - **The chat commands** call the chat service (`axiom-mesh-chat`, [CHAT-SERVICE.md](../../Documentation/CHAT-SERVICE.md))
   over `ServiceCall` as the user; when it is not connected they say so (exit 3). Paths of `chat send --file` and
   `chat get --out` are made absolute here and read or written by the service, as the Host's user.
+- **The sync commands** call the sync service (`axiom-mesh-sync`, [SYNC-SERVICE.md](../../Documentation/SYNC-SERVICE.md))
+  the same way; `sync add` creates or follows the Archive as the user first, then binds the folder (made absolute here) and
+  returns once the binding is recorded; the service reads and writes the folder as the Host's user. A sync status is
+  explained with the sync service's own table (its codes from 32 768 overlap the chat service's).
 - **Files:** `package publish` and `package materialise` resolve a relative folder against the current directory and read
   or write it themselves, as your user, with the helpers of Axiom.Mesh.Local (`Trees.PublishDirectoryAsync`,
   `StoreFiles.MaterialiseAsync`); the Host only stores objects and parses no payload. `package materialise` fetches what

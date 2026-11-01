@@ -111,6 +111,10 @@ A:  axiom-mesh history Photos
 **Expected:** `written: entry <hash> (clock 0)`; the publish reports the Version's Entry and the root Tree; each history
 shows one Entry. Write down both Entry hashes (the first 12 hex digits are enough).
 
+From 0.2.0 the sync service holds Archives on a Host that runs it, and `package publish` says so and points at `sync add`.
+Bind the folder instead (`A:  axiom-mesh sync add ./photos --package Photos`, then `axiom-mesh sync status ./photos` until
+the state is `in sync` with a head); the history shows its Version the same way. Step 12 goes on from there.
+
 ## Step 6: follow on B and compare
 
 ```text
@@ -233,6 +237,39 @@ within a few seconds `axiom-mesh services` shows it connected again and `axiom-m
 
 **Pass:** same order on both, withdrawn on both, byte-equal attachment, the service restarted by the Host.
 
+## Step 12: sync a folder both ways
+
+Both PCs run `axiom-mesh-sync` beside the Host (the zip ships it; the Host starts it). With `Photos` of step 4
+and step 5's binding on A, A first lets Bob write Photos (step 8 granted Family only):
+
+```text
+A:  axiom-mesh grant set Photos bob --write
+A:  axiom-mesh services                          # sync: spawned, connected
+B:  axiom-mesh sync add <an empty folder> --package Photos
+B:  axiom-mesh sync status <that folder>         # until: in sync, the same head as A's
+```
+
+**Expected:** B's folder holds A's `photos`, byte-equal (compare as in step 6), and `sync status` shows the same head on
+both. Then, in turn:
+
+1. On B, add a file and change another; within a few seconds of the last save A's folder shows both
+   (`axiom-mesh sync status` on A: the head moved, `leaves 1`).
+2. Take B off the network (pull the cable or turn Wi-Fi off). Change the **same** text file on both, differently,
+   and a **different** file on each. Reconnect.
+3. Within a few seconds both folders hold the same files: each different file as its side left it, and the shared file
+   as the later leaf wrote it, with the other side's version beside it as `<name>.conflict-<8 hex>.<ext>`.
+   `axiom-mesh sync conflicts` on the PC that made the merge lists it (`copy written`); the other PC has the same copy in
+   its folder.
+4. Delete the copy you do not want on either PC: it disappears on the other.
+5. `axiom-mesh sync remove <folder>` on B: the files stay; `axiom-mesh sync list` no longer shows it.
+
+**Then** end `axiom-mesh-sync` on A while it writes (copy a large folder into it, then `Stop-Process -Name
+axiom-mesh-sync` / `pkill axiom-mesh-sync`): the Host starts it again, the folder settles, and `axiom-mesh history Photos`
+shows no Version twice for the same tree.
+
+**Pass:** byte-equal folders on both after every change; the conflict resolved identically on both, nothing lost; the
+removal leaves the files; the restarted service finishes without a partial file or a second Version.
+
 ## Cleaning up
 
 `axiom-mesh host uninstall` stops the Host and removes its logon start; `install.ps1 -Uninstall` / `install.sh
@@ -260,7 +297,8 @@ Step 8  write grant, B to A          pass / fail   entry:
 Step 9  revoke                       pass / fail   notes:
 Step 10 Eve never established        pass / fail   what Eve's peers showed:
 Step 11 chat (0.2.0)                 pass / fail   same order: yes / no   attachment byte-equal: yes / no   restarted: yes / no
+Step 12 sync (0.2.0)                 pass / fail   byte-equal: yes / no   conflict identical on both: yes / no   restarted: yes / no
 
 Anything unexpected (copy the exact line):
-Verdict: phase 1a accepted / not accepted; chat (phase 2, step 11) accepted / not accepted
+Verdict: phase 1a accepted / not accepted; chat (phase 2, step 11) accepted / not accepted; sync (phase 1b, step 12) accepted / not accepted
 ```

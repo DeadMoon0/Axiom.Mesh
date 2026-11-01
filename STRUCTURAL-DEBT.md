@@ -58,11 +58,12 @@ do today, how the pipe is named (`AXIOM_MESH_PIPE`, `pipe.name`, the default), a
 
 ## 5. Branch leaves, the merge table and conflict names are not built
 
-- **Rule:** SPEC.md §9.5 and §15 (the leaf rule and the merge table, including a criss-cross merge).
-- **Instead:** Model implements no merge; `UpdatePackage` takes no branches.
-- **Evidence:** fundamentals plan §2.1 ("minus §9.5 merge") and D7.
-- **Tolerated because:** only the Sync service needs merges, and it is phase 1b.
-- **Paid in:** phase 1b (Sync service).
+Paid in S2 (the sync service): the leaf rule, the display head, the common ancestor (criss-cross: the highest, no
+recursion), the merge table path by path with directory and file meeting as a conflict whose loser's subtree lies beside,
+the chain of two-parent merges and conflict names with `-2`, `-3` are pure rules of `Services/Axiom.Mesh.Sync/Rules`
+(`Leaves`, `Ancestor`, `Merge`, `ConflictName`, `SyncPlanner`), applied by the service to an Archive's Versions; the owner's
+Manifest `branches` are shown only. Tests: `Sync.Tests: LeafTests`, `AncestorTests`, `MergeTableTests`, `ConflictNameTests`,
+`PlannerTests`, `SyncScenarios`; the CONFORMANCE row of SPEC §9.5 is no longer deferred.
 
 ## 6. Telemetry series are not recorded
 
@@ -312,7 +313,10 @@ draft 5; `Core.Tests: LateParentTests`). What remains, recording the sender of s
 - **Evidence:** `Axiom.Mesh.Core/Replication/Replicator.cs` (`WalkAsync`).
 - **Tolerated because:** a desktop keeps everything from the start, and since M9 `Fetch` fetches on demand through the
   same scheduler (the client's helpers fetch with it before they materialise), which covers what a grown policy would want.
-- **Paid in:** phase 1b, with the Sync service's device policies (a walk over the stored Entries of a Package when its
+- **Narrowed in S2:** the sync service fetches what a binding needs with `Fetch` before it writes the directory (a
+  binding waits as `WaitingForObjects` while no peer supplies it), so a policy that grows is not what a synced folder
+  depends on; the desktop keeps everything.
+- **Paid in:** phase 4, with the device policies of the mobile nodes (a walk over the stored Entries of a Package when its
   policy grows).
 
 ## 30. Optional replication behaviours are not offered
@@ -323,7 +327,8 @@ draft 5; `Core.Tests: LateParentTests`). What remains, recording the sender of s
 - **Evidence:** `Axiom.Mesh.Core/Replication/SessionOutbox.cs`, `Node/PeerSessionHandler.cs` (`OwnHello`).
 - **Tolerated because:** both are SHOULD or MAY; a deferred answer is sent once the queue drains, and following is the
   user's decision in phase 1.
-- **Paid in:** phase 1b, with the Sync service and device policies (DESIGN.md §17).
+- **Paid in:** phase 4, with the device policies (DESIGN.md §17); the sync service of S2 needs neither: it fetches
+  what a binding needs, and a binding is made by the user, who follows the Archive first.
 
 ## 32. Spawned services are configured, not spawned
 
@@ -597,9 +602,13 @@ The release floor `FloorTests.AHistoryOfTenThousandEntriesIsWalkedWithinTwoMinut
   cancelled write leaving nothing visible) is what the real-directory tests are there to prove; an in-memory fake would
   prove the fake. An internal seam was weighed and not built: it would add an interface every shell call goes through and
   no test that fails today.
-- **Paid in:** phase 1b, only if the Sync service needs the helpers over something that is not a local directory (a
-  phone's content provider, for one); then the seam is designed for that, public, with its first real second
-  implementation.
+- **Narrowed in S2:** the pure parts the sync service needs are public (`FileNameRule` with `ReservedPrefix`,
+  `FolderTrees.TryBuild` over `FolderFile`s, `MaterialisePlan`, `PlannedFile`, `PlannedFileKind`, `ObjectReader`) and one
+  file is written with `StoreFiles.WriteFileAsync`; the sync service's own scanning and watching are seams of the service
+  (`IDirectoryScanner`, `IFolderWatcherFactory`), faked in its tests, not of the helpers. A local directory is all it
+  needs.
+- **Paid in:** phase 4, only if a node needs the helpers over something that is not a local directory (a phone's
+  content provider, for one); then the seam is designed for that, public, with its first real second implementation.
 
 ## 56. A store written before SPEC.md draft 5 is not refused at start
 
@@ -759,3 +768,104 @@ and a client otherwise had to poll `ListPackages` to notice a drop.
 - **Tolerated because:** an attachment is put for a message about to be sent; the CLI sends right after its jobs end.
 - **Paid in:** phase 3 (the app): an expiry for pending attachments (a `ChatPending` row older than a day is released),
   decided with the app's compose view, which may hold attachments longer.
+
+## 69. A file rewritten with its size and write time unchanged is not seen
+
+- **Rule:** SYNC-SERVICE.md §3 step 3: a file whose size, write time and mode match its fingerprint is not read.
+- **Instead:** the racy rule (a fingerprint taken less than 2 s after the file's last write is read again, as Git does)
+  closes the same-size edit within one tick of the file system's clock; a file rewritten later with the same size and a
+  write time set back to the old one (a tool that restores timestamps) is not seen until its size or time changes.
+- **Evidence:** `Services/Axiom.Mesh.Sync/Rules/ChangeDetection.cs` (`RacyWindow`);
+  `Sync.Tests: ChangeDetectionTests.AFingerprintTakenRightAfterTheWriteIsRacy_TheFileIsReadAgain`.
+- **Tolerated because:** editors and copy tools set a new write time; reading every file at every run would cost a full
+  read of the folder each time.
+- **Paid in:** phase 3, with the app's "check every file now" (a rescan that reads every file and compares hashes).
+
+## 70. Local symlinks are not published; a branch's symlinks are written as files
+
+- **Rule:** SPEC.md §8.4 lets a Tree hold symlinks (mode 3); SYNC-SERVICE.md §2 keeps them out of draft 1.
+- **Instead:** a symlink in a bound directory is skipped by the scan and never followed nor published; a symlink of the
+  branch is written as a regular file holding its target text (or not at all with `symlinks = Ignore`), and its fingerprint
+  remembers it so that a later scan publishes it unchanged.
+- **Evidence:** `Services/Axiom.Mesh.Sync/Shell/DirectoryScanner.cs`, `Rules/ModeMemory.cs`, `Rules/LocalTree.cs`.
+- **Tolerated because:** a link points outside the folder as often as inside, Windows creates links only with a privilege,
+  and writing a link a peer chose is a way out of the bound directory; a file holding the target loses nothing.
+- **Paid in:** a later phase (DESIGN.md §17, "later"), with a decision on links that stay inside the folder.
+
+## 71. Paths longer than the platform's classic limit are not tested
+
+- **Rule:** SYNC-SERVICE.md §9: a path of up to 4 096 bytes.
+- **Instead:** the service builds paths with `Path.Combine` and relies on .NET's long-path support on Windows (the
+  manifest of a .NET application opts in); no test binds a folder whose paths pass 260 characters.
+- **Evidence:** `Services/Axiom.Mesh.Sync/Shell/DirectoryScanner.cs`, `Shell/Materialiser.cs`; no such scenario.
+- **Tolerated because:** .NET 8 and later read and write long paths on Windows 10 and later when the system allows them;
+  a path the file system refuses is a `NameRefused` or `Unreadable` conflict, never a crash.
+- **Paid in:** phase 3, with the app's Windows installer, which also sets `LongPathsEnabled`.
+
+## 72. A directory of more than 8 192 entries is refused, not split
+
+- **Rule:** SPEC.md §8.4 bounds a Tree to 8 192 entries.
+- **Instead:** such a directory is a `TooManyEntries` conflict; it keeps the branch's state and nothing of it is published.
+- **Evidence:** `Services/Axiom.Mesh.Sync/Shell/DirectoryScanner.cs`; SYNC-SERVICE.md §3 step 2.
+- **Tolerated because:** the bound is the specification's; splitting a directory into several Trees needs a layout SPEC.md
+  does not define.
+- **Paid in:** not planned; with a SPEC.md draft that defines a split directory, if users meet the bound.
+
+## 73. A moved file is a deletion and an addition
+
+- **Rule:** DESIGN.md §17 (sync "keeps a folder in step"); no rule demands rename detection.
+- **Instead:** a renamed or moved file publishes its new path and deletes its old one; a conflict between a rename on one
+  side and an edit on the other keeps the edited file at the old path and the renamed file at the new one.
+- **Evidence:** `Services/Axiom.Mesh.Sync/Rules/Merge.cs` (path by path).
+- **Tolerated because:** the bytes are content-addressed, so a move sends no Chunk again; nothing is lost.
+- **Paid in:** a later phase (DESIGN.md §17, "later").
+
+## 74. Every merge of a chain is written as a Version
+
+- **Rule:** SPEC.md §9.5: concurrent leaves are merged two at a time until one remains.
+- **Instead:** each two-parent merge of a chain is written as its own Version, also when only the last one is ever shown;
+  three leaves make two merge Versions.
+- **Evidence:** `Services/Axiom.Mesh.Sync/Engine/SyncRun.cs` (`ReduceAsync`);
+  `Sync.Tests: SyncScenarios.ThreeConcurrentLeavesResolveByAChainOfTwoParentMerges_IdenticallyEverywhere`.
+- **Tolerated because:** a merge Version holds only a new root and the Trees that changed; writing every step keeps each
+  merge reproducible from its two parents, which is what lets another device arrive at the same Tree.
+- **Paid in:** not planned.
+
+## 75. A conflict is recorded only by the device that merged
+
+- **Rule:** SYNC-SERVICE.md §8: a conflict's copy lies beside the winner on every device.
+- **Instead:** the copy is in the merged Tree, so every device writes it, but the conflict row (and the `conflict` event)
+  exists only on the device that made the merge; the other device sees the copy in its folder and no row.
+- **Evidence:** `Services/Axiom.Mesh.Sync/Engine/SyncRun.cs` (conflicts recorded at the end of a merging run).
+- **Tolerated because:** the files are identical on both; a conflict list derived from a pulled Version would need the
+  merge to be recomputed on pull.
+- **Paid in:** phase 3, with the app's conflict view (a pulled merge Version is compared with its parents to list its
+  copies).
+
+## 76. The scan reads file times against the system clock
+
+- **Rule:** ARCHITECTURE.md rule 8: time is an injected edge.
+- **Instead:** whether a file is busy (changed within 2 s) and whether a fingerprint is racy are decided against
+  `DateTimeOffset.UtcNow`, because the file system stamps write times with the system clock; the debounce, the rescan and
+  the events run on `SyncServiceOptions.Time`.
+- **Evidence:** `Services/Axiom.Mesh.Sync/Engine/SyncRun.cs` (`ScanAsync`); `Rules/ChangeDetection.cs` takes the time as an
+  argument and is tested by rule.
+- **Tolerated because:** comparing a file system's times with a fake clock would compare two clocks; the rule itself is
+  pure, and tests set a stability of zero.
+- **Paid in:** not planned.
+
+## 77. Ten thousand small files take about 80 seconds between two nodes on one machine
+
+- **Rule:** plan §9.4 item 6: scenario 6 (10 000 small files and 64 MiB) across two real nodes within 60 s.
+- **Instead:** 78 to 84 s on the development machine (Windows 11, both Hosts and both services on one disk); the floor test
+  holds 120 s. Measured per small file: two `PutObject`s at about 1.2 ms each on the publishing Host (it stays near that
+  from 16 to 60 requests in flight), about 1.4 ms per object replicated and stored on the other Host, and about 1.7 ms to
+  write it there, most of it the flush to disk before the rename (SPEC.md §11.4: nothing partial under its name).
+- **Evidence:** `Integration.Tests: SyncFloorTests.TenThousandFilesAndSixtyFourMebibytesArriveWithinTwoMinutes`;
+  BENCHMARKS.md, sync. A probe found and S2 fixed what was the service's own: its per-file tables were keyed with the
+  binding's id first, and LDB keys a byte column by its first 8 bytes, so every insert checked every row of the binding
+  (254 s before, `Sync.Tests: StoreKeyTests`).
+- **Tolerated because:** a folder is synced once and then file by file; the unchanged scan (0.59 s for 100 000 files) and
+  a change (0.07 s after the debounce) are well within their floors.
+- **Paid in:** phase 3, with the Host's small-object path (several objects in one `PutObject` batch and one flush, the
+  replicator's per-object store cost); the service's share is already concurrent.
