@@ -45,6 +45,8 @@
 
   <PropertyGroup>
     <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeCliInPackage</TargetsForTfmSpecificBuildOutput>
+    <!-- IncludeCliInPackage resolves the references again while packing; with &#45;&#45;no-build that must not build them (NETSDK1085). -->
+    <BuildProjectReferences Condition="'$(NoBuild)' == 'true'">false</BuildProjectReferences>
   </PropertyGroup>
 
   <Target Name="IncludeCliInPackage" DependsOnTargets="ResolveReferences">

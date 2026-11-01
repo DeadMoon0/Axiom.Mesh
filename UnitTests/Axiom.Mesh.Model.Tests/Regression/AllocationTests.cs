@@ -55,7 +55,9 @@ public sealed class AllocationTests
 
         long allocated = Measure(() => VerifiedEntry.TryVerify(parsed, key, out _));
 
-        Assert.InRange(allocated, 1, 1024);
+        // The signature check converts P1363 to DER for the platform library: about 1 KiB with CNG on Windows, about 1.4 KiB
+        // with OpenSSL on Linux; the text alone is 16 KiB, so a copy would show.
+        Assert.InRange(allocated, 1, 2048);
     }
 
     // The least of several runs after a warm-up: a budget that the code keeps holds in every run, while a loaded

@@ -18,6 +18,7 @@
 .PARAMETER Version
     The version in the zip's name; by default the <Version> of the projects.
 #>
+#Requires -Version 7.0
 param(
     [string] $Runtime = "win-x64",
     [Parameter(Mandatory = $true)] [string] $Output,

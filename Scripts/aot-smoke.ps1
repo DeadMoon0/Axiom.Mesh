@@ -15,6 +15,7 @@
 .PARAMETER Output
     Where to publish; by default a temporary directory.
 #>
+#Requires -Version 7.0
 param(
     [string] $Runtime = "",
     [string] $Output = ""
@@ -125,8 +126,8 @@ try {
     Write-Host "== AOT smoke passed ($Runtime)"
 }
 finally {
-    # The whole tree: the Host and the chat service it spawned.
-    if ($null -ne $daemon -and -not $daemon.HasExited) { $daemon.Kill($true); $daemon.WaitForExit() }
+    # taskkill /T ends the daemon with the services it spawned; Process.Kill(bool) exists only in PowerShell 7.
+    if ($null -ne $daemon -and -not $daemon.HasExited) { & taskkill /T /F /PID $daemon.Id | Out-Null; $daemon.WaitForExit() }
     Remove-Item Env:\AXIOM_MESH_HOME, Env:\AXIOM_MESH_PIPE -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $meshHome -ErrorAction SilentlyContinue
 }
