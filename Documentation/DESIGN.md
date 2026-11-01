@@ -339,7 +339,7 @@ Honest layers at the bottom, one dishonest runtime at the top, in the ProtoStrea
 | Store | mostly | the content-addressed store: pure given a storage environment, which the test suite provides in memory |
 | Discovery | no | mDNS, UDP, static |
 | Host | no | LWSE server, MeshTls, the pipe, peer table, replication driver, pin evictor, service supervision |
-| Services | mixed | Sync and Chat: honest rules (what a Version means, how to order messages) on top, watchers and pipe clients below |
+| Services | mixed | Sync and Chat, programs of their own: honest rules (what a Version means, how to order messages) on top, the runtime of Axiom.Mesh.Service, watchers and their own LDB below |
 
 Tests for the honest layers need no sockets, no disk and no clock: ProtoStream's `CodecHarness` and
 `DefinitionAssert` for the protocol, in-memory LDB for the store, hand-built DAGs for the model.
@@ -382,15 +382,26 @@ protocol in its **service role** (§10.4). Through it a service
 - writes new entries, which the Host signs with the device key, stores and replicates;
 - asks the Host to store, pin, release and read objects; it cuts files into chunks and writes trees to disk
   itself, with the client library's helpers (`StoreFiles`, `Trees`), as its own user;
-- publishes what the user-facing clients may ask it (a Channel's rendered timeline, a folder's sync state),
-  which the Host relays to user clients as that service's namespace of the local protocol.
+- publishes what the user-facing clients may ask it (a Channel's timeline, a folder's sync state), which the
+  Host relays to user clients as that service's namespace of the local protocol: methods over `ServiceCall`,
+  events over `Emit`, statuses of its own.
 
-Where a service runs is a deployment choice, not a code choice. In the first release Sync and Chat are
-hosted **in-process**: compiled into the Host, connected to the local port over an in-memory stream pair,
-started and stopped by the Host's LWSE service lifecycle. The same binary contract lets a service run
-**out-of-process** later, as its own program connecting to the pipe, in any language, with crash containment
-and separate updates; the Host then supervises it. Native AOT rules out loading assemblies at run time, so
-there is no third option, and no service ever links against the Host's internals.
+**A service owns no user interface; its namespace is its only surface** (S-D13). It is the driver behind an app:
+it formats nothing for a person and writes nothing to a console but its log, references no UI framework and not
+the command line, and every method and event of its namespace is typed in its `.Client` library, which the CLI
+and the app reference (a convention test, `ServiceConventionTests`, holds every service to it).
+
+**Services are programs of their own** (S-D1, amended 2026-11-01; LOCAL-SPEC.md draft 5, decision 26). Sync and
+Chat are Native AOT executables (`axiom-mesh-sync`, `axiom-mesh-chat`) under `Services/`, which the Host spawns
+and supervises: for every start a fresh token, the pipe, the Host's home and a state directory of its own in the
+child's environment; a crash restarted with backoff, five crashes in five minutes or a configuration error given
+up loudly until the Host restarts; on the Host's stop the child is drained, then killed after the grace. Each is
+built on `Axiom.Mesh.Service`, the runtime that connects, registers, catches up by store sequence, reconnects,
+serves calls and keeps the service's state, and references `Axiom.Mesh.Local` and `Axiom.Mesh.Model` only, never
+Core or Host. Crash containment and separate updates come with it; the Host stays connections, routing, basic
+management and security. In-process hosting (connected to the local port over an in-memory stream pair) stays
+specified for platforms without child processes, the phones (§10.5); Native AOT rules out loading assemblies at
+run time, so there is no third option, and no service ever links against the Host's internals.
 
 Bulk data does not cross the pipe twice. Verified objects are immutable files under their hash (§11), so a
 service may read them directly from the store directory, read-only; the pipe carries control, entries and
@@ -448,7 +459,9 @@ local protocol, never to the service itself, so the view does not care whether t
 or out-of-process. First-party service views are compiled into the app; how a third-party service brings a
 view (a separate app of its own, or a declarative view description over the protocol) is decided when the
 first one exists. Specifics of the UI come later; the rule that holds now is that every pixel the app draws
-comes from the local protocol, so a CLI could show the same facts.
+comes from the local protocol, so a CLI could show the same facts. The other half of that rule is the
+service's: **a service owns no user interface; its namespace is its only surface** (§10.3), so the CLI's
+`chat …` and `sync …` commands and the app's views are two apps over the same `.Client` libraries.
 
 **Mesh analytics.** The app shows what the mesh is doing, from a telemetry namespace of the local protocol:
 peers and their sessions (direction, TLS suite, age, last seen, device and user), bytes and objects per peer,
@@ -470,8 +483,12 @@ Axiom.Mesh.Local/            the ProtoStream description of axiom-mesh-local/1, 
 Axiom.Mesh.Core/             store, registry, roster, grants, MeshTls, replication, pins, the local port
 Axiom.Mesh.Host/             the daemon: configuration, the pipe per platform, service supervision; connections,
                              routing, basic management, security; the Host parses no payload
-Services/Axiom.Mesh.Sync/    the Archive kind and the folder watcher; a client of Axiom.Mesh.Local
-Services/Axiom.Mesh.Chat/    the Channel kind; a client of Axiom.Mesh.Local
+Axiom.Mesh.Service/          the runtime every service is built on: connect, register, catch up, reconnect,
+                             callbacks, an LDB state with its cursor, the program shell (Local, Model, LDB)
+Services/Axiom.Mesh.Sync/    the executable axiom-mesh-sync: the Archive kind and the folder watcher, its own LDB
+Services/Axiom.Mesh.Sync.Client/  the sync namespace's records, names and statuses, for every app (NuGet)
+Services/Axiom.Mesh.Chat/    the executable axiom-mesh-chat: the Channel kind, its own LDB
+Services/Axiom.Mesh.Chat.Client/  the chat namespace's records, names and statuses, for every app (NuGet)
 Axiom.Mesh.Edge/             the Edge role: links, transports, crossing lists, the crossing log (later)
 Apps/Axiom.Mesh.App/         Avalonia, all platforms; a user client of Axiom.Mesh.Local
 Apps/Axiom.Mesh.Cli/         a command line; a user client of Axiom.Mesh.Local
@@ -482,12 +499,13 @@ Documentation/, Samples/, Benchmarks/
 ```
 
 Dependencies point downwards only: Host → Core → Protocol, Local, Discovery, Model → (ProtoStream, LWSE, LDB);
-Services and Apps → Local → Model → (ProtoStream) and nothing of Core or Host. Local references Model because a
+Services → Service → Local → Model → (ProtoStream), Service → LDB; Apps → Local and the services' `.Client`
+libraries; nothing of Core or Host (an app never references a service's executable). Local references Model because a
 service builds and parses Trees, ChunkLists, Versions and Messages, and one encoding of them beats two; Model is
 honest and depends on nothing but ProtoStream, so a client that references it takes on no runtime. Discovery
 references Model for the device and user ids, so an id has one definition, and stays usable alone. The Host
-references the services only to start them in-process; a convention test enforces that no service and no app
-references Core or Host.
+references no service: it starts each as a process from its configuration (S-D1); a convention test enforces
+that no service and no app references Core or Host.
 
 The Host's scope is connections, routing, basic management and security; **the Host parses no payload**. What
 it needs to route, pin, want and redact is in the signed Entry envelope (SPEC.md §8.6), and what a payload says
@@ -562,7 +580,10 @@ name (`axiom-mesh-chat/1`); a peer that offers a different version is simply not
 ## 13. Storage (LDB)
 
 One LDB database per node under the data directory, opened by the host; the app reads it only through the
-API. Tables, as `[LdbEntity]` classes:
+API. Each service keeps a database of its own (S-D2, amended 2026-11-01): `<home>/services/<name>/index`, in the
+state directory the Host creates for it, user-only; the service's tables and the runtime's cursor live there, and
+the Host's database holds nothing of a service. A service's index is a cache: it is rebuilt from the Host by store
+sequence, and discarded when the store epoch changes. Tables of the Host's database, as `[LdbEntity]` classes:
 
 | Table | Key | Holds |
 |---|---|---|
@@ -578,13 +599,13 @@ API. Tables, as `[LdbEntity]` classes:
 | `Peers` | device id | last addresses, last seen, last roster seq, statistics, `via link` when reached over a Link |
 | `Links` | link id | the other Edge's device id, transport, state, crossing lists per direction — the Edge module's table (§16) |
 | `Crossings` | (link id, package id, direction, day) | objects and bytes that crossed — the audit the management UI shows |
-| `ChatIndex` | (package id, clock, device id) | entry hash, author, preview — Chat's own table, owned by the Chat service |
 | `Telemetry` | (series, key, minute) | counters and gauges for the analytics of §10.5: per peer, Package and direction; one-minute resolution for seven days, then rolled into `TelemetryTotals` |
 | `TelemetryTotals` | (series, key) | lifetime totals |
 
 Rules: a table belongs to exactly one module; another module reads it through that module's exposure, never
 directly. Migrations use `Axiom.LDB.Migration` and ship with the version that needs them. Exactly one process
-opens the database: the host. On Windows, Linux and Android LDB would allow more through byte-range locks; on
+opens each database: the Host its own, each service its own (Chat's timeline index, Sync's bindings and version
+DAG live in theirs, not here). On Windows, Linux and Android LDB would allow more through byte-range locks; on
 macOS, iOS and tvOS it has none and admits one process per directory. The app never opens it (§10.5), so the
 rule costs nothing and the behaviour is the same on every platform.
 

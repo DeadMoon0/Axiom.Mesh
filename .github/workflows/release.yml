@@ -9,7 +9,7 @@ name: Release
 #   2. test      the whole suite on Linux and Windows, unit and integration, as unit-tests.yml runs it
 #   3. binaries  per RID (linux-x64, win-x64): Native AOT publish of axiom-meshd and axiom-mesh, the smoke
 #                (Scripts/aot-smoke.*, run by Scripts/package.*), one zip with both executables, LICENSE and README.txt
-#   4. nuget     the six libraries (Model, Protocol, Local, Discovery, Core, Testing) and the dotnet tool axiom-mesh,
+#   4. nuget     the seven libraries (Model, Protocol, Local, Discovery, Core, Service, Testing) and the dotnet tool axiom-mesh,
 #                pushed to nuget.org with Trusted Publishing: no API key secret, a short-lived key from an OIDC token
 #                (nuget.org needs a Trusted Publishing policy for this repository and this workflow file)
 #   5. release   the GitHub Release v<version>: both zips, SHA256SUMS over them, and CHANGELOG.md's section as notes
@@ -171,12 +171,13 @@ jobs:
             Axiom.Mesh.Local/Axiom.Mesh.Local.csproj \
             Axiom.Mesh.Discovery/Axiom.Mesh.Discovery.csproj \
             Axiom.Mesh.Core/Axiom.Mesh.Core.csproj \
+            Axiom.Mesh.Service/Axiom.Mesh.Service.csproj \
             Axiom.Mesh.Testing/Axiom.Mesh.Testing.csproj \
             Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj; do
             dotnet pack "$project" --configuration Release -p:ContinuousIntegrationBuild=true --output out
           done
           ls -l out
-          test "$(ls out/*.nupkg | wc -l)" -eq 7
+          test "$(ls out/*.nupkg | wc -l)" -eq 8
 
       - name: NuGet login (Trusted Publishing)
         uses: NuGet/login@v1
@@ -189,7 +190,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for id in Model Protocol Local Discovery Core Testing Cli; do
+          for id in Model Protocol Local Discovery Core Service Testing Cli; do
             dotnet nuget push "out/Axiom.Mesh.$id.${{ needs.version.outputs.version }}.nupkg" \
               --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
           done

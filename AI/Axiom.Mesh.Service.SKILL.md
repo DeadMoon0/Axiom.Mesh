@@ -1,0 +1,25 @@
+<identity>
+    <package>Axiom.Mesh.Service</package>
+    <role>addon-skill</role>
+    <requires>Axiom.Mesh.Local.SKILL.md</requires>
+</identity>
+
+<objective>
+    Teach an agent to write a service on Axiom.Mesh: an executable the Host spawns and supervises, which defines Package kinds, indexes their Entries into its own LDB database, and offers apps one namespace of methods (ServiceCall) and events (Emit), owning no user interface.
+</objective>
+
+<package_scope>
+    Namespace Axiom.Mesh.Service (inside Axiom.Mesh.* namespaces it hides Axiom.Mesh.Local.Service: write Local.Service). IMeshService { Definition; OnConnectedAsync(session, ct) (session.CatchUp.DiscardIndex: drop rows built under another store epoch); OnEntryAsync(session, EntryStored, ct) (once per storing in store order, may repeat after a crash: dedupe by hash); OnPackageChangedAsync(session, PackageChanged, ct); OnCallAsync(session, ForwardedCall, deadline) -> CallReply (off the read loop, 60 s); OnDisconnectedAsync(session, ct) }. ServiceDefinition { Name (1 to 32 bytes of letters, digits, . - _), Version, Kinds: ServiceKind { Kind, EntryKinds ascending non-empty }; EntryKinds; Problems() }. ServiceSession { Definition, Client (LocalClient in the service role: WriteEntry, PutObject, Unpin, ListHistory, every S request), Host (HelloAck), StoreEpoch, CatchUp (IndexCatchUp), State, Log, EmitAsync(event, package, payload, ct) }. ServiceState { Database (LDB; the service's [LdbEntity] rows and the runtime's ServiceCursor table share it), ReadCursorAsync -> IndexCursor { Epoch, LastSeq }, AdvanceAsync(epoch, seq), DiscardAsync(epoch) }. ServiceProgram.Run(service, args) (Program.cs: one line) and RunAsync(service, args, out, err, ServiceEnvironment, stop) -> ServiceExitCode { Ok 0, Usage 1, Configuration 2, Refused 3, State 4 }; commands run (default) and version. ServiceEnvironment { Version, ConnectHost, HostAddress, OpenState (a Database; the runtime owns it), StateDirectory, Variables, ReadConfig, ConfigFile, Time, Loggers }. ServiceShell.EnvironmentOf(name, version, getenv) (the pipe from AXIOM_MESH_PIPE else pipe.name else the default; state from AXIOM_MESH_SERVICE_STATE else <home>/services/<name>; a log on standard error) and StopSignal() (Ctrl-C, SIGTERM). ServicePaths.StateDirectory/ConfigFile, ServiceConfig.TryReadToken/TryReadPipeName (pure). CatchUpStep.Next(fromSeq, hostSeq) (Page while more than 256 may be missing, else Subscribe), ReconnectRule.Decide(refusal, detail, attempt) (Retry after Reconnect.Delay; Exit Refused on Bye(Refused, service|version)), ReconnectDecision, CatchUpAction, ReconnectAction, ServiceConfigurationException. CallReply/CallbackHandler/ReplyStatusRule live in Axiom.Mesh.Local.
+</package_scope>
+
+<architecture>
+    The internal ServiceRunner: open the state; token from AXIOM_MESH_SERVICE_TOKEN (spawned) else services.<name>.token of config.json (external); connect with Hello(role service, Callbacks = the session's call handler); RegisterKind every kind (KindTaken: reconnect later; NotPermitted or Invalid: exit Configuration); IndexCatchUp.Plan against the cursor; OnConnectedAsync; DiscardAsync when the epoch changed; ListStored pages while the gap is large; Subscribe<EntryStored>(entry kinds, fromSeq) and Subscribe<PackageChanged>(kinds); one event at a time through a bounded channel (a slow handler lapses the subscription, which is renewed from the next store sequence); after each Entry the cursor is committed in its own transaction, uncancellable once the handler returned; Drain ends the session with Bye (a spawned service then exits Ok, one run by hand reconnects); a handler exception exits State so the Host restarts the process.
+</architecture>
+
+<best_practices>
+    Keep the rules pure and the shell thin: parse payloads (Axiom.Mesh.Payloads) and decide in functions of their inputs, keep LDB writes in the handler. Put objects, write the Entry, then Unpin (LOCAL-SPEC.md §9.5). Long work is a job a method starts and events report; answer every call within the deadline. Emit only for Packages of your kinds (or the zero Package). Name methods and events once, in the service's .Client library, with a record per request, reply and event (the S-D13 convention test ServiceConventionTests checks it). Test with Axiom.Mesh.Testing: TestServices.With(TestCliService.Local, definition) on the mesh, node.RunServiceAsync(service, ct), IMeshFixture.RunServiceAsync for scenarios that run in memory and on sockets.
+</best_practices>
+
+<pitfalls>
+    A service writes nothing to the console but through its log (System.Console only in Program.cs and ServiceShell). The cursor never goes back: an Entry with a store sequence below it is skipped. A call can arrive while the catch-up runs. CallReply.Failure refuses Ok, Cancelled and the reserved codes 21 to 32767. In a class library that overrides CallbackHandler use protected override (protected internal only inside Axiom.Mesh.Local's own tests). The service name in Definition must equal the Host's configuration entry, or the Host refuses it and the runtime exits Refused.
+</pitfalls>

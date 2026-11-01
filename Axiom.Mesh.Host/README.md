@@ -6,7 +6,7 @@ Namespace: `Axiom.Mesh.Host`. Depends on `Axiom.Mesh.Core`, Microsoft.Extensions
 
 ## Status
 
-0.1.0. `axiom-meshd run` and `axiom-meshd version`; `config.json` with a default for every key; the key store (DPAPI on Windows, 0600 on Linux); the pipe with process identity on every connection (who may open it: [PIPE-ACCESS.md](https://github.com/DeadMoon0/Axiom.Mesh/blob/main/Documentation/PIPE-ACCESS.md)); the store and database on disk; discovery; logging. The requests it serves are those of `Axiom.Mesh.Core`'s local port, pairing included; the `cli` external service of the default configuration writes Entries and puts objects with the token the daemon writes into `config.json`. **The daemon ships as a GitHub Release asset only** (Native AOT, one zip per platform with `axiom-mesh` and `SHA256SUMS`, fetched by `install.ps1` / `install.sh`), never as a NuGet package; `PipeHost` stays public for a custom host or an installer test that builds the daemon from source.
+0.2.0 (unreleased; 0.1.0 before it). `axiom-meshd run` and `axiom-meshd version`; `config.json` with a default for every key; the services it spawns and supervises (since 0.2.0, below); the key store (DPAPI on Windows, 0600 on Linux); the pipe with process identity on every connection (who may open it: [PIPE-ACCESS.md](https://github.com/DeadMoon0/Axiom.Mesh/blob/main/Documentation/PIPE-ACCESS.md)); the store and database on disk; discovery; logging. The requests it serves are those of `Axiom.Mesh.Core`'s local port, pairing included; the `cli` external service of the default configuration writes Entries and puts objects with the token the daemon writes into `config.json`. **The daemon ships as a GitHub Release asset only** (Native AOT, one zip per platform with `axiom-mesh` and `SHA256SUMS`, fetched by `install.ps1` / `install.sh`), never as a NuGet package; `PipeHost` stays public for a custom host or an installer test that builds the daemon from source.
 
 ## Running it
 
@@ -40,6 +40,7 @@ To run a second daemon on one machine (tests, a second identity), give it its ow
 | keys | `<dir>/keys/` | `%LOCALAPPDATA%\Axiom.Mesh\keys\` | `$XDG_DATA_HOME/axiom-mesh/keys/` (`~/.local/share`) |
 | store and database | `<dir>/data/` (`objects/`, `index/`) | `%LOCALAPPDATA%\Axiom.Mesh\data\` | `$XDG_DATA_HOME/axiom-mesh/data/` |
 | logs | `<dir>/logs/` | `%LOCALAPPDATA%\Axiom.Mesh\logs\` | `$XDG_STATE_HOME/axiom-mesh/logs/` (`~/.local/state`) |
+| a spawned service's state | `<dir>/services/<name>/` | `%LOCALAPPDATA%\Axiom.Mesh\services\<name>\` | `$XDG_DATA_HOME/axiom-mesh/services/<name>/` |
 | pipe | `AXIOM_MESH_PIPE`, else `pipe.name` | `\\.\pipe\axiom-mesh` | `$XDG_RUNTIME_DIR/axiom-mesh.sock` |
 
 The keys are the device key and, on the device that created the identity, the user key, each PKCS#8. On Windows each file is wrapped with DPAPI for the current user; on Linux the key directory is 0700 and each file 0600, and the daemon refuses to start when either is wider. `config.json` holds the `cli` token; on Linux it is 0600, on Windows `%LOCALAPPDATA%` admits the user alone. The log is one line per message in `axiom-meshd-<date>.log`, a new file each day and past 10 MiB, the newest 10 kept. At start it logs where it runs and how a rename in the store is made durable here (`store <data>: directory flush NotNeeded` on Windows, `Flushed` where the directory was fsynced, `Unsupported` where it could not be).
@@ -76,10 +77,32 @@ Every key is optional; a key the daemon does not know, or a value out of range, 
     "cli": {
       "inProcess": false,
       "spawn": null,
+      "args": [],
       "external": true,
       "token": "<64 hex characters, generated on first start>",
       "kinds": [1, 2],
-      "entryKinds": [1, 2, 3]
+      "entryKinds": [1, 2, 3],
+      "releasePinsOnDisconnect": false
+    },
+    "chat": {
+      "inProcess": false,
+      "spawn": "axiom-mesh-chat",
+      "args": [],
+      "external": false,
+      "token": "",
+      "kinds": [2],
+      "entryKinds": [2, 3],
+      "releasePinsOnDisconnect": false
+    },
+    "sync": {
+      "inProcess": false,
+      "spawn": "axiom-mesh-sync",
+      "args": [],
+      "external": false,
+      "token": "",
+      "kinds": [1],
+      "entryKinds": [1],
+      "releasePinsOnDisconnect": false
     }
   },
   "userKeyRequests": {
@@ -98,12 +121,35 @@ Every key is optional; a key the daemon does not know, or a value out of range, 
 | `store.budgetBytes` | 0 | The store's budget; 0 for none. Eviction keeps the store under it; a local write that would pin past it is `StoreFull`. |
 | `pipe.name` | null | The pipe's name (Windows) or socket path (Linux); `AXIOM_MESH_PIPE` wins over it. `axiom-mesh` reads it from the same file, so its clients find the daemon without the variable. |
 | `pipe.allowUsers` | [] | Users a daemon that runs as a system service admits (Windows `DOMAIN\name`, Linux the uid). |
-| `services.<name>` | `cli` | A service by name (1 to 32 of `A–Z a–z 0–9 . - _`), with exactly one of `inProcess`, `spawn` (an absolute path) and `external`. |
-| `services.<name>.token` | generated | An external service's token, 64 lowercase hex characters; an empty one is generated and written back. Whoever holds it may claim the name. |
+| `services.<name>` | `cli`, `chat`, `sync` | A service by name (1 to 32 of `A–Z a–z 0–9 . - _`), with exactly one of `inProcess`, `spawn` and `external`. |
+| `services.<name>.spawn` | null | The executable the daemon starts and supervises: an absolute path, or a bare file name beside `axiom-meshd` (`.exe` added on Windows). An entry whose executable is not there is noted once at start and left alone. |
+| `services.<name>.args` | [] | The arguments a spawned service is started with. |
+| `services.<name>.token` | generated | An external service's token, 64 lowercase hex characters; an empty one is generated and written back. Whoever holds it may claim the name. A spawned service gets a fresh token for every start, in its environment only. |
 | `services.<name>.kinds` / `entryKinds` | [] | The Package kinds and Entry kinds the service may register (LOCAL-SPEC.md §9.2). |
+| `services.<name>.releasePinsOnDisconnect` | false | Release the service's `Service` pins when its connection ends (LOCAL-SPEC.md §9.6); by default they stay for its restart. |
 | `userKeyRequests.confineTo` | [] | Absolute paths of the executables that may send the requests that spend the user key; empty for any. Each such request is logged with its pid and executable either way. |
 
-This version does not spawn services yet (STRUCTURAL-DEBT.md entry 32) and has no in-process service compiled in; both are accepted in the file and noted in the log.
+No in-process service is compiled in; such an entry is accepted in the file and noted in the log.
+
+## Spawned services
+
+For every `spawn` entry whose executable is there, the daemon starts the program once its pipe serves (LOCAL-SPEC.md
+§4.2, §9.1), in the service's state directory, with these variables added to its own environment:
+
+| Variable | Value |
+|---|---|
+| `AXIOM_MESH_SERVICE_TOKEN` | a fresh token of 32 random bytes for this start, 64 hex characters; it admits this child's connections until it exits, and appears in no log line or argument |
+| `AXIOM_MESH_PIPE` | the pipe the daemon listens on, in full |
+| `AXIOM_MESH_HOME` | the daemon's home (where `config.json` is) |
+| `AXIOM_MESH_SERVICE_STATE` | the service's state directory, created for the user alone |
+
+What the child writes to standard output and error goes into the daemon's log (`service <name>: <line>`). When it
+exits, its token is withdrawn first; then it is started again after 1 s, 2 s, 4 s … 30 s (the backoff counts crashes,
+exits within 10 seconds of the start; a run of a minute forgets them). Five crashes within five minutes, or exit code 2
+(configuration) or 3 (refused), give the service up until the daemon restarts, with an error in the log. On Ctrl-C or
+SIGTERM the daemon drains every client, the services included (a service built on `Axiom.Mesh.Service` exits on the
+drain), and kills a child still running 5 seconds later with every process it started. `axiom-mesh services` lists
+every configured service and whether it is connected. Services are built on the `Axiom.Mesh.Service` package.
 
 ## Exit codes
 

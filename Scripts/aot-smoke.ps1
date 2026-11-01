@@ -6,7 +6,7 @@
     The smoke test of fundamentals plan §6 (install-tests.yml and release.yml run the same steps through Scripts/package.*, on linux-x64 and win-x64): both
     executables are published with PublishAot and IlcTreatWarningsAsErrors, the Host starts with a temporary home and its
     own pipe, and the command line creates an identity and a Channel, lists Packages, writes a message and reads the
-    history. Any failure exits non-zero; the temporary home is removed either way.
+    history, then lists the services. Any failure exits non-zero; the temporary home is removed either way.
 
 .PARAMETER Runtime
     The runtime identifier to publish for; by default the one of this machine.
@@ -82,6 +82,7 @@ try {
     Invoke-MeshCli @("write", "Smoke", "--text", "hello from the AOT smoke") "written"
     Invoke-MeshCli @("history", "Smoke") "hello from the AOT smoke"
     Invoke-MeshCli @("status", "--json") '"present": true'
+    Invoke-MeshCli @("services", "--json") '"name": "cli"'
     Write-Host "== AOT smoke passed ($Runtime)"
 }
 finally {

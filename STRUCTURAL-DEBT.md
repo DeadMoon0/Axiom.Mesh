@@ -75,13 +75,12 @@ do today, how the pipe is named (`AXIOM_MESH_PIPE`, `pipe.name`, the default), a
 
 ## 7. Service calls and emitted events are not built
 
-- **Rule:** LOCAL-SPEC.md §6.7, §9.8 and §9.10 (`ServiceCall`, `ForwardedCall`, `Emit`).
-- **Instead:** those requests answer `UnknownRequest`. The machinery under them exists since M9: a callback table per
-  connection (64 outstanding, deadlines, late replies ignored, unknown ids a violation) with `LocalConnection.CallAsync`,
-  and `LocalEventHub.ServiceEmitted` for topic `service`; nothing calls either yet.
-- **Evidence:** fundamentals plan, D7; `Axiom.Mesh.Core/Local/CallbackTable.cs`, `RequestRoutes.cs`.
-- **Tolerated because:** no service with a namespace exists in phase 1a; `UnknownRequest` keeps the Host conformant.
-- **Paid in:** phase 2 (Chat service), the first service with a namespace: two handlers over the existing machinery.
+Paid in S0 (phase 1b plumbing): `ServiceCall` is forwarded as a `ForwardedCall` and answered by the pure
+`ForwardedReplyRule` (`ServiceUnavailable` at once, `ServiceTimeout` at 60 s, `Busy` past 64, a reply the Host cannot pass
+on a violation of the service's connection), outside the caller's ordered lane; `Emit` publishes `ServiceEvent`s;
+`CallbackTable` ends each callback as a `CallbackOutcome`; the client side serves callbacks off its read loop
+(`CallbackHandler`, `CallbackDispatch`). Tests: `Core.Tests: ServiceCallTests`, `EmitTests`, `ServiceCallLaneTests`;
+`Local.Tests: CallbackServingTests`, `CallbackReplyOnceTests`.
 
 ## 8. Removing a device and forgetting a user have no user interface beyond the request
 
@@ -125,14 +124,14 @@ do today, how the pipe is named (`AXIOM_MESH_PIPE`, `pipe.name`, the default), a
 ## 12. The Host answers only the phase-1 request subset
 
 - **Rule:** LOCAL-SPEC.md §15: every request of §6–§10 answered with its OK body and every listed error.
-- **Instead:** M8 and M9 serve the phase-1 set of the fundamentals plan §2.5 except pairing; `StartPairing`,
-  `ConfirmPairing`, `CancelPairing` and `GetPairing` (M10), `UpdatePackage`, `ServiceCall`, `AddTelemetry` and `Emit`
-  answer `UnknownRequest`; the telemetry queries answer `NotFound` with Host capability bit 2 clear
-  (`Axiom.Mesh.Core/Local/RequestRoutes.cs`).
-- **Evidence:** fundamentals plan §2.5 and D7.
-- **Tolerated because:** `UnknownRequest` is the specification's answer for a request a Host does not serve, so a
-  half-built Host stays conformant.
-- **Paid in:** M10 (pairing) and the phases that need the rest (entries 5, 6 and 7 above).
+- **Instead:** narrowed in S0: every request of LOCAL-SPEC.md §14.1 has a handler (pairing since M10; `UpdatePackage`,
+  `ServiceCall`, `Emit` and `AddTelemetry` since S0). What is left is telemetry: `ListSeries`, `ListKeys`, `GetTotal`,
+  `QueryTelemetry` and `AddTelemetry` answer `NotFound` with Host capability bit 2 clear
+  (`Axiom.Mesh.Core/Local/TelemetryRequests.cs`), so a Host keeps no telemetry and the topic `telemetry` stays silent.
+- **Evidence:** `RequestRoutes.Handlers()`; `Core.Tests: EventTopicTests.TelemetryRequestsAreNotFoundOnAHostWithoutTelemetry`.
+- **Tolerated because:** `NotFound` with bit 2 clear is the specification's answer for a Host without telemetry (§14.4);
+  the analytics view it feeds is the app's (phase 3).
+- **Paid in:** phase 3 (the app's mesh analytics, DESIGN.md §10.5), with the `Telemetry` tables of DESIGN.md §13.
 
 ## 13. The executables are named after their assemblies, not `axiom-meshd`
 
@@ -328,15 +327,14 @@ draft 5; `Core.Tests: LateParentTests`). What remains, recording the sender of s
 
 ## 32. Spawned services are configured, not spawned
 
-- **Rule:** LOCAL-SPEC.md §4.2: for a service the Host spawns, it puts a fresh token into the child's environment and
-  supervises the child.
-- **Instead:** `config.json` accepts `services.<name>.spawn`, but the daemon starts no process and gives no token, so
-  such a name is refused at `Hello` until a later version spawns it; the daemon logs a configuration note at start.
-  `LocalService` already carries a spawned service's token, and the `Hello` check compares it in constant time.
-- **Evidence:** `Axiom.Mesh.Host/HostRuntime.cs` (`Note`), `Axiom.Mesh.Host/Configuration/HostConfiguration.cs`
-  (`ServiceOf`); `LocalHelloTests.Refusals` (wrong spawned token).
-- **Tolerated because:** no first-party service runs out of process in phase 1a; the CLI and scripts are external.
-- **Paid in:** phase 1b, with the first service that runs as its own program (process supervision and restart).
+Paid in S0: the daemon supervises every `services.<name>.spawn` entry whose executable is there (an absolute path, or a
+bare name beside `axiom-meshd`, `SpawnPathRule`): a fresh token per start set with `LocalPort.SetSpawnedToken` before the
+child starts and withdrawn when it exits; `AXIOM_MESH_SERVICE_TOKEN`, `AXIOM_MESH_PIPE`, `AXIOM_MESH_HOME` and
+`AXIOM_MESH_SERVICE_STATE` in its environment, its state directory as working directory; its output in the daemon's log;
+restarts by the pure `SupervisionRule`; drained, then killed after the grace, on the daemon's stop
+(`Axiom.Mesh.Host/Supervision/`). An entry whose executable is absent is noted once and not supervised (S-D11). Tests:
+`Host.Tests: ServiceSpawnTests` (a fake child, and the echo service spawned under `dotnet`), `SupervisionRuleTests`,
+`SpawnPathRuleTests`, `SupervisorStopOrderTests`.
 
 ## 33. Package events are built from the batch, not from a diff of every field
 
@@ -573,8 +571,12 @@ The release floor `FloorTests.AHistoryOfTenThousandEntriesIsWalkedWithinTwoMinut
 - **Evidence:** `EntryKind.Version` in those two files; SPEC.md §11.2 (draft 5) names the kind.
 - **Tolerated because:** the rule is the specification's, and the kind is read from the signed envelope, which is
   routing data; a node that parses nothing still keeps the row.
-- **Paid in:** phase 1b (Sync): the service declares what its kinds keep under each row (a field of `RegisterKind`, or
-  of the Manifest), and the node applies that declaration instead of knowing kind 1.
+- **Decision S-D4 (2026-11-01):** the per-kind retention declaration stays deferred: nothing on a desktop applies the
+  latest-only row, and a `DeclareRetention` request would add a persisted registry and a race between a service's
+  declaration and the Entries stored before it for no gain in phases 1b and 2. The node keeps reading envelope kind 1
+  for the row until then.
+- **Paid in:** phase 4 (phones), where the row applies: the service declares what its kinds keep under each row (a
+  field of `RegisterKind`, or of the Manifest), and the node applies that declaration instead of knowing kind 1.
 
 ## 55. The file helpers touch the file system directly
 
@@ -692,3 +694,29 @@ and a client otherwise had to poll `ListPackages` to notice a drop.
   requests; the budget was set before the local port was built.
 - **Paid in:** phase 1b, with a Host-only measurement (a client in another process) and an allocation budget as a
   `[ReleaseFact]` for the request path; a cached `Identity` answer and pooled answers are the first candidates.
+
+## 64. No Native AOT service is spawned by a test yet
+
+- **Rule:** DESIGN.md §10.3 (S-D1): the first-party services ship as Native AOT executables the Host spawns.
+- **Instead:** the Host's supervision is proved with a fake child and with the echo service spawned as a
+  framework-dependent program under `dotnet` (`Host.Tests: ServiceSpawnTests`); no AOT-published service exists yet,
+  so neither `Scripts/aot-smoke.*` nor `install-tests.yml` starts one, and the Linux paths of the supervisor
+  (`Process.Kill(entireProcessTree)` on Linux, the 0700 state directory, a socket path in `AXIOM_MESH_PIPE`) have run on
+  no machine.
+- **Evidence:** `UnitTests/Support/Axiom.Mesh.EchoService`; `Axiom.Mesh.Host/Supervision/SystemChildProcesses.cs`.
+- **Tolerated because:** the supervisor treats every child alike; what an AOT child adds is its publish, which is the
+  service's own build.
+- **Paid in:** S1 (Chat): `aot-smoke.*` publishes `axiom-mesh-chat` beside the daemon and the install job shows `chat`
+  connected on both platforms.
+
+## 65. No topic tells a client that a service connected or left
+
+- **Rule:** DESIGN.md §10.5: the app shows each service's state live, from the local protocol, without polling.
+- **Instead:** LOCAL-SPEC.md draft 5 §7.2 states that there is no presence topic: a client learns whether a service is
+  connected from `ListServices`, and a `ServiceCall` to one that is not fails at once with `ServiceUnavailable`; the
+  service's own events stop while it is gone.
+- **Evidence:** LOCAL-SPEC.md §7.2 note; `Axiom.Mesh.Cli/Commands/ServicesCommand.cs` reads `ListServices`.
+- **Tolerated because:** the CLI asks once per command, and `ServiceUnavailable` is immediate; no client keeps a live
+  view of services before the app.
+- **Paid in:** phase 3 (the app): a `services` topic (an extension topic id, LOCAL-SPEC.md §1.5) or a change kind on an
+  existing one, decided with the app's first service view.

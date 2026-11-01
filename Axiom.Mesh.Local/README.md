@@ -116,7 +116,7 @@ static class Publishing
 | Client | `LocalClient` (`OpenAsync`, `SendAsync`, `SubscribeAsync`, `UnsubscribeAsync`, `ByeAsync`, `Host`, `Draining`, `Closed`), `LocalClientOptions`, `LocalResult<TOk>`, `Subscription<TEvent>`, `Reconnect.Delay`, `IndexCatchUp`, `LocalConnectionException`, `RequestLimitException` |
 | Pipe | `LocalPipe` (`Locate()`, `Locate(configuredName)`, `ConnectAsync`: the one place the package touches the OS), `PipeLocation.Resolve` (`AXIOM_MESH_PIPE`, else `pipe.name`, else the default), `PipeEnvironment`, `LocalPlatform`, `PipeKind` |
 | Requests | one sealed record per request of §6 to §10 (56, every id of §14.1 but the two reserved since draft 4), each an `IRequest<TSelf, TOk>` naming its id, roles and OK body; `RequestTable` (id → name, section, roles, body reader) for the Host's dispatcher |
-| Events, callbacks | one sealed record per event of §7.3 (`IEvent<TSelf>`, with its `Topic`), `ForwardedCall` (`ICallback<TSelf, TReply>`) |
+| Events, callbacks | one sealed record per event of §7.3 (`IEvent<TSelf>`, with its `Topic`), `ForwardedCall` (`ICallback<TSelf, TReply>`); a service serves callbacks with a `CallbackHandler` (`OnForwardedCallAsync` → `CallReply.Ok(payload)` or `CallReply.Failure(status, error)`) given to `LocalClientOptions.Callbacks`, which the client runs off its read loop with the 60-second deadline and answers once (`ReplyStatusRule`, `CallbackReplyRule`, since 0.2.0) |
 | Records | every record of §5 (`Identity`, `User`, `Device`, `Package`, `Grant`, `Entry`, `Peer`, `Session`, `StaticPeer`, `Store`, `Pin`, `PinKey`, `Service`, `Operation`, `Error`, `Pairing`, `Transfer`, `TelemetrySeries`, `TelemetryPoint`, `Filter`) and the OK bodies with several fields (`PackagePage`, `EntryPage`, …) |
 | Frames | `IClientMessage` / `IHostMessage`: `Hello`, `HelloAck`, `Bye`, `Ping`, `Pong`, `Drain`, `RequestFrame`, `Response`, `EventFrame`, `Callback`, `Reply`, and `UnknownRequest` / `UnknownEvent` / `UnknownCallback` for ids a side does not know; `ServiceToken`, `LocalMessageIds`, `MessageClass` |
 | Protocol | `LocalProtocol.HostSide` and `LocalProtocol.ClientSide`, the ProtoStream definitions; the enumerations of §14 (`Status`, `Topic`, `ByeReason`, `PinReason`, …) |
@@ -135,5 +135,9 @@ static class Publishing
   so and where to start (§9.3).
 - **Reconnect with backoff.** `Reconnect.Delay(attempt)` is 1 s doubling to 30 s; re-subscribe and, for a service,
   `RegisterKind` again. `WriteEntry` is not idempotent: catch up before retrying a write whose response was lost.
+- **Answer every callback once, in time.** A service's `CallbackHandler` runs on a worker, never on the read loop, so it
+  may send requests on the same client; return within the deadline (60 s, the token is cancelled then); a status other
+  than `Ok`, a code of §11.1 but `Cancelled`, or a service-defined code from 32 768 cannot be sent. Long work is a job a
+  method starts and events (`Emit`) report. Most services use `Axiom.Mesh.Service`, which wires all of this.
 - **Never display a redacted Entry's payload** (`Entry.Redacted`, §5.6).
 - **Unknown values are kept.** An enumerated value a newer Host sends is read and kept as its raw value (§1.5).

@@ -78,4 +78,5 @@ cli "Smoke" package list
 cli "written" write Smoke --text "hello from the AOT smoke"
 cli "hello from the AOT smoke" history Smoke
 cli '"present": true' status --json
+cli '"name": "cli"' services --json
 echo "== AOT smoke passed ($runtime)"

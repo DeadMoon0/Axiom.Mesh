@@ -17,6 +17,13 @@ discovery, the in-memory dialler, key store and network, `ScriptedPeer` (raw AMP
 own mutual TLS, or over any open connection), and `IMeshFixture`, which `TestMesh` implements in memory and the
 integration suite's socket fixture on real nodes, so one scenario source runs both ways.
 
+Since 0.2.0 (unreleased) a service runs in process beside a node: `TestServices.With(TestCliService.Local, definition)`
+lists it on the mesh's nodes as an external service with a published token (`TestServices.TokenOf`), and
+`TestNode.RunServiceAsync(service)` (or `IMeshFixture.RunServiceAsync(node, service)`) runs the runtime of
+`Axiom.Mesh.Service` over an in-memory pair to the node's local port, its state in an in-memory LDB the node keeps across
+runs, on the mesh's clock; it returns a `RunningService` once the service is connected. `TestEchoService` is the
+smallest service (it counts the Entries of its kind, answers `echo`, `count` and `write`, emits `seen`).
+
 ## Quick Start
 
 Two published devices whose users know each other connect through real mutual TLS 1.3 and AMP/1, in memory; Eve's

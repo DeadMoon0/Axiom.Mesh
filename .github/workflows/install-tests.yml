@@ -86,6 +86,8 @@ jobs:
           axiom-mesh write Install --text "hello from the install job"
           axiom-mesh history Install | grep -q "hello from the install job"
           axiom-mesh status --json | grep -q '"present": true'
+          axiom-mesh services --json
+          axiom-mesh services --json | grep -q '"name": "cli"'
 
       # STRUCTURAL-DEBT.md 14: the daemon logs at start how a rename in its store is made durable; on Linux it must have
       # fsynced the store directory.
@@ -160,6 +162,9 @@ jobs:
           if (-not $history.Contains("hello from the install job")) { throw "history does not show the message" }
           $status = & $cli status --json | Out-String
           if (-not $status.Contains('"present": true')) { throw "no identity after identity create" }
+          $services = & $cli services --json | Out-String
+          Write-Host $services
+          if (-not $services.Contains('"name": "cli"')) { throw "services does not list cli" }
           Get-ChildItem "$env:AXIOM_MESH_HOME\logs" | Get-Content | Select-String "directory flush"
 
       # STRUCTURAL-DEBT.md 37: a second local account cannot open the pipe the Host's owner-only access list guards. The

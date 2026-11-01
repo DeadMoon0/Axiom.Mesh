@@ -43,13 +43,18 @@ through the command line (a message, a published folder), the other follows it a
 this survives one PC being offline. Windows and Linux desktops. What is not built yet, and why, is in
 [STRUCTURAL-DEBT.md](STRUCTURAL-DEBT.md); what changed is in [CHANGELOG.md](CHANGELOG.md).
 
+**On `main`, towards 0.2.0 (phases 1b and 2):** the plumbing for services is in (S0): the Host spawns and supervises
+services, serves `ServiceCall`, `Emit` and `UpdatePackage`, and `Axiom.Mesh.Service` is the runtime a service is built
+on; `axiom-mesh services` lists them. The Chat and Sync services themselves come next.
+
 ## What is released
 
 | What | Where | For |
 |---|---|---|
 | `Axiom.Mesh.Local` | NuGet | Programs that talk to the Host: the client library (`LocalClient`), every request and record of the local protocol, the pipe, the service role, and the file helpers (`StoreFiles`, `Trees`). |
 | `Axiom.Mesh.Core` | NuGet | Embedding a node: the engine (store, trust, mutual TLS, replication, the local port) with everything dishonest injected. |
-| `Axiom.Mesh.Testing` | NuGet | Tests of services and apps: an in-memory mesh of any number of nodes on one fake clock, scripted peers, the command line in-process. |
+| `Axiom.Mesh.Service` | NuGet (from 0.2.0) | Building a service: the runtime that connects it to the Host, catches it up on every Entry of its kinds, keeps it connected, hands it apps' calls and keeps its LDB state. |
+| `Axiom.Mesh.Testing` | NuGet | Tests of services and apps: an in-memory mesh of any number of nodes on one fake clock, scripted peers, the command line in-process, services run beside a node. |
 | `Axiom.Mesh.Model`, `.Protocol`, `.Discovery` | NuGet | Building blocks of Core and Local, published as their dependencies; not referenced directly. |
 | `Axiom.Mesh.Cli` | NuGet dotnet tool `axiom-mesh` | The command line for developers with the .NET SDK. |
 | `axiom-meshd` + `axiom-mesh` | GitHub Release, one zip per platform (win-x64, linux-x64) with `SHA256SUMS` | Everyone: self-contained Native AOT executables; what the install scripts fetch. The Host is never a NuGet package. |
@@ -83,6 +88,7 @@ Targets .NET 8 and .NET 10. Later: `Axiom.Mesh.Sync` and `Axiom.Mesh.Chat` (serv
 |---|---|
 | `Axiom.Mesh.Model/`, `.Protocol/`, `.Local/`, `.Discovery/` | the honest layers |
 | `Axiom.Mesh.Core/`, `Axiom.Mesh.Host/` | the engine and the daemon |
+| `Axiom.Mesh.Service/` | the runtime every service is built on |
 | `Axiom.Mesh.Testing/` | the in-memory mesh for tests |
 | `Apps/Axiom.Mesh.Cli/` | the command line |
 | `UnitTests/<Project>.Tests` | one test project per project (the CLI's under `UnitTests/Apps/`), each with `Rules/`, `Regression/` and `Conventions/` |
@@ -98,8 +104,9 @@ Targets .NET 8 and .NET 10. Later: `Axiom.Mesh.Sync` and `Axiom.Mesh.Chat` (serv
 | `Spikes/` | throwaway code that answered the design's open questions; not part of the build |
 
 Allowed references, enforced by the convention tests: Model → ProtoStream; Protocol and Local → Model, ProtoStream;
-Discovery → Model; Core → Model, Protocol, Local, Discovery, ProtoStream, LWSE, LDB; Host → Core; Testing → Core and
-the command line (packed inside it); Cli → Local. No service and no app references Core or Host.
+Discovery → Model; Core → Model, Protocol, Local, Discovery, ProtoStream, LWSE, LDB; Host → Core; Service → Local,
+Model, ProtoStream, LDB; Testing → Core, Service and the command line (packed inside it); Cli → Local. No service and no
+app references Core or Host. `UnitTests/Support/` holds programs the suites start as child processes (the echo service).
 
 ## Building and testing
 

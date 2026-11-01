@@ -40,6 +40,7 @@ and `ReadmeCompileTests` (in `UnitTests/Axiom.Mesh.ReadmeSamples.Tests`).
 The milestone numbers above are those of the fundamentals plan: M1 Model, M2 Protocol and PAIR-SPEC, M3 Local,
 M4 Discovery, M5 Core store and trust, M6 Core transport, M7 replication, M8 local port and Host, M9 requests, M10
 pairing and CLI, M11 scenarios and integration, M11b the content-blind Host, M12 benchmarks, security conformance and AOT, M13 docs and release.
+After 0.1.0 the plan's phases 1b and 2 run as S0 service plumbing, S1 the Chat service, S2 the Sync service.
 
 ## Axiom.Mesh.Discovery
 
@@ -173,3 +174,20 @@ What M13 added, by rule.
 | §9 A promise only with the test that proves it | `ConformanceDocTests.NoRowIsPlanned_AndADeferredRowNamesADebtEntryThatExists`, `GuaranteeTests.NoPromiseIsPlanned`; `Documentation/vectors/local.txt` with `Local.Tests: VectorTests`. |
 | §10 Trimmed and ahead of time | `Scripts/package.ps1` and `package.sh` (the AOT publish and smoke of `Scripts/aot-smoke.*`, then the zip and `SHA256SUMS`), run on every pull request by `.github/workflows/install-tests.yml` (which replaced `aot.yml`) and on a tag by `release.yml`. |
 | SPEC.md §11.1 durability | `Axiom.Mesh.Core/Storage/DirectorySync.cs`: the object's directory fsynced after each rename on Linux and macOS (libc `open`/`fsync`/`close`); `DirectoryObjectFiles.ProbeDirectoryFlush`, logged by the Host at start. |
+
+## Service plumbing (S0)
+
+What S0 added, by rule: the Host serves `ServiceCall`, `Emit` and `UpdatePackage`, spawns and supervises services, and
+`Axiom.Mesh.Service` is the runtime every service is built on.
+
+| Rule | Carried by |
+|---|---|
+| §1 Honest layers under one dishonest runtime | `Axiom.Mesh.Service/ServiceShell.cs` is the one place a service process reads its environment, the Host's `config.json` and its signals; `ServiceProgram.RunAsync` and the internal `ServiceRunner` take everything as a `ServiceEnvironment` (the way to the Host, the state's database, the variables, the clock, the loggers). `Axiom.Mesh.Host/Supervision/SystemChildProcesses.cs` is the Host's one place processes are started, behind `IChildProcesses`; `ServiceSupervisor` decides nothing itself. |
+| §2 Dependencies point downwards | `ConventionTests.AllowedReferences` (`Axiom.Mesh.Service` → Local, Model, ProtoStream and LDB; Testing may reference Service); `Service.Tests: Contracts.ClientOnly` (`NoServiceOrAppReferencesCoreOrHost` over the runtime's closure); `UnitTests/Shared/ServiceConventionTests.cs` (S-D13: no user interface in a service, every name of its namespace typed in its `.Client` library), derived by every `Services/*` suite from S1 on. The Host references no service: it starts executables named in its configuration. |
+| §3 The Host alone holds keys, connections, store and database | A service keeps its own LDB database in the state directory the Host creates for it (`HostPaths.ServiceState`, `ServicePaths.StateDirectory`); the runtime's cursor (`CursorRow`) sits beside the service's rows; the Host's database holds nothing of a service. |
+| §4 Nothing believed without proof | A spawned name is proven by its child's token only: `Axiom.Mesh.Core/Local/ServiceDirectory.cs` behind `LocalPort.SetSpawnedToken`/`ClearSpawnedToken`, a withdrawn token proving nothing (`LocalHelloRule`); a service's `Reply` is read against the callback's layout before it is passed on (`ForwardedReplyRule`), a malformed one closing the service's connection. |
+| §6 Every wait a deadline, every queue a bound | `CallbackTable` (64 outstanding, 60 s, `CallbackOutcome`), `Axiom.Mesh.Local/Client/CallbackDispatch.cs` (each handler off the read loop with a 60 s deadline, no reply after 120 s), `ServiceRunner` (one event at a time through a bounded channel, subscriptions renewed after a lapse, `ReconnectRule` backoff), `ServiceSupervisor` (the stop grace, then a kill of the process tree), `LocalEventHub.EntriesGate` (a subscription's replay and its live events without a gap). |
+| §7 A failure says who must act | `ServiceExitCode` read by `SupervisionRule` (2 and 3 give up loudly, `HostLog.ServiceGaveUp`), `ServiceConfigurationException`, `HostLog` events 7 to 12 (started, output, exited with the decision, given up, killed, not started); the token never in a log line or an argument (`ChildStart.ToString`). |
+| §8 Rules are pure functions tested from the spec | `ForwardedReplyRule`, `ManifestUpdateRule`, `NameRule` (Core); `ReplyStatusRule`, `CallbackReplyRule` (Local); `CatchUpStep`, `ReconnectRule`, `ServicePaths`, `ServiceConfig` (Service); `SupervisionRule`, `SpawnPathRule` (Host); `WritePathRule` (CLI); each with its rule tests. |
+| §10 The surface grows without breaking | `IMeshService`, `ServiceDefinition`, `ServiceSession`, `ServiceState`, `CallReply` (private constructor, two factories), `CallbackHandler` (one virtual per callback, default `UnknownRequest`); `Service.Tests: Contracts.PublicSurface`. |
+| §11 Opt-outs are named options logged at start | `config.json` `services.<name>.spawn`, `args`, `releasePinsOnDisconnect`; a spawned entry whose executable is absent is a configuration note at start, not a retry loop (S-D11). |

@@ -77,6 +77,7 @@ axiom-mesh grant revoke Family bob
 | `identity create --user <name> --device <name>` | A new user with this device as its first. |
 | `pair show [--device]` / `pair join <code>` / `pair confirm` / `pair cancel` / `pair status` | Pair two users, or enrol a device into your user (PAIR-SPEC.md). |
 | `users`, `devices [<user>]`, `peers [--discovered]`, `sessions` | Known users, a user's devices, the peer table, the established sessions; each with `--json`. |
+| `services` | The services the Host lists: name, how it proves its name (`external`, `spawned`, `in-process`), whether it is connected, its version and kinds; with `--json`. |
 | `dial <device\|ip:port>`, `peer add <host:port>`, `peer remove <host:port>` | Dial a device or an address once; static peers. |
 | `package create <name> [--kind archive\|channel] [--retention default\|everything\|latest]` | A Package you own; a Channel by default. |
 | `package list [--followed]`, `package show <package>` | Packages listed to you or followed here; one Package and its Grants; each with `--json`. |

@@ -5,6 +5,33 @@ Every release of Axiom.Mesh, newest first. One version covers every package, the
 the GitHub Release's notes, and every package's release notes point here. Protocol versions (AMP/1, local/1, pair/1)
 are independent of package versions.
 
+## 0.2.0
+
+Unreleased: the services of the plan's phases 1b and 2, tagged once Sync, Chat and the acceptance are done (S-D12). Every
+project's `<Version>` is 0.2.0 already. What is on `main` so far (S0, service plumbing):
+
+- **LOCAL-SPEC.md draft 5.** Services are programs of their own that the Host spawns and supervises (decisions 26 to
+  28): each start gets a fresh token, the pipe, the Host's home and a state directory in its environment (§4.2), and
+  the token lasts for that child's connections until it exits. `ServiceCall` runs beside the caller's other requests
+  (§3.4, §6.7); a reply the Host cannot pass on is a violation of the service's connection (§9.8); the key that releases
+  a service's pins on disconnect is named (§9.6); `Dropped` (§14.12) and `vectors/local.txt` (§15) are part of it.
+- **The Host serves `ServiceCall`, `Emit`, `UpdatePackage` and `AddTelemetry`** (the last `NotFound`, like the other
+  telemetry requests). Every request of LOCAL-SPEC.md §14.1 now has a handler.
+- **The Host spawns services.** `services.<name>.spawn` (an absolute path, or a bare name found beside `axiom-meshd`),
+  `args` and `releasePinsOnDisconnect` in `config.json`; restarts with backoff, gives up loudly after five crashes in
+  five minutes or a configuration error, drains then kills on stop. The default `config.json` lists `chat` and `sync`
+  (`axiom-mesh-chat`, `axiom-mesh-sync`); an entry whose executable is not there is noted once and left alone.
+- **New package `Axiom.Mesh.Service`**: the runtime every service is built on (`IMeshService`, `ServiceProgram`,
+  `ServiceSession`, `ServiceState` with its cursor, catch-up, reconnects, calls).
+- `Axiom.Mesh.Local`: `CallbackHandler` and `LocalClientOptions.Callbacks` (a service serves `ForwardedCall`s off its
+  read loop), `CallReply`, `ReplyStatusRule`, `CallbackReplyRule`.
+- `Axiom.Mesh.Core`: `LocalPort.SetSpawnedToken`/`ClearSpawnedToken`, `LocalService.ReleasePinsOnDisconnect`. Fixed: an
+  Entry stored while a `Subscribe` to topic entries planned its replay could reach that subscription neither replayed
+  nor live (LOCAL-SPEC.md §7.2).
+- `Axiom.Mesh.Testing`: `TestNode.RunServiceAsync`, `IMeshFixture.RunServiceAsync`, `TestServices`, `TestEchoService`,
+  `RunningService`; scenario 15 (a service beside a node).
+- `axiom-mesh services [--json]`: the services the Host lists, how each proves its name, whether it is connected.
+
 ## 0.1.0
 
 The first release: the Fundamentals of [the plan's phase 1a](Documentation/DESIGN.md) (DESIGN.md §17). Two desktops on
