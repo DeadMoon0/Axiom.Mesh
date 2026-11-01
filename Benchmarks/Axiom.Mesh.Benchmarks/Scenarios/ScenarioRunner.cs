@@ -24,6 +24,8 @@ internal static class ScenarioRunner
         ["putobject"] = ("PutObject of 1 MiB Chunks over the real pipe, one at a time and pipelined", PutObjectScenario.RunAsync),
         ["putfile"] = ("StoreFiles.PutFileAsync of a 256 MiB file over the real pipe", PutFileScenario.RunAsync),
         ["forward"] = ("where forwarding a 1 MiB Object allocates: the frame layer in memory, then over loopback TLS", ForwardScenario.RunAsync),
+        ["chat-send"] = ("a 1 MiB chat attachment from chat send on one node to chat get on another, loopback TLS and the real pipe", ChatScenario.SendAsync),
+        ["chat-catchup"] = ("10 000 chat messages caught up by a restarted chat service over the real pipe", ChatScenario.CatchUpAsync),
     };
 
     /// <summary>Runs the named scenario, or lists them.</summary>

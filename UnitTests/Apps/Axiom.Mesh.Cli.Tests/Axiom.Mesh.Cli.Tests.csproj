@@ -8,6 +8,8 @@
     <ProjectReference Include="..\..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
     <!-- In-memory nodes to run the command line against end to end (TestNode.CliAsync). -->
     <ProjectReference Include="..\..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
+    <!-- The chat service, run in process beside a node, for the chat commands end to end (CliScenarioTests). -->
+    <ProjectReference Include="..\..\..\Services\Axiom.Mesh.Chat\Axiom.Mesh.Chat.csproj" />
   </ItemGroup>
 
   <ItemGroup>

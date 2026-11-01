@@ -14,6 +14,8 @@
     <ProjectReference Include="..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
     <ProjectReference Include="..\..\Axiom.Mesh.Host\Axiom.Mesh.Host.csproj" />
     <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
+    <!-- The chat service: its index measured directly (it opens its internals here), and run beside real nodes. -->
+    <ProjectReference Include="..\..\Services\Axiom.Mesh.Chat\Axiom.Mesh.Chat.csproj" />
     <PackageReference Include="BenchmarkDotNet" />
     <!-- The codec runner: encodes and decodes one frame of a definition without a connection. -->
     <PackageReference Include="Axiom.ProtoStream.Testing" />
@@ -23,6 +25,7 @@
     <!-- Real nodes on loopback with real TLS, disk and pipe: the integration suite's fixture, compiled unchanged. -->
     <Compile Include="..\..\IntegrationTests\Axiom.Mesh.Integration.Tests\Support\RealMeshFixture.cs" Link="Support\RealMeshFixture.cs" />
     <Compile Include="..\..\IntegrationTests\Axiom.Mesh.Integration.Tests\Support\RealNode.cs" Link="Support\RealNode.cs" />
+    <Compile Include="..\..\IntegrationTests\Axiom.Mesh.Integration.Tests\Support\ChatMeasure.cs" Link="Support\ChatMeasure.cs" />
   </ItemGroup>
 
 </Project>

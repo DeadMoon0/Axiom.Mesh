@@ -22,6 +22,7 @@ namespace Axiom.Mesh.Service;
 internal sealed class ServiceRunner
 {
     private const ushort PageSize = 64;
+    private const ulong CommitEvery = 64;
 
     private readonly IMeshService service;
     private readonly ServiceDefinition definition;
@@ -272,12 +273,14 @@ internal sealed class ServiceRunner
     {
         private readonly Channel<object> events = Channel.CreateBounded<object>(new BoundedChannelOptions(1) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
         private ulong next;
+        private ulong committed;
 
         private LocalClient Client => session.Client;
 
         public async Task RunAsync(ulong fromSeq, ulong hostSeq, CancellationToken stop)
         {
             next = Math.Max(fromSeq, 1);
+            committed = next - 1;
             using var draining = CancellationTokenSource.CreateLinkedTokenSource(stop, Client.Draining);
             CancellationToken pumping = draining.Token;
             try
@@ -305,7 +308,8 @@ internal sealed class ServiceRunner
             }
             finally
             {
-                // Forwarders still running end their writes; nothing reads this session's events any more.
+                // What was handled is the cursor's, even when the session ends; forwarders still running end their writes.
+                await CommitAsync().ConfigureAwait(false);
                 events.Writer.TryComplete();
             }
         }
@@ -316,8 +320,14 @@ internal sealed class ServiceRunner
             for (CatchUpStep step = CatchUpStep.Next(next, hostSeq); step.Action == CatchUpAction.Page; step = CatchUpStep.Next(next, hostSeq))
             {
                 EntryPage page = Ok(await Client.SendAsync(new ListStored { Kinds = runner.definition.EntryKinds, FromSeq = step.FromSeq, Limit = PageSize }, pumping).ConfigureAwait(false), "ListStored");
-                foreach (Entry entry in page.Entries)
-                    await HandleAsync(entry, stop).ConfigureAwait(false);
+                EntryStored[] fresh = [.. page.Entries.Where(e => e.StoreSeq >= next).Select(e => new EntryStored { Entry = e })];
+                if (fresh.Length > 0)
+                {
+                    await runner.service.OnEntriesAsync(session, fresh, stop).ConfigureAwait(false);
+                    next = fresh[^1].Entry.StoreSeq + 1;
+                }
+
+                await CommitAsync().ConfigureAwait(false);
                 if (!page.More)
                     return next - 1;
                 pumping.ThrowIfCancellationRequested();
@@ -336,6 +346,10 @@ internal sealed class ServiceRunner
                 {
                     case EntryStored stored:
                         await HandleAsync(stored.Entry, stop).ConfigureAwait(false);
+
+                        // A lull: nothing else waits, so the cursor catches up with what was handled.
+                        if (!events.Reader.TryPeek(out _))
+                            await CommitAsync().ConfigureAwait(false);
                         break;
                     case PackageChanged changed:
                         await runner.service.OnPackageChangedAsync(session, changed, stop).ConfigureAwait(false);
@@ -362,11 +376,20 @@ internal sealed class ServiceRunner
             if (entry.StoreSeq < next)
                 return;
             await runner.service.OnEntryAsync(session, new EntryStored { Entry = entry }, stop).ConfigureAwait(false);
-
-            // The handler is done: its cursor is written whole even when the service is stopping, so that a clean stop
-            // repeats nothing (a crash still may, and the handler dedupes by hash).
-            await session.State.AdvanceAsync(epoch, entry.StoreSeq, CancellationToken.None).ConfigureAwait(false);
             next = entry.StoreSeq + 1;
+            if (next - 1 - committed >= CommitEvery)
+                await CommitAsync().ConfigureAwait(false);
+        }
+
+        // The cursor moves to the last Entry whose handler returned, never past it: after each page, at a lull of the live
+        // stream, every CommitEvery Entries and when the session ends. It is written whole even when the service is
+        // stopping, so a clean stop repeats nothing; a crash repeats at most what was handled since, and the handler dedupes.
+        private async Task CommitAsync()
+        {
+            if (next - 1 <= committed)
+                return;
+            await session.State.AdvanceAsync(epoch, next - 1, CancellationToken.None).ConfigureAwait(false);
+            committed = next - 1;
         }
 
         private async Task<Subscription<TEvent>> SubscribeAsync<TEvent>(Filter filter, CancellationToken cancellationToken)

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Local;
@@ -22,6 +23,8 @@ internal sealed class ObservedService(IMeshService inner) : IMeshService
     }
 
     public Task OnEntryAsync(ServiceSession session, EntryStored stored, CancellationToken cancellationToken) => inner.OnEntryAsync(session, stored, cancellationToken);
+
+    public Task OnEntriesAsync(ServiceSession session, IReadOnlyList<EntryStored> stored, CancellationToken cancellationToken) => inner.OnEntriesAsync(session, stored, cancellationToken);
 
     public Task OnPackageChangedAsync(ServiceSession session, PackageChanged changed, CancellationToken cancellationToken) => inner.OnPackageChangedAsync(session, changed, cancellationToken);
 

@@ -87,6 +87,45 @@ internal static class Samples
         LatestClock = entries == 0 ? 0 : entries - 1,
     };
 
+    /// <summary>Two Channels as the chat service lists them.</summary>
+    public static IReadOnlyList<Chat.ChannelView> Channels { get; } =
+    [
+        new Chat.ChannelView { PackageId = Chat, Name = "Family", OwnerId = Alice, OwnerName = "alice", Followed = true, Messages = 3, Withdrawn = 1, Last = new EntryKey(2, Desktop, new ObjectHash(Id(0x03))), Indexed = true },
+        new Chat.ChannelView { PackageId = new PackageId(Id(0xc7)), Name = "Work", OwnerId = Bob, OwnerName = string.Empty, Followed = false, Messages = 0, Withdrawn = 0, Last = null, Indexed = false },
+    ];
+
+    /// <summary>A timeline: a message with two attachments, a withdrawn one, a reply.</summary>
+    public static IReadOnlyList<Chat.MessageView> Timeline { get; } =
+    [
+        new Chat.MessageView
+        {
+            Key = new EntryKey(0, Laptop, new ObjectHash(Id(0x01))),
+            PackageId = Chat,
+            Author = new Chat.AuthorView { DeviceId = Laptop, UserId = Alice, UserName = "alice", DeviceName = "laptop" },
+            Stored = Time,
+            Text = "holiday photos",
+            Attachments = [new Attachment("photo.jpg", new ObjectHash(Id(0x9a)), 1_048_576), new Attachment("docs", new ObjectHash(Id(0x9b)), 3_072)],
+        },
+        new Chat.MessageView
+        {
+            Key = new EntryKey(1, Desktop, new ObjectHash(Id(0x02))),
+            PackageId = Chat,
+            Author = new Chat.AuthorView { DeviceId = Desktop, UserId = Bob, UserName = "bob", DeviceName = "desktop" },
+            Stored = Time + 1_000,
+            Withdrawn = true,
+            WithdrawnBy = Laptop,
+        },
+        new Chat.MessageView
+        {
+            Key = new EntryKey(2, Desktop, new ObjectHash(Id(0x03))),
+            PackageId = Chat,
+            Author = new Chat.AuthorView { DeviceId = Desktop },
+            Stored = Time + 2_000,
+            Text = "lovely",
+            ReplyTo = new ObjectHash(Id(0x01)),
+        },
+    ];
+
     private static Entry Entry(byte hash, ulong clock, DeviceId device, EntryKind kind, byte[] payload, bool redacted) => new()
     {
         Hash = new ObjectHash(Id(hash)),

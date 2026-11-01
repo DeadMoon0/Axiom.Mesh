@@ -54,4 +54,22 @@ public sealed class FailureTests
         Assert.Equal("the user key is on another device of this user, not on laptop; run this there", StatusText.Meaning(Status.UserKeyAbsent, "laptop"));
         Assert.Equal("the Host refused with status 300", StatusText.Meaning((Status)300, "laptop"));
     }
+
+    // CHAT-SERVICE.md §7: every status the chat service defines exits 3 with its own line, the service's words after it.
+    [Theory]
+    [InlineData(32_768)] // NotAChannel
+    [InlineData(32_769)] // NotAMessage
+    [InlineData(32_770)] // NotYours
+    [InlineData(32_771)] // AttachmentMissing
+    [InlineData(32_772)] // Withdrawn
+    [InlineData(32_773)] // JobNotFound
+    public void EveryChatStatusExitsThreeWithItsOwnLine(int code)
+    {
+        var status = (Status)(ushort)code;
+        CliFailure failure = CliFailure.Refused(status, new Error { Message = "the service's own words" }, "laptop");
+
+        Assert.Equal(CliExitCode.Refused, failure.ExitCode);
+        Assert.Equal($"{Chat.ChatStatusText.Explain((Chat.ChatStatus)code)}: the service's own words", failure.Line);
+        Assert.DoesNotContain("refused with status", failure.Line, StringComparison.Ordinal);
+    }
 }

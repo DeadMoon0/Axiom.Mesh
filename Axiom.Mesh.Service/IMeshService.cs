@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Local;
@@ -39,6 +41,22 @@ public interface IMeshService
     /// <param name="cancellationToken">Cancelled when the service stops.</param>
     /// <returns>A task that completes when the Entry is indexed.</returns>
     Task OnEntryAsync(ServiceSession session, EntryStored stored, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A page of the catch-up (LOCAL-SPEC.md §9.3, <c>ListStored</c>): Entries of the service's kinds in store order, each
+    /// once, the cursor advanced past all of them only after this returned. A service that writes its index in one
+    /// transaction per page overrides it; by default it is <see cref="OnEntryAsync"/> for each, in order.
+    /// </summary>
+    /// <param name="session">The session.</param>
+    /// <param name="stored">The Entries, ascending by store sequence.</param>
+    /// <param name="cancellationToken">Cancelled when the service stops.</param>
+    /// <returns>A task that completes when every Entry is indexed.</returns>
+    async Task OnEntriesAsync(ServiceSession session, IReadOnlyList<EntryStored> stored, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(stored);
+        foreach (EntryStored one in stored)
+            await OnEntryAsync(session, one, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>A Package of one of the service's kinds changed (LOCAL-SPEC.md §7.3): listed, followed, a Manifest, a Grant, a Head, dropped.</summary>
     /// <param name="session">The session.</param>

@@ -179,4 +179,52 @@ public sealed class CliScenarioTests
         Assert.Contains(bob.User.Value.ToHex()[..Formats.ShortId], aliceKnows.Stdout, StringComparison.Ordinal);
         Assert.Contains(alice.User.Value.ToHex()[..Formats.ShortId], bobKnows.Stdout, StringComparison.Ordinal);
     }
+
+    // Plan §9.3 item 4, S-D5: with the chat service running, chat send attaches a file and writes, write goes through the
+    // service too, chat show lists both, chat get writes the attachment byte-equal, chat withdraw hides a message; once the
+    // service is gone, write falls back to the direct path and a chat command says the service is not connected.
+    [Fact]
+    public async Task ChatSend_ChatShow_ChatWithdraw_ChatGet_ThroughTheChatService_AndWriteFallsBackWhenItIsGone()
+    {
+        await using TestMesh mesh = await TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop") with { Local = TestServices.With(TestCliService.Local, Chat.ChatProgram.Definition) }, None);
+        TestNode alice = mesh["alice-laptop"];
+        await ((IMeshFixture)mesh).HoldUserKeyAsync("alice-laptop", None);
+        await CliMeshes.OkAsync(alice.CliAsync("package create Family", None));
+        RunningService chat = await alice.RunServiceAsync(new Chat.ChatService(mesh.Clock), None);
+        string folder = Path.Combine(Path.GetTempPath(), "axiom-mesh-cli-chat-" + Guid.NewGuid().ToString("N")[..12]);
+        Directory.CreateDirectory(folder);
+        string photo = Path.Combine(folder, "photo.bin");
+        File.WriteAllBytes(photo, [.. Enumerable.Range(0, 5_000).Select(i => (byte)(i * 13))]);
+        try
+        {
+            CliResult sent = await CliMeshes.OkAsync(alice.CliAsync($"chat send Family --text 'with a photo' --file '{photo}'", None));
+            CliResult written = await CliMeshes.OkAsync(alice.CliAsync("write Family --text 'through the service'", None));
+            string withPhoto = Regex.Match(sent.Stdout, "entry ([0-9a-f]{64})").Groups[1].Value;
+            string viaWrite = Regex.Match(written.Stdout, "entry ([0-9a-f]{64})").Groups[1].Value;
+            CliResult shown = await CliMeshes.OkAsync(alice.CliAsync("chat show Family", None));
+            CliResult got = await CliMeshes.OkAsync(alice.CliAsync($"chat get {withPhoto[..Formats.ShortId]} photo.bin --out '{Path.Combine(folder, "copy.bin")}'", None));
+            await CliMeshes.OkAsync(alice.CliAsync($"chat withdraw {viaWrite}", None));
+            CliResult after = await CliMeshes.OkAsync(alice.CliAsync("chat show Family --json", None));
+
+            Assert.Contains("with a photo [1 attachment: photo.bin (4.9 KiB)]", shown.Stdout, StringComparison.Ordinal);
+            Assert.Contains("through the service", shown.Stdout, StringComparison.Ordinal);
+            Assert.Contains("written: ", got.Stdout, StringComparison.Ordinal);
+            Assert.Equal(File.ReadAllBytes(photo), File.ReadAllBytes(Path.Combine(folder, "copy.bin")));
+            Assert.DoesNotContain("through the service", after.Stdout, StringComparison.Ordinal);
+            Assert.Contains("\"withdrawn\": true", after.Stdout, StringComparison.Ordinal);
+
+            await chat.DisposeAsync();
+            CliResult direct = await CliMeshes.OkAsync(alice.CliAsync("write Family --text 'directly again'", None));
+            CliResult refused = await alice.CliAsync("chat list", None);
+            Assert.Contains("written: entry", direct.Stdout, StringComparison.Ordinal);
+            Assert.Contains("directly again", (await CliMeshes.OkAsync(alice.CliAsync("history Family", None))).Stdout, StringComparison.Ordinal);
+            Assert.Equal(CliExitCode.Refused, refused.ExitCode);
+            Assert.Contains("the chat service is not connected", refused.Stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await chat.DisposeAsync();
+            Directory.Delete(folder, recursive: true);
+        }
+    }
 }

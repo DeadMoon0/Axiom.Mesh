@@ -1,0 +1,3 @@
+CHANNEL       NAME    OWNER         MESSAGES  WITHDRAWN  FOLLOWED  INDEXED
+c4c5c6c7c0c1  Family  alice         3         1          yes       yes
+c7c6c5c4c3c2  Work    b0b1b2b3b4b5  0         0          no        no

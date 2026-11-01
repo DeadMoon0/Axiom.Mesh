@@ -82,6 +82,14 @@ public sealed class ChatService : IMeshService
     }
 
     /// <inheritdoc />
+    public async Task OnEntriesAsync(ServiceSession session, IReadOnlyList<EntryStored> stored, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(stored);
+        ChatSession chat = await ReadyOf(session).Task.ConfigureAwait(false);
+        await chat.TakeInManyAsync([.. stored.Select(s => s.Entry)], cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task OnPackageChangedAsync(ServiceSession session, PackageChanged changed, CancellationToken cancellationToken)
     {
         ChatSession chat = await ReadyOf(session).Task.ConfigureAwait(false);

@@ -26,6 +26,9 @@ internal sealed class RecordingService(TestEchoService inner) : IMeshService
 
     public ConcurrentQueue<PackageChanged> Changes { get; } = new();
 
+    /// <summary>The size of every page of the catch-up the runtime handed over at once.</summary>
+    public ConcurrentQueue<int> Pages { get; } = new();
+
     public int Disconnects;
 
     public ServiceDefinition Definition => inner.Definition;
@@ -44,6 +47,13 @@ internal sealed class RecordingService(TestEchoService inner) : IMeshService
         if ((ulong)Volatile.Read(ref failOn) == stored.Entry.StoreSeq && Interlocked.Exchange(ref failOn, -1) >= 0)
             throw new InvalidOperationException("The index could not be written (the test said so).");
         return inner.OnEntryAsync(session, stored, cancellationToken);
+    }
+
+    public async Task OnEntriesAsync(ServiceSession session, System.Collections.Generic.IReadOnlyList<EntryStored> stored, CancellationToken cancellationToken)
+    {
+        Pages.Enqueue(stored.Count);
+        foreach (EntryStored one in stored)
+            await OnEntryAsync(session, one, cancellationToken);
     }
 
     public Task OnPackageChangedAsync(ServiceSession session, PackageChanged changed, CancellationToken cancellationToken)

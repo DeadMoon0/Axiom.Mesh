@@ -67,7 +67,7 @@ internal sealed class ChatIndex
     /// <param name="storeSeq">The store sequence.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>A task that completes when it is committed.</returns>
-    public Task AdvanceAsync(ulong storeSeq, CancellationToken cancellationToken) => WriteAsync(async context =>
+    public Task AdvanceAsync(ulong storeSeq, CancellationToken cancellationToken) => WriteLazyAsync(async context =>
     {
         MetaRow meta = await MetaAsync(context, cancellationToken).ConfigureAwait(false);
         meta.LastSeq = Math.Max(meta.LastSeq, storeSeq);
@@ -148,32 +148,49 @@ internal sealed class ChatIndex
     }, cancellationToken);
 
     /// <summary>
-    /// Takes in one Entry of the chat kinds (CHAT-SERVICE.md §11): a redaction (any Entry whose envelope's <c>redacts</c> is not
-    /// zero) is kept and applied to its target when SPEC.md §9.4 honours it; a Message is indexed with what its payload says
-    /// and whether it is broken, and every redaction kept for it is applied; anything else is skipped. An Entry indexed before
-    /// changes nothing. Rows, counts and the meta row's store sequence are one transaction.
+    /// Takes in Entries of the chat kinds in one transaction (CHAT-SERVICE.md §11, <see cref="IndexBatch"/>): a page of the
+    /// runtime's catch-up, or one Entry. An Entry indexed before, here or earlier in the batch, changes nothing; rows, counts
+    /// and the meta row's store sequence are committed together, lazily durable (a crash loses only the latest commits, and
+    /// the runtime's later cursor commit with them, so those Entries come again).
     /// </summary>
+    /// <param name="entries">The Entries, in store order; their Channels' rows exist.</param>
+    /// <param name="owners">Each Channel's owner and the devices known, for SPEC.md §9.4; an Entry of a Channel not in it is skipped.</param>
+    /// <param name="advance">Whether the Entries came from the Host's stream, so the meta row's store sequence moves to the last.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>What changed, one result per Entry.</returns>
+    public Task<IReadOnlyList<IndexResult>> IndexManyAsync(IReadOnlyList<Entry> entries, IReadOnlyDictionary<PackageId, ChannelOwner> owners, bool advance, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(owners);
+        return WriteAsync<IReadOnlyList<IndexResult>>(async context =>
+        {
+            var batch = new IndexBatch(context);
+            var results = new List<IndexResult>(entries.Count);
+            foreach (Entry entry in entries)
+                results.Add(owners.TryGetValue(entry.PackageId, out ChannelOwner? owner) ? await batch.TakeInAsync(entry, owner, cancellationToken).ConfigureAwait(false) : IndexResult.Nothing);
+            if (advance && entries.Count > 0)
+            {
+                MetaRow meta = await MetaAsync(context, cancellationToken).ConfigureAwait(false);
+                meta.LastSeq = Math.Max(meta.LastSeq, entries.Max(e => e.StoreSeq));
+            }
+
+            return results;
+        }, Durability.Lazy, cancellationToken);
+    }
+
+    /// <summary>Takes in one Entry; see <see cref="IndexManyAsync"/>.</summary>
     /// <param name="entry">The Entry; its Channel's row exists.</param>
     /// <param name="owner">The Channel's owner and the devices known, for SPEC.md §9.4.</param>
-    /// <param name="advance">Whether the Entry came from the Host's stream, so the meta row's store sequence moves to it.</param>
+    /// <param name="advance">Whether the Entry came from the Host's stream.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>What changed.</returns>
-    public Task<IndexResult> IndexAsync(Entry entry, ChannelOwner owner, bool advance, CancellationToken cancellationToken)
+    public async Task<IndexResult> IndexAsync(Entry entry, ChannelOwner owner, bool advance, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(owner);
-        return WriteAsync(async context =>
-        {
-            IndexResult result = await IndexInAsync(context, entry, owner, cancellationToken).ConfigureAwait(false);
-            if (advance)
-            {
-                MetaRow meta = await MetaAsync(context, cancellationToken).ConfigureAwait(false);
-                meta.LastSeq = Math.Max(meta.LastSeq, entry.StoreSeq);
-            }
-
-            return result;
-        }, cancellationToken);
+        return (await IndexManyAsync([entry], new Dictionary<PackageId, ChannelOwner> { [entry.PackageId] = owner }, advance, cancellationToken).ConfigureAwait(false))[0];
     }
+
 
     /// <summary>One message's row.</summary>
     /// <param name="hash">The message's Entry hash.</param>
@@ -318,99 +335,6 @@ internal sealed class ChatIndex
     /// <inheritdoc />
     public override string ToString() => $"chat index on {database}";
 
-    private static EntryFacts FactsOf(MessageRow row) => new(new PackageId(RowBytes.Hash(row.Package)), default, KeyOf(row));
-
-    private static EntryFacts FactsOf(RedactionRow row) =>
-        new(new PackageId(RowBytes.Hash(row.Package)), new ObjectHash(RowBytes.Hash(row.Target)), new EntryKey(row.Clock, new DeviceId(RowBytes.Hash(row.Device)), new ObjectHash(RowBytes.Hash(row.Hash))));
-
-    private static async Task<IndexResult> IndexInAsync(LdbContext context, Entry entry, ChannelOwner owner, CancellationToken cancellationToken)
-    {
-        byte[] hash = RowBytes.Of(entry.Hash.Value);
-        EntitySet<MessageRow> messages = context.Set<MessageRow>();
-        EntitySet<RedactionRow> redactions = context.Set<RedactionRow>();
-        if (await messages.FindAsync(hash, cancellationToken).ConfigureAwait(false) is not null
-            || await redactions.FindAsync(hash, cancellationToken).ConfigureAwait(false) is not null)
-            return IndexResult.Nothing;
-
-        ChannelRow? channel = await context.Set<ChannelRow>().FindAsync(RowBytes.Of(entry.PackageId.Value), cancellationToken).ConfigureAwait(false);
-        if (channel is null)
-            return IndexResult.Nothing;
-        if (!entry.Redacts.IsZero)
-            return await RedactAsync(context, entry, channel, owner, cancellationToken).ConfigureAwait(false);
-        if (entry.Kind != EntryKind.Message)
-            return IndexResult.Nothing;
-
-        MessageCheck check = PayloadCheck.OfMessage(entry.Kind, entry.Payload, entry.References, entry.Redacts);
-        var row = new MessageRow
-        {
-            Hash = hash,
-            Package = RowBytes.Of(entry.PackageId.Value),
-            Clock = entry.Clock,
-            Device = RowBytes.Of(entry.DeviceId.Value),
-            StoredMs = (long)Math.Min(entry.Stored, long.MaxValue),
-            StoreSeq = entry.StoreSeq,
-            Text = check.Payload?.Text ?? string.Empty,
-            Attachments = AttachmentsBlob.Of(check.Payload?.Attachments ?? []),
-            AttachmentCount = check.Payload?.Attachments.Count ?? 0,
-            ReplyTo = check.Payload is { ReplyTo.IsZero: false } payload ? RowBytes.Of(payload.ReplyTo.Value) : null,
-            Broken = check.Broken,
-        };
-
-        // SPEC.md §9.4 in the other order: a redaction kept before its target applies now.
-        List<RedactionRow> waiting = await redactions.ReadOnlyQuery().Where(RedactionRow.Columns.Target == hash).ToListAsync(cancellationToken).ConfigureAwait(false);
-        foreach (RedactionRow redaction in Timeline.Order(waiting, r => FactsOf(r).Key, reverse: false))
-        {
-            if (RedactionApplication.Decide(FactsOf(redaction), FactsOf(row), owner.HasDevice(new DeviceId(RowBytes.Hash(redaction.Device)))) != RedactionOutcome.Applied)
-                continue;
-            row.Redacted = true;
-            row.RedactedBy = redaction.Device;
-            break;
-        }
-
-        messages.Add(row);
-        foreach (Payloads.Attachment attachment in check.Payload?.Attachments ?? [])
-        {
-            byte[] pair = RowBytes.Pair(attachment.Hash.Value, entry.Hash.Value);
-            if (await context.Set<AttachmentRow>().FindAsync(pair, cancellationToken).ConfigureAwait(false) is null)
-                context.Set<AttachmentRow>().Add(new AttachmentRow { Key = pair, Attachment = RowBytes.Of(attachment.Hash.Value), Package = row.Package, Name = attachment.Name, Size = attachment.Size });
-        }
-
-        channel.Messages++;
-        if (row.Redacted)
-            channel.Withdrawn++;
-        EntryKey key = KeyOf(row);
-        if (channel.LastHash is null || key > new EntryKey(channel.LastClock, new DeviceId(RowBytes.Hash(channel.LastDevice)), new ObjectHash(RowBytes.Hash(channel.LastHash))))
-        {
-            channel.LastClock = row.Clock;
-            channel.LastDevice = row.Device;
-            channel.LastHash = row.Hash;
-        }
-
-        return new IndexResult(IndexChange.NewMessage, row, default);
-    }
-
-    private static async Task<IndexResult> RedactAsync(LdbContext context, Entry entry, ChannelRow channel, ChannelOwner owner, CancellationToken cancellationToken)
-    {
-        var redaction = new RedactionRow
-        {
-            Hash = RowBytes.Of(entry.Hash.Value),
-            Target = RowBytes.Of(entry.Redacts.Value),
-            Package = RowBytes.Of(entry.PackageId.Value),
-            Device = RowBytes.Of(entry.DeviceId.Value),
-            Clock = entry.Clock,
-            StoreSeq = entry.StoreSeq,
-        };
-        context.Set<RedactionRow>().Add(redaction);
-        MessageRow? target = await context.Set<MessageRow>().FindAsync(redaction.Target, cancellationToken).ConfigureAwait(false);
-        RedactionOutcome outcome = RedactionApplication.Decide(FactsOf(redaction), target is null ? null : FactsOf(target), owner.HasDevice(entry.DeviceId));
-        if (outcome != RedactionOutcome.Applied || target!.Redacted)
-            return new IndexResult(IndexChange.Kept, null, default);
-        target.Redacted = true;
-        target.RedactedBy = redaction.Device;
-        channel.Withdrawn++;
-        return new IndexResult(IndexChange.Withdrew, target, entry.DeviceId);
-    }
-
     private static async Task<MetaRow> MetaAsync(LdbContext context, CancellationToken cancellationToken)
     {
         MetaRow? meta = await context.Set<MetaRow>().FindAsync(MetaName, cancellationToken).ConfigureAwait(false);
@@ -514,16 +438,28 @@ internal sealed class ChatIndex
         {
             await write(context).ConfigureAwait(false);
             return true;
-        }, cancellationToken);
+        }, Durability.Full, cancellationToken);
 
-    private async Task<T> WriteAsync<T>(Func<LdbContext, Task<T>> write, CancellationToken cancellationToken)
+    private Task<T> WriteAsync<T>(Func<LdbContext, Task<T>> write, CancellationToken cancellationToken) =>
+        WriteAsync(write, Durability.Full, cancellationToken);
+
+    // Rows built from Entries are a cache rebuilt by store sequence: their commits are lazily durable (a crash loses only
+    // the latest commits, in order, and the runtime's later cursor commit with them, so the Entries come again).
+    private Task WriteLazyAsync(Func<LdbContext, Task> write, CancellationToken cancellationToken) =>
+        WriteAsync<bool>(async context =>
+        {
+            await write(context).ConfigureAwait(false);
+            return true;
+        }, Durability.Lazy, cancellationToken);
+
+    private async Task<T> WriteAsync<T>(Func<LdbContext, Task<T>> write, Durability durability, CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await using LdbContext context = await LdbContext.OpenAsync(database, cancellationToken).ConfigureAwait(false);
             T result = await write(context).ConfigureAwait(false);
-            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await context.SaveChangesAsync(TransactionOptions.Default with { Durability = durability }, cancellationToken).ConfigureAwait(false);
             return result;
         }
         finally

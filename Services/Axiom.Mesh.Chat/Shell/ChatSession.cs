@@ -19,6 +19,7 @@ internal sealed class ChatSession
     private static IReadOnlyList<EntryKind> Kinds => [EntryKind.Message, EntryKind.Redaction];
 
     private readonly CancellationTokenSource ending = new();
+    private readonly Dictionary<PackageId, UserId> owners = [];
 
     /// <summary>The service on a connection.</summary>
     /// <param name="service">The runtime's session.</param>
@@ -90,18 +91,23 @@ internal sealed class ChatSession
     public async Task<IndexResult> TakeInAsync(Entry entry, bool advance, bool live, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        ChannelRow? channel = await EnsureChannelAsync(entry.PackageId, cancellationToken).ConfigureAwait(false);
-        if (channel is null)
+        if (await OwnerOfAsync(entry.PackageId, cancellationToken).ConfigureAwait(false) is not { } ownerId)
         {
             if (advance)
                 await Index.AdvanceAsync(entry.StoreSeq, cancellationToken).ConfigureAwait(false);
             return IndexResult.Nothing;
         }
 
-        ChannelOwner owner = await Directory.OwnerAsync(new UserId(RowBytes.Hash(channel.OwnerId)), entry.DeviceId, cancellationToken).ConfigureAwait(false);
+        ChannelOwner owner = await Directory.OwnerAsync(ownerId, entry.DeviceId, cancellationToken).ConfigureAwait(false);
         IndexResult result = await Index.IndexAsync(entry, owner, advance, cancellationToken).ConfigureAwait(false);
-        if (!live)
-            return result;
+        if (live)
+            await AnnounceAsync(entry, result, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    // The event of what one Entry changed: a new visible message, or a withdrawal.
+    private async Task AnnounceAsync(Entry entry, IndexResult result, CancellationToken cancellationToken)
+    {
         if (result is { Change: IndexChange.NewMessage, Message: { } message } && Timeline.Visible(message.Redacted, message.Broken))
         {
             AuthorView author = await Directory.AuthorAsync(entry.DeviceId, cancellationToken).ConfigureAwait(false);
@@ -112,8 +118,31 @@ internal sealed class ChatSession
             var gone = new WithdrawnEvent { Key = ChatIndex.KeyOf(withdrawn), PackageId = entry.PackageId, By = result.By };
             await EmitAsync(ChatEvents.Withdrawn, entry.PackageId, gone, cancellationToken).ConfigureAwait(false);
         }
+    }
 
-        return result;
+    /// <summary>
+    /// Takes in a page of the runtime's catch-up in one transaction of the index: each Entry's Channel made known first,
+    /// then the whole page indexed, then the events of what arrived live.
+    /// </summary>
+    /// <param name="entries">The Entries, in store order, from the Host's stream.</param>
+    /// <param name="cancellationToken">Cancelled when the service stops.</param>
+    /// <returns>A task that completes when the page is indexed.</returns>
+    public async Task TakeInManyAsync(IReadOnlyList<Entry> entries, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        var owners = new Dictionary<PackageId, ChannelOwner>();
+        foreach (Entry entry in entries)
+        {
+            if (await OwnerOfAsync(entry.PackageId, cancellationToken).ConfigureAwait(false) is { } ownerId)
+                owners[entry.PackageId] = await Directory.OwnerAsync(ownerId, entry.DeviceId, cancellationToken).ConfigureAwait(false);
+        }
+
+        IReadOnlyList<IndexResult> results = await Index.IndexManyAsync(entries, owners, advance: true, cancellationToken).ConfigureAwait(false);
+        for (int i = 0; i < entries.Count; i++)
+        {
+            if (entries[i].StoreSeq > LiveFrom)
+                await AnnounceAsync(entries[i], results[i], cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -144,6 +173,8 @@ internal sealed class ChatSession
                 await EmitChannelAsync(ChannelChange.Unfollowed, unfollowed.Row, cancellationToken).ConfigureAwait(false);
                 break;
             case PackageChange.Dropped:
+                lock (owners)
+                    owners.Remove(package.PackageId);
                 if (await Index.DropChannelAsync(package.PackageId, cancellationToken).ConfigureAwait(false) is { } dropped)
                     await EmitChannelAsync(ChannelChange.Dropped, dropped, cancellationToken).ConfigureAwait(false);
                 break;
@@ -195,6 +226,23 @@ internal sealed class ChatSession
         ChannelUpsert made = await Index.UpsertChannelAsync(read.Value, cancellationToken).ConfigureAwait(false);
         await EmitChannelAsync(ChannelChange.Followed, made.Row, cancellationToken).ConfigureAwait(false);
         return made.Row;
+    }
+
+    // A Channel's owner, kept for the connection once read: an Entry needs it for SPEC.md §9.4, and the owner never changes.
+    private async Task<UserId?> OwnerOfAsync(PackageId package, CancellationToken cancellationToken)
+    {
+        lock (owners)
+        {
+            if (owners.TryGetValue(package, out UserId known))
+                return known;
+        }
+
+        if (await EnsureChannelAsync(package, cancellationToken).ConfigureAwait(false) is not { } channel)
+            return null;
+        var owner = new UserId(RowBytes.Hash(channel.OwnerId));
+        lock (owners)
+            owners[package] = owner;
+        return owner;
     }
 
     private async Task FollowedAsync(Package package, CancellationToken cancellationToken)

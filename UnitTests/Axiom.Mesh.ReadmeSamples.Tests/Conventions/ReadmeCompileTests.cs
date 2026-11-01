@@ -17,7 +17,7 @@ public sealed class ReadmeCompileTests
         var readmes = new TheoryData<string>();
         foreach (string readme in Repository.SourceFiles("README.md")
             .Select(Repository.Relative)
-            .Where(p => p == "README.md" || p.StartsWith("Axiom.Mesh.", StringComparison.Ordinal) || p.StartsWith("Apps/", StringComparison.Ordinal)))
+            .Where(p => p == "README.md" || p.StartsWith("Axiom.Mesh.", StringComparison.Ordinal) || p.StartsWith("Apps/", StringComparison.Ordinal) || p.StartsWith("Services/", StringComparison.Ordinal)))
             readmes.Add(readme);
         return readmes;
     }

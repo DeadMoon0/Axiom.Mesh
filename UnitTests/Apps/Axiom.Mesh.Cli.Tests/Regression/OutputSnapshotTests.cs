@@ -6,7 +6,7 @@ using Axiom.Mesh.Tests.Shared;
 namespace Axiom.Mesh.Cli.Tests.Regression;
 
 /// <summary>
-/// The output of <c>status</c>, <c>package list</c>, <c>history</c>, <c>peers</c> and <c>services</c>, as text and as <c>--json</c>, for fixed
+/// The output of <c>status</c>, <c>package list</c>, <c>history</c>, <c>peers</c>, <c>services</c>, <c>chat list</c> and <c>chat show</c>, as text and as <c>--json</c>, for fixed
 /// records: what scripts and people read today. The snapshots live in <c>Regression/Snapshots</c>.
 /// </summary>
 public sealed class OutputSnapshotTests
@@ -26,6 +26,10 @@ public sealed class OutputSnapshotTests
     [InlineData("peers.json")] // peers --json
     [InlineData("services.txt")] // services as text
     [InlineData("services.json")] // services --json
+    [InlineData("chat-list.txt")] // chat list as text
+    [InlineData("chat-list.json")] // chat list --json
+    [InlineData("chat-show.txt")] // chat show as text, a withdrawn message and a reply among them
+    [InlineData("chat-show.json")] // chat show --json, without the local store time
     public void TheOutputOfTheListsIsUnchanged(string snapshot)
     {
         string actual = Render(snapshot);
@@ -46,6 +50,10 @@ public sealed class OutputSnapshotTests
         "peers.json" => PeersView.Json(Samples.Peers) + "\n",
         "services.txt" => Lines(ServicesView.Text(Samples.Services)),
         "services.json" => ServicesView.Json(Samples.Services) + "\n",
+        "chat-list.txt" => Lines(ChatView.Channels(Samples.Channels)),
+        "chat-list.json" => ChatView.ChannelsJson(Samples.Channels) + "\n",
+        "chat-show.txt" => Lines(ChatView.Timeline(Samples.Timeline)),
+        "chat-show.json" => ChatView.TimelineJson(Samples.Timeline) + "\n",
         _ => throw new ArgumentException("No such snapshot: " + snapshot, nameof(snapshot)),
     };
 

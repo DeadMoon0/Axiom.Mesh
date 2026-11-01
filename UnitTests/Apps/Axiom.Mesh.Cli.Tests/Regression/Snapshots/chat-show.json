@@ -1,0 +1,58 @@
+[
+  {
+    "entry": "010003020504070609080b0a0d0c0f0e111013121514171619181b1a1d1c1f1e",
+    "clock": 0,
+    "deviceId": "1a1b18191e1f1c1d12131011161714150a0b08090e0f0c0d0203000106070405",
+    "packageId": "c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb",
+    "userId": "a1a0a3a2a5a4a7a6a9a8abaaadacafaeb1b0b3b2b5b4b7b6b9b8bbbabdbcbfbe",
+    "userName": "alice",
+    "deviceName": "laptop",
+    "text": "holiday photos",
+    "attachments": [
+      {
+        "name": "photo.jpg",
+        "hash": "9a9b98999e9f9c9d92939091969794958a8b88898e8f8c8d8283808186878485",
+        "size": 1048576
+      },
+      {
+        "name": "docs",
+        "hash": "9b9a99989f9e9d9c93929190979695948b8a89888f8e8d8c8382818087868584",
+        "size": 3072
+      }
+    ],
+    "replyTo": null,
+    "withdrawn": false,
+    "withdrawnBy": null,
+    "broken": false
+  },
+  {
+    "entry": "02030001060704050a0b08090e0f0c0d12131011161714151a1b18191e1f1c1d",
+    "clock": 1,
+    "deviceId": "d3d2d1d0d7d6d5d4dbdad9d8dfdedddcc3c2c1c0c7c6c5c4cbcac9c8cfcecdcc",
+    "packageId": "c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb",
+    "userId": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+    "userName": "bob",
+    "deviceName": "desktop",
+    "text": "",
+    "attachments": [],
+    "replyTo": null,
+    "withdrawn": true,
+    "withdrawnBy": "1a1b18191e1f1c1d12131011161714150a0b08090e0f0c0d0203000106070405",
+    "broken": false
+  },
+  {
+    "entry": "03020100070605040b0a09080f0e0d0c13121110171615141b1a19181f1e1d1c",
+    "clock": 2,
+    "deviceId": "d3d2d1d0d7d6d5d4dbdad9d8dfdedddcc3c2c1c0c7c6c5c4cbcac9c8cfcecdcc",
+    "packageId": "c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb",
+    "userId": "0000000000000000000000000000000000000000000000000000000000000000",
+    "userName": "",
+    "deviceName": "",
+    "text": "lovely",
+    "attachments": [],
+    "replyTo": "010003020504070609080b0a0d0c0f0e111013121514171619181b1a1d1c1f1e",
+    "withdrawn": false,
+    "withdrawnBy": null,
+    "broken": false
+  }
+]

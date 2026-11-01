@@ -1,0 +1,24 @@
+[
+  {
+    "packageId": "c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb",
+    "name": "Family",
+    "ownerId": "a1a0a3a2a5a4a7a6a9a8abaaadacafaeb1b0b3b2b5b4b7b6b9b8bbbabdbcbfbe",
+    "ownerName": "alice",
+    "followed": true,
+    "messages": 3,
+    "withdrawn": 1,
+    "last": "03020100070605040b0a09080f0e0d0c13121110171615141b1a19181f1e1d1c",
+    "indexed": true
+  },
+  {
+    "packageId": "c7c6c5c4c3c2c1c0cfcecdcccbcac9c8d7d6d5d4d3d2d1d0dfdedddcdbdad9d8",
+    "name": "Work",
+    "ownerId": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+    "ownerName": "",
+    "followed": false,
+    "messages": 0,
+    "withdrawn": 0,
+    "last": null,
+    "indexed": false
+  }
+]

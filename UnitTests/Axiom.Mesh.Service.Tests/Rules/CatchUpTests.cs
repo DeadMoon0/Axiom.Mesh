@@ -47,6 +47,25 @@ public sealed class CatchUpTests
         Assert.Equal(written, service.Seen.Select(e => e.Hash));
     }
 
+    // §9.3: the pages of the catch-up reach the service a page at a time (OnEntriesAsync, one transaction of its index each),
+    // in store order and each Entry once; what the last replay carries comes one at a time.
+    [Fact]
+    public async Task ThePagesOfTheCatchUpReachTheServiceAPageAtATime_InStoreOrderAndEachOnce()
+    {
+        await using TestMesh mesh = await ServiceMeshes.StartAsync();
+        PackageId notes = await ServiceMeshes.NotesAsync(mesh);
+        var written = await ServiceMeshes.WriteAsync(mesh, notes, 300);
+        var service = new RecordingService();
+
+        await using RunningService echo = await mesh[ServiceMeshes.Node].RunServiceAsync(service, None);
+        await service.Echo.WaitForCountAsync(300, None);
+
+        Assert.Equal(written, service.Echo.Seen.Select(e => e.Hash));
+        Assert.NotEmpty(service.Pages);
+        Assert.All(service.Pages, size => Assert.InRange(size, 1, 64));
+        Assert.True(service.Pages.Sum() >= 300 - (int)CatchUpStep.MaxReplay, string.Join(",", service.Pages));
+    }
+
     // §9.3: a service started again on its state resumes one past its cursor: it receives what was stored meanwhile, and
     // nothing it handled before.
     [Fact]
