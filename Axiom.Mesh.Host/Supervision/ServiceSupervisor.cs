@@ -31,6 +31,8 @@ internal sealed class ServiceSupervisor
     private Task running = Task.CompletedTask;
     private IChildProcess? current;
     private int killed;
+    private int killing;
+    private long stopGraceMs;
 
     /// <summary>A supervisor, not yet started.</summary>
     /// <param name="service">What it supervises.</param>
@@ -58,22 +60,26 @@ internal sealed class ServiceSupervisor
     /// <summary>The daemon stops: no child is started again, an exit from now on is no failure.</summary>
     public void MarkStopping() => stopping.Cancel();
 
-    /// <summary>Waits up to <paramref name="grace"/> for the child to exit (the daemon's drain asks it to), then kills it.</summary>
+    /// <summary>
+    /// Waits up to <paramref name="grace"/> for the supervisor to end (the daemon's drain asks the child to exit), then kills
+    /// the child, also one that was starting just then.
+    /// </summary>
     /// <param name="grace">How long the child may take.</param>
     /// <returns>A task that completes when the child is gone and the supervisor ended.</returns>
     public async Task StopAsync(TimeSpan grace)
     {
         MarkStopping();
-        if (Volatile.Read(ref current) is { } child && !child.Exited.IsCompleted)
+        using (var waited = new CancellationTokenSource())
         {
-            using var waited = new CancellationTokenSource();
-            Task first = await Task.WhenAny(child.Exited, Task.Delay(grace, time, waited.Token)).ConfigureAwait(false);
+            Task first = await Task.WhenAny(running, Task.Delay(grace, time, waited.Token)).ConfigureAwait(false);
             await waited.CancelAsync().ConfigureAwait(false);
-            if (first != child.Exited)
+            if (first != running)
             {
-                Volatile.Write(ref killed, 1);
-                HostLog.ServiceKilled(log, service.Name, grace.TotalMilliseconds);
-                child.Kill();
+                // Whichever comes second sees the other: this side the child the loop set, or the loop the kill asked for.
+                Interlocked.Exchange(ref stopGraceMs, (long)grace.TotalMilliseconds);
+                Interlocked.Exchange(ref killing, 1);
+                if (Interlocked.CompareExchange(ref current, null, null) is { } child)
+                    Kill(child);
             }
         }
 
@@ -134,8 +140,10 @@ internal sealed class ServiceSupervisor
             });
             using (child)
             {
-                Volatile.Write(ref current, child);
+                Interlocked.Exchange(ref current, child);
                 HostLog.ServiceStarted(log, service.Name, child.Id, service.Executable);
+                if (Volatile.Read(ref killing) == 1)
+                    Kill(child);
                 _ = PumpAsync(child);
                 int code = await child.Exited.ConfigureAwait(false);
                 Volatile.Write(ref current, null);
@@ -151,6 +159,14 @@ internal sealed class ServiceSupervisor
         {
             port.ClearSpawnedToken(service.Name);
         }
+    }
+
+    private void Kill(IChildProcess child)
+    {
+        if (child.Exited.IsCompleted || Interlocked.Exchange(ref killed, 1) == 1)
+            return;
+        HostLog.ServiceKilled(log, service.Name, Interlocked.Read(ref stopGraceMs));
+        child.Kill();
     }
 
     private async Task PumpAsync(IChildProcess child)
