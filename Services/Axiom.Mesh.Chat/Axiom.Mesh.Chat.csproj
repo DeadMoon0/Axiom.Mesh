@@ -28,6 +28,12 @@
     <TargetName>axiom-mesh-chat</TargetName>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <!-- The command line's ILCompiler 10.0.10 crash (Dictionary<long, __Canon>.CopyTo, reached through ProtoStream's message
+         set codec in LocalClient) appears here too; without the IL scanner it compiles. STRUCTURAL-DEBT.md 47. -->
+    <IlcArg Include="--noscan" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- The service's own test project, and the benchmark suite, which measures the index directly (plan §9.3 item 6). -->
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">

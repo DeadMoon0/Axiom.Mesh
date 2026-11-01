@@ -1,5 +1,5 @@
 #!/bin/sh
-# Publishes the Host and the command line as Native AOT for this machine and runs them together once: the smoke test of
+# Publishes the Host, the command line and the chat service as Native AOT for this machine and runs them together once: the smoke test of
 # fundamentals plan §6 (install-tests.yml and release.yml run the same steps through Scripts/package.*, on linux-x64 and win-x64). Both executables are published with
 # PublishAot and IlcTreatWarningsAsErrors, the Host starts with a temporary home and its own socket, and the command line
 # creates an identity and a Channel, lists Packages, writes a message and reads the history. Any failure exits non-zero.
@@ -29,6 +29,9 @@ publish() {
 
 publish Axiom.Mesh.Host/Axiom.Mesh.Host.csproj "$output/host"
 publish Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj "$output/cli"
+publish Services/Axiom.Mesh.Chat/Axiom.Mesh.Chat.csproj "$output/chat"
+# Beside the daemon, where the default configuration's bare name axiom-mesh-chat resolves (S-D11).
+cp "$output/chat/axiom-mesh-chat" "$output/host/"
 host_exe="$output/host/axiom-meshd"
 cli_exe="$output/cli/axiom-mesh"
 
@@ -79,4 +82,15 @@ cli "written" write Smoke --text "hello from the AOT smoke"
 cli "hello from the AOT smoke" history Smoke
 cli '"present": true' status --json
 cli '"name": "cli"' services --json
+# The chat service, spawned by the Host from beside axiom-meshd: wait until it answers, then send and show.
+chat_ready=0
+for _ in $(seq 1 60); do
+    if "$cli_exe" chat list > /dev/null 2>&1; then chat_ready=1; break; fi
+    sleep 0.5
+done
+if [ "$chat_ready" -ne 1 ]; then echo "the chat service did not answer chat list within 30 seconds:"; cat "$home/host.out"; exit 1; fi
+cli "Smoke" chat list
+cli "written" chat send Smoke --text "hello from the chat service"
+cli "hello from the chat service" chat show Smoke
+cli '"name": "chat"' services --json
 echo "== AOT smoke passed ($runtime)"

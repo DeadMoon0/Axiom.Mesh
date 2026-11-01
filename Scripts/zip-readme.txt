@@ -1,7 +1,8 @@
-Axiom.Mesh - axiom-meshd (the Host) and axiom-mesh (the command line)
-=======================================================================
+Axiom.Mesh - axiom-meshd (the Host), axiom-mesh (the command line) and axiom-mesh-chat (the chat service)
+=========================================================================================================
 
-Both are self-contained Native AOT executables; nothing else needs to be installed.
+All three are self-contained Native AOT executables; nothing else needs to be installed. The Host starts
+axiom-mesh-chat itself when it lies beside axiom-meshd; 'axiom-mesh chat ...' talks to it.
 
 The install script does everything below for you, verifies this zip against SHA256SUMS and registers the Host to
 start at logon:
@@ -11,7 +12,7 @@ start at logon:
 
 By hand:
 
-  1. Put both executables in a directory on your PATH.
+  1. Put the three executables together in a directory on your PATH.
   2. Start the Host:                    axiom-meshd run
      or register it to start at logon: axiom-mesh host install
   3. Create your identity:              axiom-mesh identity create --user <your name> --device <this device>

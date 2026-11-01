@@ -1,5 +1,6 @@
 #!/bin/sh
-# Installs Axiom.Mesh for the current user: axiom-meshd (the Host) and axiom-mesh (the command line).
+# Installs Axiom.Mesh for the current user: axiom-meshd (the Host), axiom-mesh (the command line) and axiom-mesh-chat
+# (the chat service, which the Host starts itself).
 #
 #   curl -fsSL https://raw.githubusercontent.com/DeadMoon0/Axiom.Mesh/main/install.sh | sh
 #   curl -fsSL https://raw.githubusercontent.com/DeadMoon0/Axiom.Mesh/main/install.sh | sh -s -- --version 0.1.0 --no-autostart
@@ -97,7 +98,7 @@ unpack() {
 # Ends a Host that runs from the install directory and its unit, so its files can be replaced or removed.
 stop_host() {
     if command -v systemctl > /dev/null 2>&1; then systemctl --user stop axiom-meshd.service > /dev/null 2>&1 || true; fi
-    if command -v pkill > /dev/null 2>&1; then pkill -x -f "$daemon run.*" > /dev/null 2>&1 || true; fi
+    if command -v pkill > /dev/null 2>&1; then pkill -x -f "$daemon run.*" > /dev/null 2>&1 || true; pkill -x -f "$bin_dir/axiom-mesh-chat.*" > /dev/null 2>&1 || true; fi
 }
 
 wait_for_host() {
@@ -117,7 +118,7 @@ start_directly() {
 if [ $uninstall -eq 1 ]; then
     if [ -x "$cli" ]; then "$cli" host uninstall --daemon "$daemon" || true; fi
     stop_host
-    rm -f "$daemon" "$cli"
+    rm -f "$daemon" "$cli" "$bin_dir/axiom-mesh-chat"
     rm -rf "$doc_dir"
     echo "Axiom.Mesh removed from $bin_dir. The Host's home (keys, store, config.json) is kept; delete it yourself to start anew."
     exit 0
@@ -165,13 +166,15 @@ unpack "$zip" "$work/unpacked"
 mkdir -p "$bin_dir" "$doc_dir"
 stop_host
 # A rename replaces an executable that is still running; copying over it would fail with "text file busy".
-for file in axiom-meshd axiom-mesh; do
+# axiom-mesh-chat beside axiom-meshd: the Host's default configuration starts it by its bare name (S-D11).
+for file in axiom-meshd axiom-mesh axiom-mesh-chat; do
+    [ -f "$work/unpacked/$file" ] || continue
     cp "$work/unpacked/$file" "$bin_dir/.$file.new"
     chmod 755 "$bin_dir/.$file.new"
     mv -f "$bin_dir/.$file.new" "$bin_dir/$file"
 done
 cp "$work/unpacked/LICENSE" "$work/unpacked/README.txt" "$doc_dir/" 2> /dev/null || true
-echo "installed axiom-meshd and axiom-mesh to $bin_dir"
+echo "installed axiom-meshd, axiom-mesh and axiom-mesh-chat to $bin_dir"
 
 case ":$PATH:" in
     *":$bin_dir:"*) ;;

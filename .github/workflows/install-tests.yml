@@ -88,6 +88,12 @@ jobs:
           axiom-mesh status --json | grep -q '"present": true'
           axiom-mesh services --json
           axiom-mesh services --json | grep -q '"name": "cli"'
+          # The chat service the Host spawned from beside axiom-meshd (S-D11): connected, and answering through the CLI.
+          for _ in $(seq 1 60); do axiom-mesh chat list > /dev/null 2>&1 && break; sleep 0.5; done
+          axiom-mesh chat list | grep -q Install
+          axiom-mesh services --json | grep -q '"name": "chat"'
+          axiom-mesh chat send Install --text "hello through the chat service"
+          axiom-mesh chat show Install | grep -q "hello through the chat service"
 
       # STRUCTURAL-DEBT.md 14: the daemon logs at start how a rename in its store is made durable; on Linux it must have
       # fsynced the store directory.
@@ -165,6 +171,12 @@ jobs:
           $services = & $cli services --json | Out-String
           Write-Host $services
           if (-not $services.Contains('"name": "cli"')) { throw "services does not list cli" }
+          # The chat service the Host spawned from beside axiom-meshd (S-D11): connected, and answering through the CLI.
+          for ($i = 0; $i -lt 60; $i++) { & $cli chat list *> $null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep -Milliseconds 500 }
+          $channels = & $cli chat list | Out-String
+          if (-not $channels.Contains("Install")) { throw "chat list does not show the Channel; is axiom-mesh-chat connected?" }
+          & $cli chat send Install --text "hello through the chat service"
+          if (-not (& $cli chat show Install | Out-String).Contains("hello through the chat service")) { throw "chat show does not show the message" }
           Get-ChildItem "$env:AXIOM_MESH_HOME\logs" | Get-Content | Select-String "directory flush"
 
       # STRUCTURAL-DEBT.md 37: a second local account cannot open the pipe the Host's owner-only access list guards. The

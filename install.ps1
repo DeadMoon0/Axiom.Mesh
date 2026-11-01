@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Installs Axiom.Mesh for the current user: axiom-meshd (the Host) and axiom-mesh (the command line).
+    Installs Axiom.Mesh for the current user: axiom-meshd (the Host), axiom-mesh (the command line) and axiom-mesh-chat
+    (the chat service, which the Host starts itself).
 
 .DESCRIPTION
     One line, in PowerShell:
@@ -109,10 +110,15 @@ function Remove-FromUserPath([string] $directory) {
     [Environment]::SetEnvironmentVariable("Path", ($entries -join ";"), "User")
 }
 
-# Ends a Host that runs from the install directory, so its files can be replaced or removed.
+# Ends a Host that runs from the install directory, and the services it spawned from there, so their files can be replaced
+# or removed.
 function Stop-InstalledHost([string] $daemon) {
     Get-Process -Name "axiom-meshd" -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -eq $daemon } |
+        ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(5000) | Out-Null }
+    $chat = Join-Path (Split-Path -Parent $daemon) "axiom-mesh-chat.exe"
+    Get-Process -Name "axiom-mesh-chat" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -eq $chat } |
         ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(5000) | Out-Null }
 }
 
@@ -187,7 +193,7 @@ try {
     Invoke-Native "schtasks" @("/End", "/TN", $task) | Out-Null
     Stop-InstalledHost $daemon
     Copy-Item -Path (Join-Path $unpacked "*") -Destination $InstallDir -Force
-    Write-Host "installed axiom-meshd and axiom-mesh to $InstallDir"
+    Write-Host "installed axiom-meshd, axiom-mesh and axiom-mesh-chat to $InstallDir"
     Add-ToUserPath $InstallDir
 
     if ($NoAutostart) {

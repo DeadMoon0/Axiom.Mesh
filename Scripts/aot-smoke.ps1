@@ -1,12 +1,13 @@
 <#
 .SYNOPSIS
-    Publishes the Host and the command line as Native AOT for this machine and runs them together once.
+    Publishes the Host, the command line and the chat service as Native AOT for this machine and runs them together once.
 
 .DESCRIPTION
     The smoke test of fundamentals plan §6 (install-tests.yml and release.yml run the same steps through Scripts/package.*, on linux-x64 and win-x64): both
     executables are published with PublishAot and IlcTreatWarningsAsErrors, the Host starts with a temporary home and its
     own pipe, and the command line creates an identity and a Channel, lists Packages, writes a message and reads the
-    history, then lists the services. Any failure exits non-zero; the temporary home is removed either way.
+    history, lists the services, then waits for the chat service the Host spawns and sends and shows a message through
+    it. Any failure exits non-zero; the temporary home is removed either way.
 
 .PARAMETER Runtime
     The runtime identifier to publish for; by default the one of this machine.
@@ -44,6 +45,9 @@ function Publish([string] $project, [string] $into) {
 
 Publish "Axiom.Mesh.Host/Axiom.Mesh.Host.csproj" (Join-Path $Output "host")
 Publish "Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj" (Join-Path $Output "cli")
+Publish "Services/Axiom.Mesh.Chat/Axiom.Mesh.Chat.csproj" (Join-Path $Output "chat")
+# Beside the daemon, where the default configuration's bare name axiom-mesh-chat resolves (S-D11).
+Copy-Item (Join-Path $Output "chat/axiom-mesh-chat$exe") (Join-Path $Output "host")
 $hostExe = Join-Path $Output "host/axiom-meshd$exe"
 $cliExe = Join-Path $Output "cli/axiom-mesh$exe"
 
@@ -83,10 +87,23 @@ try {
     Invoke-MeshCli @("history", "Smoke") "hello from the AOT smoke"
     Invoke-MeshCli @("status", "--json") '"present": true'
     Invoke-MeshCli @("services", "--json") '"name": "cli"'
+
+    # The chat service, spawned by the Host from beside axiom-meshd (S-D11): wait until it answers, then send and show.
+    $chatReady = $false
+    for ($i = 0; $i -lt 60 -and -not $chatReady; $i++) {
+        & $cliExe chat list *> $null
+        if ($LASTEXITCODE -eq 0) { $chatReady = $true } else { Start-Sleep -Milliseconds 500 }
+    }
+    if (-not $chatReady) { throw "the chat service did not answer 'chat list' within 30 seconds: $(Get-Content (Join-Path $meshHome 'host.out') -Raw)" }
+    Invoke-MeshCli @("chat", "list") "Smoke"
+    Invoke-MeshCli @("chat", "send", "Smoke", "--text", "hello from the chat service") "written"
+    Invoke-MeshCli @("chat", "show", "Smoke") "hello from the chat service"
+    Invoke-MeshCli @("services", "--json") '"name": "chat"'
     Write-Host "== AOT smoke passed ($Runtime)"
 }
 finally {
-    if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force; $daemon.WaitForExit() }
+    # The whole tree: the Host and the chat service it spawned.
+    if ($null -ne $daemon -and -not $daemon.HasExited) { $daemon.Kill($true); $daemon.WaitForExit() }
     Remove-Item Env:\AXIOM_MESH_HOME, Env:\AXIOM_MESH_PIPE -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $meshHome -ErrorAction SilentlyContinue
 }
