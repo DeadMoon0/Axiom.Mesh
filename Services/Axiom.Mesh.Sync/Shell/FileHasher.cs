@@ -11,13 +11,14 @@ namespace Axiom.Mesh.Sync;
 
 /// <summary>
 /// Reads the changed files of a run into the store (SYNC-SERVICE.md §3 step 4) with <see cref="StoreFiles.PutFileAsync(LocalClient, string, int, IProgress{long}, CancellationToken)"/>:
-/// a few files at a time, a large one with a few Chunks in flight, so a run never holds more than a dozen requests of the
-/// connection's 64. A file's fingerprint takes the size and write time the scan saw, before the read: a write during the read
+/// files at once within a budget of requests in flight, a small file taking one and a large one a few (its Chunks in flight),
+/// so a run never holds more than 16 requests of the connection's 64. Small files dominate a first sync:
+/// the Host shares one batch among concurrent puts, so their number in flight is what the throughput rests on. A file's fingerprint takes the size and write time the scan saw, before the read: a write during the read
 /// makes the helper fail, and the file is read again at a later run.
 /// </summary>
 internal static class FileHasher
 {
-    private const int FilesAtOnce = 3;
+    private const int InFlight = 16;
     private const int ChunksOfALargeFile = 4;
 
     /// <summary>Reads files.</summary>
@@ -34,23 +35,25 @@ internal static class FileHasher
         var puts = new ConcurrentBag<ObjectHash>();
         var vanished = new ConcurrentBag<string>();
         var busy = new ConcurrentBag<string>();
-        using var slots = new SemaphoreSlim(FilesAtOnce, FilesAtOnce);
+        using var slots = new SemaphoreSlim(InFlight, InFlight);
         var reads = new List<Task>(files.Count);
         foreach (ScannedFile file in files)
         {
-            await slots.WaitAsync(cancellationToken).ConfigureAwait(false);
-            reads.Add(ReadOneAsync(file));
+            // Only this loop takes slots, one at a time, so taking several for a large file cannot deadlock.
+            int chunks = file.Size > (ulong)Limits.ChunkLength ? ChunksOfALargeFile : 1;
+            for (int i = 0; i < chunks; i++)
+                await slots.WaitAsync(cancellationToken).ConfigureAwait(false);
+            reads.Add(ReadOneAsync(file, chunks));
         }
 
         await Task.WhenAll(reads).ConfigureAwait(false);
         return new HashedFiles([.. prints.OrderBy(p => p.Path, StringComparer.Ordinal)], [.. problems], [.. puts], [.. vanished], [.. busy]);
 
-        async Task ReadOneAsync(ScannedFile file)
+        async Task ReadOneAsync(ScannedFile file, int chunks)
         {
             try
             {
                 string path = Path.Combine(directory, file.Path.Replace('/', Path.DirectorySeparatorChar));
-                int chunks = file.Size > (ulong)Limits.ChunkLength ? ChunksOfALargeFile : 1;
                 LocalResult<StoredFile> stored = await StoreFiles.PutFileAsync(client, path, chunks, null, cancellationToken).ConfigureAwait(false);
                 if (stored.IsOk)
                 {
@@ -81,7 +84,7 @@ internal static class FileHasher
             }
             finally
             {
-                slots.Release();
+                slots.Release(chunks);
             }
         }
     }

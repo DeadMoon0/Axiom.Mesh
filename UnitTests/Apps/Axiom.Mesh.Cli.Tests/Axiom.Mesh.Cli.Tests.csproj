@@ -10,6 +10,8 @@
     <ProjectReference Include="..\..\..\Axiom.Mesh.Testing\Axiom.Mesh.Testing.csproj" />
     <!-- The chat service, run in process beside a node, for the chat commands end to end (CliScenarioTests). -->
     <ProjectReference Include="..\..\..\Services\Axiom.Mesh.Chat\Axiom.Mesh.Chat.csproj" />
+    <!-- The sync service likewise, for the sync commands end to end. -->
+    <ProjectReference Include="..\..\..\Services\Axiom.Mesh.Sync\Axiom.Mesh.Sync.csproj" />
   </ItemGroup>
 
   <ItemGroup>

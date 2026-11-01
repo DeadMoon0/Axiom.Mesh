@@ -51,7 +51,7 @@ internal static class SyncView
             ("Directory", binding.Directory),
             ("Archive", binding.PackageId.Value.ToHex()),
             ("Branch", binding.Label),
-            ("State", State(binding) + (binding.Rights < GrantRights.Write ? " (read-only)" : string.Empty)),
+            ("State", State(binding with { Pending = false }) + (binding.Rights < GrantRights.Write ? " (read-only)" : string.Empty) + (binding.Pending ? ", run queued" : string.Empty)),
             ("Files", $"{binding.Files.ToString(CultureInfo.InvariantCulture)}, {Formats.Bytes(binding.Bytes)}"),
             ("Head", Formats.Short(binding.Head.Value)),
             ("Leaves", binding.Leaves.ToString(CultureInfo.InvariantCulture)),
@@ -75,7 +75,7 @@ internal static class SyncView
         conflicts.Select(c => (IReadOnlyList<string>)[
             c.Id.ToString(CultureInfo.InvariantCulture),
             Formats.Time(c.At),
-            Formats.Word(c.Kind),
+            KindOf(c.Kind),
             c.Path,
             c.CopyPath.Length > 0 ? c.CopyPath : "-",
             Formats.Short(c.OtherDevice.Value)]),
@@ -93,7 +93,7 @@ internal static class SyncView
             w.WriteNumber("id", c.Id);
             w.WriteString("directory", c.Directory);
             w.WriteString("path", c.Path);
-            w.WriteString("kind", Formats.Word(c.Kind));
+            w.WriteString("kind", KindOf(c.Kind));
             w.WriteString("copyPath", c.CopyPath);
             JsonOut.Id(w, "otherDevice", c.OtherDevice.Value);
             JsonOut.Id(w, "version", c.Version.Value);
@@ -113,15 +113,24 @@ internal static class SyncView
         BindingEvent { Binding: var b } when directory is null || b.Directory == directory =>
             $"{b.Directory}: {State(b)}, {b.Files.ToString(CultureInfo.InvariantCulture)} files, {b.Leaves.ToString(CultureInfo.InvariantCulture)} leaves, head {Formats.Short(b.Head.Value)}{(b.Error.Length > 0 ? ": " + b.Error : string.Empty)}",
         ConflictEvent { Conflict: var c } when directory is null || c.Directory == directory =>
-            $"{c.Directory}: conflict ({Formats.Word(c.Kind)}) at {c.Path}{(c.CopyPath.Length > 0 ? ", the other side's copy is " + c.CopyPath : string.Empty)}",
+            $"{c.Directory}: conflict ({KindOf(c.Kind)}) at {c.Path}{(c.CopyPath.Length > 0 ? ", the other side's copy is " + c.CopyPath : string.Empty)}",
         _ => null,
+    };
+
+    private static string KindOf(ConflictKind kind) => kind switch
+    {
+        ConflictKind.CopyWritten => "copy written",
+        ConflictKind.NameRefused => "name refused",
+        ConflictKind.TooLarge => "too large",
+        ConflictKind.TooManyEntries => "too many entries",
+        _ => Formats.Word(kind),
     };
 
     private static string State(Binding binding) =>
         binding.State switch
         {
             BindingState.InSync => "in sync",
-            BindingState.LocalChangesReadOnly => "local changes (read-only)",
+            BindingState.LocalChangesReadOnly => "local changes kept",
             BindingState.WaitingForObjects => "waiting for files",
             _ => Formats.Word(binding.State),
         } + (binding.Pending ? ", run queued" : string.Empty);

@@ -9,9 +9,9 @@ namespace Axiom.Mesh.Sync;
 
 /// <summary>
 /// One binding at work (SYNC-SERVICE.md §3): one run at a time, triggers coalesced (the watcher after its debounce, the rescan
-/// every 10 minutes, the start, a new Version of its Archive, a Package change, <c>bind</c>, <c>scan</c>), each run waiting for
-/// the connection and for one of the service's run slots. Reports every state with <c>binding</c> events, at most once a second
-/// while it runs and always at its end.
+/// every 10 minutes, the start, a new Version of its Archive, a Package change, <c>bind</c>, <c>scan</c>, a retry while it waits
+/// for objects), each run waiting for the connection and for one of the service's run slots. Reports every state with
+/// <c>binding</c> events, at most once a second while it runs and always at its end.
 /// </summary>
 internal sealed class BindingWorker : IAsyncDisposable
 {
@@ -25,6 +25,8 @@ internal sealed class BindingWorker : IAsyncDisposable
     private IFolderWatcher? watcher;
     private ITimer? debounce;
     private ITimer? rescan;
+    private ITimer? retry;
+    private int waits;
     private Task loop = Task.CompletedTask;
     private DateTimeOffset? burstStart;
     private DateTimeOffset lastEvent = DateTimeOffset.MinValue;
@@ -63,6 +65,7 @@ internal sealed class BindingWorker : IAsyncDisposable
             SyncLog.NotWatched(context.Log, Spec.Directory, SyncLimits.Rescan.TotalMinutes);
         debounce = time.CreateTimer(_ => Debounced(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         rescan = time.CreateTimer(_ => Trigger(), null, SyncLimits.Rescan, SyncLimits.Rescan);
+        retry = time.CreateTimer(_ => Trigger(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         loop = Task.Run(LoopAsync);
     }
 
@@ -128,6 +131,8 @@ internal sealed class BindingWorker : IAsyncDisposable
             await debounce.DisposeAsync().ConfigureAwait(false);
         if (rescan is not null)
             await rescan.DisposeAsync().ConfigureAwait(false);
+        if (retry is not null)
+            await retry.DisposeAsync().ConfigureAwait(false);
         try
         {
             await loop.ConfigureAwait(false);
@@ -256,6 +261,13 @@ internal sealed class BindingWorker : IAsyncDisposable
             Emit(session, SyncEvents.Conflict, SyncCodec.Encode(new ConflictEvent { Conflict = ConflictViews.Of(conflict, Spec.Directory) }));
         if (outcome.Busy)
             debounce?.Change(SyncLimits.DebounceQuiet, Timeout.InfiniteTimeSpan);
+
+        // Objects no peer supplied yet: nothing announces them, so the binding asks again, waiting longer each time.
+        if (outcome.Deferred)
+            return;
+        waits = outcome.State == BindingState.WaitingForObjects ? waits + 1 : 0;
+        if (waits > 0)
+            retry?.Change(WaitRetry.After(waits), Timeout.InfiniteTimeSpan);
     }
 
     private async Task FailAsync(ServiceSession? session, string problem)

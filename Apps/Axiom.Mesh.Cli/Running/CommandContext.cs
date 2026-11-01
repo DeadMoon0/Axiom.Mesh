@@ -152,7 +152,7 @@ internal sealed class CommandContext : IAsyncDisposable
         LocalResult<TReply> result = await WithDeadlineAsync(token => SyncCall.SendAsync(client, request, token)).ConfigureAwait(false);
         if (result.Status == Status.ServiceUnavailable)
             throw CliFailure.Problem(SyncUnavailable + (result.Error?.Message is { Length: > 0 } why ? $" ({why})" : string.Empty));
-        return Ok(result);
+        return result.IsOk ? result.Value : throw CliFailure.RefusedBySync(result.Status, result.Error, DeviceName);
     }
 
     /// <summary>The line for a sync service that is not connected.</summary>

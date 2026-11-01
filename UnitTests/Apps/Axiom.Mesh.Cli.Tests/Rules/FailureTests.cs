@@ -72,4 +72,23 @@ public sealed class FailureTests
         Assert.Equal($"{Chat.ChatStatusText.Explain((Chat.ChatStatus)code)}: the service's own words", failure.Line);
         Assert.DoesNotContain("refused with status", failure.Line, StringComparison.Ordinal);
     }
+
+    // SYNC-SERVICE.md §7: every status the sync service defines exits 3 with its own line, the service's words after it, even
+    // where the chat service gives the same code another meaning.
+    [Theory]
+    [InlineData(32_768)] // AlreadyBound
+    [InlineData(32_769)] // NotADirectory
+    [InlineData(32_770)] // NestedBinding
+    [InlineData(32_771)] // NotFollowed
+    [InlineData(32_772)] // NotAnArchive
+    [InlineData(32_773)] // NotBound
+    [InlineData(32_774)] // UnknownMethod
+    public void EverySyncStatusExitsThreeWithItsOwnLine(int code)
+    {
+        var status = (Status)(ushort)code;
+        CliFailure failure = CliFailure.RefusedBySync(status, new Error { Message = "the service's own words" }, "laptop");
+
+        Assert.Equal(CliExitCode.Refused, failure.ExitCode);
+        Assert.Equal($"{Sync.SyncStatusText.Explain((Sync.SyncStatus)code)}: the service's own words", failure.Line);
+    }
 }

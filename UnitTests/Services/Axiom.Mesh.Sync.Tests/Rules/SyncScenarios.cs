@@ -189,28 +189,33 @@ public abstract class SyncScenarios
         Assert.True(folders.Same("alice", "bob"));
     }
 
-    // 7. A service stopped in the middle of writing the branch into the directory resumes where it was: no second Version, no
-    // partial file, the directory complete.
+    // 7. A service stopped while it writes the branch into the directory (as soon as its first file is there) resumes when it
+    // runs again: no second Version, no partial file, the directory complete. CrashResumeTests stop runs at each exact step.
     [Fact]
     public async Task AServiceStoppedMidSyncResumes_NoDuplicateVersionNoPartialFile()
     {
         await using IMeshFixture mesh = await StartAsync([Alice, Bob]);
         using var folders = new Folders();
-        for (int i = 0; i < 20; i++)
-            folders.Write($"alice/f{i:D2}.txt", $"content {i}");
+        for (int i = 0; i < 200; i++)
+            folders.Write($"alice/f{i:D3}.txt", $"content {i} " + new string('c', 4_000));
         PackageId archive = await SharedArchiveAsync(mesh);
         await using RunningService aliceSync = await RunSyncAsync(mesh, Alice);
         await BindAsync(mesh, Alice, folders.Path("alice"), archive);
         await SettledAsync(mesh, Alice, folders.Path("alice"), b => b.Head != default);
         await mesh.SettleAsync(None);
 
-        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        RunningService crashing = await mesh.RunServiceAsync(Bob, new SyncService(Options(mesh) with { CrashAt = step => step == RunStep.FileWritten && stopped.TrySetResult() }), None);
+        RunningService stopped = await RunSyncAsync(mesh, Bob);
         await BindAsync(mesh, Bob, folders.Path("bob"), archive);
-        await stopped.Task.WaitAsync(StepDeadline);
-        await crashing.DisposeAsync();
-        Assert.False(folders.Same("alice", "bob"));
+        using (var deadline = new CancellationTokenSource(StepDeadline))
+        {
+            while (Directory.GetFiles(folders.Path("bob"), "f*.txt").Length == 0)
+            {
+                deadline.Token.ThrowIfCancellationRequested();
+                await Task.Yield();
+            }
+        }
 
+        await stopped.DisposeAsync();
         await using RunningService resumed = await RunSyncAsync(mesh, Bob);
         await SettledAsync(mesh, Bob, folders.Path("bob"), _ => folders.Same("alice", "bob"));
 

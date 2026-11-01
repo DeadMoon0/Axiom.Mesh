@@ -1,0 +1,45 @@
+[
+  {
+    "directory": "/home/alice/shared",
+    "packageId": "9f9e9d9c9b9a999897969594939291908f8e8d8c8b8a89888786858483828180",
+    "label": "main",
+    "symlinks": "asfile",
+    "ignore": [
+      "node_modules",
+      "*.tmp"
+    ],
+    "state": "insync",
+    "rights": "write",
+    "base": "313033323534373639383b3a3d3c3f3e212023222524272629282b2a2d2c2f2e",
+    "head": "32333031363734353a3b38393e3f3c3d22232021262724252a2b28292e2f2c2d",
+    "leaves": 1,
+    "files": 1204,
+    "bytes": 734003200,
+    "localChanges": 0,
+    "conflicts": 0,
+    "lastRun": 1800000000000,
+    "runs": 17,
+    "pending": false,
+    "error": ""
+  },
+  {
+    "directory": "/home/alice/music",
+    "packageId": "c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb",
+    "label": "main",
+    "symlinks": "ignore",
+    "ignore": [],
+    "state": "localchangesreadonly",
+    "rights": "read",
+    "base": "414043424544474649484b4a4d4c4f4e515053525554575659585b5a5d5c5f5e",
+    "head": "42434041464744454a4b48494e4f4c4d52535051565754555a5b58595e5f5c5d",
+    "leaves": 2,
+    "files": 12,
+    "bytes": 52428800,
+    "localChanges": 2,
+    "conflicts": 1,
+    "lastRun": 1800000060000,
+    "runs": 3,
+    "pending": true,
+    "error": "two files changed here are not published: this device may only read"
+  }
+]

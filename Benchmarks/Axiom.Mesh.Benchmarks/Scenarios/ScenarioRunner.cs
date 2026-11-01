@@ -26,6 +26,7 @@ internal static class ScenarioRunner
         ["forward"] = ("where forwarding a 1 MiB Object allocates: the frame layer in memory, then over loopback TLS", ForwardScenario.RunAsync),
         ["chat-send"] = ("a 1 MiB chat attachment from chat send on one node to chat get on another, loopback TLS and the real pipe", ChatScenario.SendAsync),
         ["chat-catchup"] = ("10 000 chat messages caught up by a restarted chat service over the real pipe", ChatScenario.CatchUpAsync),
+        ["sync"] = ("the sync service on real nodes: 10 000 files and 64 MiB end to end, an unchanged 100 000-file scan, a change to a Version", SyncScenario.RunAsync),
     };
 
     /// <summary>Runs the named scenario, or lists them.</summary>

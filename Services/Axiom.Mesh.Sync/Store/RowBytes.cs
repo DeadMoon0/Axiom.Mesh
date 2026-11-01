@@ -45,16 +45,20 @@ internal static class RowBytes
         return hashes;
     }
 
-    /// <summary>A binding's id followed by 32 more bytes: a fingerprint's or a put's key.</summary>
+    /// <summary>
+    /// A fingerprint's or a put's key: 32 bytes that differ from row to row, then the binding's id. LDB keys a byte column by
+    /// its first 8 bytes, so the part that differs comes first: led by the binding's id, every row of a binding would share one
+    /// index key, and each insert would check them all.
+    /// </summary>
     public static byte[] Keyed(byte[] binding, ReadOnlySpan<byte> rest)
     {
-        byte[] key = new byte[binding.Length + rest.Length];
-        binding.CopyTo(key, 0);
-        rest.CopyTo(key.AsSpan(binding.Length));
+        byte[] key = new byte[rest.Length + binding.Length];
+        rest.CopyTo(key);
+        binding.CopyTo(key, rest.Length);
         return key;
     }
 
-    /// <summary>A fingerprint's key: the binding's id and the SHA-256 of the path's UTF-8.</summary>
+    /// <summary>A fingerprint's key: the SHA-256 of the path's UTF-8, then the binding's id.</summary>
     public static byte[] PathKey(byte[] binding, string path) => Keyed(binding, SHA256.HashData(Encoding.UTF8.GetBytes(path)));
 
     /// <summary>A number as an 8-byte big-endian key.</summary>

@@ -9,7 +9,7 @@ namespace Axiom.Mesh.Sync;
 [LdbEntity("SyncPuts")]
 internal sealed partial class PutRow
 {
-    /// <summary>The binding's id and the object's hash.</summary>
+    /// <summary>The object's hash, then the binding's id (`RowBytes.Keyed`).</summary>
     [Key]
     [Column(MaxLength = 48)]
     public byte[] Key { get; set; } = [];

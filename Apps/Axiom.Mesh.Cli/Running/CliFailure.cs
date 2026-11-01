@@ -30,6 +30,23 @@ internal sealed class CliFailure : Exception
     public static CliFailure Refused(Status status, Error? error, string device) =>
         new(ExitCodes.Of(status), StatusText.Explain(status, error, device));
 
+    /// <summary>
+    /// The sync service refused a call (exit 3): a status it defines explained by <see cref="Sync.SyncStatusText"/> (another service
+    /// may give the same code another meaning), any other by <see cref="StatusText"/>.
+    /// </summary>
+    /// <param name="status">The status.</param>
+    /// <param name="error">The service's error.</param>
+    /// <param name="device">This device's name, for <c>UserKeyAbsent</c>.</param>
+    /// <returns>The failure.</returns>
+    public static CliFailure RefusedBySync(Status status, Error? error, string device)
+    {
+        if (!Sync.SyncStatusText.IsSyncStatus(status, out Sync.SyncStatus sync))
+            return Refused(status, error, device);
+        string message = (error?.Message ?? string.Empty).ReplaceLineEndings(" ").Trim();
+        string meaning = Sync.SyncStatusText.Explain(sync);
+        return new(CliExitCode.Refused, message.Length == 0 ? meaning : meaning + ": " + message);
+    }
+
     /// <summary>The Host is not reachable (exit 2).</summary>
     /// <param name="address">Where it was expected.</param>
     /// <param name="why">What the connection attempt said; empty when nothing.</param>

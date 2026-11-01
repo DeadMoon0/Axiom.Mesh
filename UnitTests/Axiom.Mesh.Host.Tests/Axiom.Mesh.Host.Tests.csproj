@@ -11,6 +11,8 @@
     <!-- So does the service runtime (ServicePaths); and the echo service is the child the supervision tests spawn. -->
     <ProjectReference Include="..\..\Axiom.Mesh.Service\Axiom.Mesh.Service.csproj" />
     <ProjectReference Include="..\Support\Axiom.Mesh.EchoService\Axiom.Mesh.EchoService.csproj" />
+    <!-- The sync service, spawned under dotnet by a real daemon as it spawns axiom-mesh-sync (SyncServiceTests). -->
+    <ProjectReference Include="..\..\Services\Axiom.Mesh.Sync\Axiom.Mesh.Sync.csproj" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 

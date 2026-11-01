@@ -1,8 +1,9 @@
 #!/bin/sh
-# Publishes the Host, the command line and the chat service as Native AOT for this machine and runs them together once: the smoke test of
+# Publishes the Host, the command line and both services as Native AOT for this machine and runs them together once: the smoke test of
 # fundamentals plan §6 (install-tests.yml and release.yml run the same steps through Scripts/package.*, on linux-x64 and win-x64). Both executables are published with
 # PublishAot and IlcTreatWarningsAsErrors, the Host starts with a temporary home and its own socket, and the command line
-# creates an identity and a Channel, lists Packages, writes a message and reads the history. Any failure exits non-zero.
+# creates an identity and a Channel, lists Packages, writes a message and reads the history, sends a message through the chat
+# service and adds a folder to the sync service until it is a Version. Any failure exits non-zero.
 #
 # Usage: Scripts/aot-smoke.sh [runtime-identifier] [output-directory]
 set -eu
@@ -30,8 +31,10 @@ publish() {
 publish Axiom.Mesh.Host/Axiom.Mesh.Host.csproj "$output/host"
 publish Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj "$output/cli"
 publish Services/Axiom.Mesh.Chat/Axiom.Mesh.Chat.csproj "$output/chat"
-# Beside the daemon, where the default configuration's bare name axiom-mesh-chat resolves (S-D11).
+publish Services/Axiom.Mesh.Sync/Axiom.Mesh.Sync.csproj "$output/sync"
+# Beside the daemon, where the default configuration's bare names axiom-mesh-chat and axiom-mesh-sync resolve (S-D11).
 cp "$output/chat/axiom-mesh-chat" "$output/host/"
+cp "$output/sync/axiom-mesh-sync" "$output/host/"
 host_exe="$output/host/axiom-meshd"
 cli_exe="$output/cli/axiom-mesh"
 
@@ -93,4 +96,27 @@ cli "Smoke" chat list
 cli "written" chat send Smoke --text "hello from the chat service"
 cli "hello from the chat service" chat show Smoke
 cli '"name": "chat"' services --json
+# The sync service, spawned likewise: a folder added with a new Archive becomes a Version (its binding gets a head).
+sync_ready=0
+for _ in $(seq 1 60); do
+    if "$cli_exe" sync list > /dev/null 2>&1; then sync_ready=1; break; fi
+    sleep 0.5
+done
+if [ "$sync_ready" -ne 1 ]; then echo "the sync service did not answer sync list within 30 seconds:"; cat "$home/host.out"; exit 1; fi
+mkdir -p "$home/shared"
+printf 'hello from the sync service\n' > "$home/shared/hello.txt"
+cli "Bound" sync add "$home/shared" --create SmokeFiles
+versioned=0
+for _ in $(seq 1 60); do
+    status=$("$cli_exe" sync status "$home/shared" --json 2>&1 || true)
+    case "$status" in
+        *'"head": "0000000000000000000000000000000000000000000000000000000000000000"'*) ;;
+        *'"pending": false'*) versioned=1; break ;;
+    esac
+    sleep 0.5
+done
+if [ "$versioned" -ne 1 ]; then echo "the bound folder did not become a Version within 30 seconds: $status"; exit 1; fi
+cli "in sync" sync status "$home/shared"
+cli "version" history SmokeFiles
+cli '"name": "sync"' services --json
 echo "== AOT smoke passed ($runtime)"

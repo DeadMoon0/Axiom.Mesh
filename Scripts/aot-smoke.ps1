@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Publishes the Host, the command line and the chat service as Native AOT for this machine and runs them together once.
+    Publishes the Host, the command line, the chat and the sync service as Native AOT for this machine and runs them together once.
 
 .DESCRIPTION
     The smoke test of fundamentals plan §6 (install-tests.yml and release.yml run the same steps through Scripts/package.*, on linux-x64 and win-x64): both
     executables are published with PublishAot and IlcTreatWarningsAsErrors, the Host starts with a temporary home and its
     own pipe, and the command line creates an identity and a Channel, lists Packages, writes a message and reads the
     history, lists the services, then waits for the chat service the Host spawns and sends and shows a message through
-    it. Any failure exits non-zero; the temporary home is removed either way.
+    it, and waits for the sync service and adds a folder that becomes a Version. Any failure exits non-zero; the temporary home is removed either way.
 
 .PARAMETER Runtime
     The runtime identifier to publish for; by default the one of this machine.
@@ -46,8 +46,10 @@ function Publish([string] $project, [string] $into) {
 Publish "Axiom.Mesh.Host/Axiom.Mesh.Host.csproj" (Join-Path $Output "host")
 Publish "Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj" (Join-Path $Output "cli")
 Publish "Services/Axiom.Mesh.Chat/Axiom.Mesh.Chat.csproj" (Join-Path $Output "chat")
-# Beside the daemon, where the default configuration's bare name axiom-mesh-chat resolves (S-D11).
+Publish "Services/Axiom.Mesh.Sync/Axiom.Mesh.Sync.csproj" (Join-Path $Output "sync")
+# Beside the daemon, where the default configuration's bare names axiom-mesh-chat and axiom-mesh-sync resolve (S-D11).
 Copy-Item (Join-Path $Output "chat/axiom-mesh-chat$exe") (Join-Path $Output "host")
+Copy-Item (Join-Path $Output "sync/axiom-mesh-sync$exe") (Join-Path $Output "host")
 $hostExe = Join-Path $Output "host/axiom-meshd$exe"
 $cliExe = Join-Path $Output "cli/axiom-mesh$exe"
 
@@ -99,6 +101,27 @@ try {
     Invoke-MeshCli @("chat", "send", "Smoke", "--text", "hello from the chat service") "written"
     Invoke-MeshCli @("chat", "show", "Smoke") "hello from the chat service"
     Invoke-MeshCli @("services", "--json") '"name": "chat"'
+
+    # The sync service, spawned likewise: a folder added with a new Archive becomes a Version (its binding gets a head).
+    $syncReady = $false
+    for ($i = 0; $i -lt 60 -and -not $syncReady; $i++) {
+        & $cliExe sync list *> $null
+        if ($LASTEXITCODE -eq 0) { $syncReady = $true } else { Start-Sleep -Milliseconds 500 }
+    }
+    if (-not $syncReady) { throw "the sync service did not answer 'sync list' within 30 seconds: $(Get-Content (Join-Path $meshHome 'host.out') -Raw)" }
+    $shared = Join-Path $meshHome "shared"
+    New-Item -ItemType Directory -Path $shared | Out-Null
+    Set-Content -Path (Join-Path $shared "hello.txt") -Value "hello from the sync service"
+    Invoke-MeshCli @("sync", "add", $shared, "--create", "SmokeFiles") "Bound"
+    $versioned = $false
+    for ($i = 0; $i -lt 60 -and -not $versioned; $i++) {
+        $status = & $cliExe sync status $shared --json 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0 -and $status.Contains('"pending": false') -and -not $status.Contains('"head": "0000000000000000000000000000000000000000000000000000000000000000"')) { $versioned = $true } else { Start-Sleep -Milliseconds 500 }
+    }
+    if (-not $versioned) { throw "the bound folder did not become a Version within 30 seconds: $status" }
+    Invoke-MeshCli @("sync", "status", $shared) "in sync"
+    Invoke-MeshCli @("history", "SmokeFiles") "version"
+    Invoke-MeshCli @("services", "--json") '"name": "sync"'
     Write-Host "== AOT smoke passed ($Runtime)"
 }
 finally {

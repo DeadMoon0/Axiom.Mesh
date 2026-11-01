@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    Builds the release zip of one platform: Native AOT publish and smoke of the Host, the command line and the chat service, then
+    Builds the release zip of one platform: Native AOT publish and smoke of the Host, the command line, the chat and the sync service, then
     axiom-mesh-<version>-<rid>.zip and its SHA256SUMS line.
 
 .DESCRIPTION
     The release workflow (release.yml) and the install-script job (install-tests.yml) run this on win-x64; package.sh is
     the same on Linux. It runs Scripts/aot-smoke.ps1 (publish with IlcTreatWarningsAsErrors, then the smoke), puts
-    axiom-meshd.exe, axiom-mesh.exe, axiom-mesh-chat.exe, LICENSE and a short README.txt into the zip, and writes SHA256SUMS beside it with
+    axiom-meshd.exe, axiom-mesh.exe, axiom-mesh-chat.exe, axiom-mesh-sync.exe, LICENSE and a short README.txt into the zip, and writes SHA256SUMS beside it with
     one line in the format of sha256sum ("<hex>  <file>").
 
 .PARAMETER Runtime
@@ -44,6 +44,7 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 Copy-Item (Join-Path $work "host/axiom-meshd$exe") $stage
 Copy-Item (Join-Path $work "cli/axiom-mesh$exe") $stage
 Copy-Item (Join-Path $work "chat/axiom-mesh-chat$exe") $stage
+Copy-Item (Join-Path $work "sync/axiom-mesh-sync$exe") $stage
 Copy-Item (Join-Path $root "LICENSE") $stage
 Copy-Item (Join-Path $PSScriptRoot "zip-readme.txt") (Join-Path $stage "README.txt")
 

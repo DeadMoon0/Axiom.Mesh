@@ -1,8 +1,9 @@
-Axiom.Mesh - axiom-meshd (the Host), axiom-mesh (the command line) and axiom-mesh-chat (the chat service)
-=========================================================================================================
+Axiom.Mesh - axiom-meshd (the Host), axiom-mesh (the command line), axiom-mesh-chat and axiom-mesh-sync (the services)
+=====================================================================================================================
 
-All three are self-contained Native AOT executables; nothing else needs to be installed. The Host starts
-axiom-mesh-chat itself when it lies beside axiom-meshd; 'axiom-mesh chat ...' talks to it.
+All four are self-contained Native AOT executables; nothing else needs to be installed. The Host starts
+axiom-mesh-chat and axiom-mesh-sync itself when they lie beside axiom-meshd; 'axiom-mesh chat ...' and
+'axiom-mesh sync ...' talk to them.
 
 The install script does everything below for you, verifies this zip against SHA256SUMS and registers the Host to
 start at logon:
@@ -12,14 +13,16 @@ start at logon:
 
 By hand:
 
-  1. Put the three executables together in a directory on your PATH.
+  1. Put the four executables together in a directory on your PATH.
   2. Start the Host:                    axiom-meshd run
      or register it to start at logon: axiom-mesh host install
   3. Create your identity:              axiom-mesh identity create --user <your name> --device <this device>
   4. Check:                             axiom-mesh status
 
 Pair two devices with 'axiom-mesh pair show' on one and 'axiom-mesh pair join <code>' on the other, then compare the
-string both print and run 'axiom-mesh pair confirm' on both. 'axiom-mesh help' lists every command.
+string both print and run 'axiom-mesh pair confirm' on both. Keep a folder in sync with
+'axiom-mesh sync add <folder> --create <name>' on one PC and 'axiom-mesh sync add <folder> --package <name>' on the
+other. 'axiom-mesh help' lists every command.
 
 Documentation, the two-PC walkthrough (Documentation/ACCEPTANCE.md) and the source:
   https://github.com/DeadMoon0/Axiom.Mesh

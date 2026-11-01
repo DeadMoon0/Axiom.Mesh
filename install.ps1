@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    Installs Axiom.Mesh for the current user: axiom-meshd (the Host), axiom-mesh (the command line) and axiom-mesh-chat
-    (the chat service, which the Host starts itself).
+    Installs Axiom.Mesh for the current user: axiom-meshd (the Host), axiom-mesh (the command line), axiom-mesh-chat and
+    axiom-mesh-sync (the chat and the sync service, which the Host starts itself).
 
 .DESCRIPTION
     One line, in PowerShell:
@@ -116,10 +116,12 @@ function Stop-InstalledHost([string] $daemon) {
     Get-Process -Name "axiom-meshd" -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -eq $daemon } |
         ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(5000) | Out-Null }
-    $chat = Join-Path (Split-Path -Parent $daemon) "axiom-mesh-chat.exe"
-    Get-Process -Name "axiom-mesh-chat" -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -eq $chat } |
-        ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(5000) | Out-Null }
+    foreach ($service in @("axiom-mesh-chat", "axiom-mesh-sync")) {
+        $path = Join-Path (Split-Path -Parent $daemon) "$service.exe"
+        Get-Process -Name $service -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -eq $path } |
+            ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(5000) | Out-Null }
+    }
 }
 
 function Wait-ForHost([string] $cli, [int] $seconds) {
@@ -193,7 +195,7 @@ try {
     Invoke-Native "schtasks" @("/End", "/TN", $task) | Out-Null
     Stop-InstalledHost $daemon
     Copy-Item -Path (Join-Path $unpacked "*") -Destination $InstallDir -Force
-    Write-Host "installed axiom-meshd, axiom-mesh and axiom-mesh-chat to $InstallDir"
+    Write-Host "installed axiom-meshd, axiom-mesh, axiom-mesh-chat and axiom-mesh-sync to $InstallDir"
     Add-ToUserPath $InstallDir
 
     if ($NoAutostart) {

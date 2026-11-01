@@ -62,12 +62,20 @@ internal static class CommandSpecs
         new(["chat", "get"], [ArgumentSpec.Of("entry"), ArgumentSpec.Of("attachment")], [OptionSpec.Needed("--out", "path", "where to write it"), OptionSpec.Valued("--existing", "fail|replace|merge", "what to do when the path exists (default fail; merge for folders)")], "fetch an attachment of a message and write it to disk", ChatGet),
         Spec(["chat", "watch"], [ArgumentSpec.Of("channel")], [], "print a Channel's messages and withdrawals as they come, until Ctrl-C", a => new ChatWatchCommand(a[0])),
 
+        new(["sync", "add"], [ArgumentSpec.Of("dir")], [OptionSpec.Valued("--package", "archive", "the Archive to keep the folder in sync with; followed here first when it is not"), OptionSpec.Valued("--create", "name", "create a new Archive of this name instead"), OptionSpec.Valued("--label", "branch", "the branch to follow and publish to (default main)"), OptionSpec.Repeated("--ignore", "pattern", "a name or *.ext to leave alone; give it once per pattern"), OptionSpec.Valued("--symlinks", "asfile|ignore", "write a symlink of the branch as a file holding its target (default), or not at all")], "keep a folder in sync with an Archive, both ways, through the sync service", SyncAdd),
+        Spec(["sync", "remove"], [ArgumentSpec.Of("dir")], [], "stop keeping a folder in sync; its files stay", a => new SyncRemoveCommand(a[0])),
+        Spec(["sync", "list"], [], [JsonOption], "every folder the sync service keeps in sync", a => new SyncListCommand(a.Flag("--json"))),
+        Spec(["sync", "status"], [ArgumentSpec.Optional("dir")], [JsonOption], "where a synced folder stands; the current directory's by default", a => new SyncStatusCommand(a.Optional(0), a.Flag("--json"))),
+        Spec(["sync", "scan"], [ArgumentSpec.Optional("dir")], [], "look at a synced folder now instead of waiting for its watcher", a => new SyncScanCommand(a.Optional(0))),
+        Spec(["sync", "conflicts"], [ArgumentSpec.Optional("dir")], [JsonOption], "the conflicts the sync service recorded; delete the copy you do not want", a => new SyncConflictsCommand(a.Optional(0), a.Flag("--json"))),
+        Spec(["sync", "watch"], [ArgumentSpec.Optional("dir")], [], "print every run and conflict of the synced folders as they come, until Ctrl-C", a => new SyncWatchCommand(a.Optional(0))),
+
         Spec(["store"], [], [JsonOption], "the store's size, budget and what is pinned", a => new StoreCommand(a.Flag("--json"))),
         Spec(["pins"], [], [JsonOption], "every pin and why it holds its object", a => new PinsCommand(a.Flag("--json"))),
         Spec(["pin"], [ArgumentSpec.Of("hash")], [], "keep a stored object whatever the policies say", a => new PinCommand(a[0])),
         Spec(["unpin"], [ArgumentSpec.Of("hash")], [], "remove your pin on an object", a => new UnpinCommand(a[0])),
 
-        Spec(["host", "install"], [], [DaemonOption, OptionSpec.Flag("--no-start", "register only; the Host starts at the next logon"), JsonOption], "start the Host at every logon (a scheduled task on Windows, a systemd user unit on Linux), and now", a => new HostInstallCommand(a.Value("--daemon"), a.Flag("--no-start"), a.Flag("--json"))),
+        Spec(["host", "install"], [], [DaemonOption, OptionSpec.Flag("--no-start", "register only; the Host starts at the next logon"), OptionSpec.Flag("--no-sync", "leave config.json as it is, without the sync service"), JsonOption], "start the Host at every logon (a scheduled task on Windows, a systemd user unit on Linux), and now", a => new HostInstallCommand(a.Value("--daemon"), a.Flag("--no-start"), a.Flag("--no-sync"), a.Flag("--json"))),
         Spec(["host", "uninstall"], [], [DaemonOption, JsonOption], "stop the Host and remove its start at logon; binaries and data stay", a => new HostUninstallCommand(a.Value("--daemon"), a.Flag("--json"))),
     ];
 
@@ -150,6 +158,23 @@ internal static class CommandSpecs
         return existing is null
             ? a.Problem($"--existing is fail, replace or merge, not '{a.Value("--existing")}'")
             : new ParsedCommand(new ChatGetCommand(a[0], a[1], a.Value("--out")!, existing.Value));
+    }
+
+    private static ParseResult SyncAdd(ParsedArguments a)
+    {
+        string? package = a.Value("--package");
+        string? create = a.Value("--create");
+        Sync.SymlinkPolicy? symlinks = a.Value("--symlinks") switch
+        {
+            null or "asfile" => Sync.SymlinkPolicy.AsFile,
+            "ignore" => Sync.SymlinkPolicy.Ignore,
+            _ => null,
+        };
+        if ((package is null) == (create is null))
+            return a.Problem("name the Archive with --package <archive>, or create one with --create <name>; one of them");
+        return symlinks is null
+            ? a.Problem($"--symlinks is asfile or ignore, not '{a.Value("--symlinks")}'")
+            : new ParsedCommand(new SyncAddCommand(a[0], package, create, a.Value("--label") ?? Sync.SyncProtocol.DefaultLabel, a.Values("--ignore"), symlinks.Value));
     }
 
     private static ParseResult History(ParsedArguments a)

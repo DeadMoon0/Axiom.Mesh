@@ -6,7 +6,7 @@ using Axiom.Mesh.Tests.Shared;
 namespace Axiom.Mesh.Cli.Tests.Regression;
 
 /// <summary>
-/// The output of <c>status</c>, <c>package list</c>, <c>history</c>, <c>peers</c>, <c>services</c>, <c>chat list</c> and <c>chat show</c>, as text and as <c>--json</c>, for fixed
+/// The output of <c>status</c>, <c>package list</c>, <c>history</c>, <c>peers</c>, <c>services</c>, <c>chat list</c>, <c>chat show</c>, <c>sync list</c>, <c>sync status</c> and <c>sync conflicts</c>, as text and as <c>--json</c>, for fixed
 /// records: what scripts and people read today. The snapshots live in <c>Regression/Snapshots</c>.
 /// </summary>
 public sealed class OutputSnapshotTests
@@ -30,6 +30,10 @@ public sealed class OutputSnapshotTests
     [InlineData("chat-list.json")] // chat list --json
     [InlineData("chat-show.txt")] // chat show as text, a withdrawn message and a reply among them
     [InlineData("chat-show.json")] // chat show --json, without the local store time
+    [InlineData("sync-list.txt")] // sync list as text, a read-only binding among them
+    [InlineData("sync-list.json")] // sync list --json
+    [InlineData("sync-status.txt")] // sync status of one binding
+    [InlineData("sync-conflicts.txt")] // sync conflicts as text
     public void TheOutputOfTheListsIsUnchanged(string snapshot)
     {
         string actual = Render(snapshot);
@@ -54,6 +58,10 @@ public sealed class OutputSnapshotTests
         "chat-list.json" => ChatView.ChannelsJson(Samples.Channels) + "\n",
         "chat-show.txt" => Lines(ChatView.Timeline(Samples.Timeline)),
         "chat-show.json" => ChatView.TimelineJson(Samples.Timeline) + "\n",
+        "sync-list.txt" => Lines(SyncView.Bindings(Samples.Bindings)),
+        "sync-list.json" => SyncView.BindingsJson(Samples.Bindings) + "\n",
+        "sync-status.txt" => Lines(SyncView.Status(Samples.Bindings[1])),
+        "sync-conflicts.txt" => Lines(SyncView.Conflicts(Samples.Conflicts)),
         _ => throw new ArgumentException("No such snapshot: " + snapshot, nameof(snapshot)),
     };
 

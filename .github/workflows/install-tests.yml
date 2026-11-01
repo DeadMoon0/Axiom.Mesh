@@ -94,6 +94,13 @@ jobs:
           axiom-mesh services --json | grep -q '"name": "chat"'
           axiom-mesh chat send Install --text "hello through the chat service"
           axiom-mesh chat show Install | grep -q "hello through the chat service"
+          # The sync service likewise: connected, and a folder added with a new Archive becomes a Version.
+          for _ in $(seq 1 60); do axiom-mesh sync list > /dev/null 2>&1 && break; sleep 0.5; done
+          axiom-mesh services --json | grep -q '"name": "sync"'
+          mkdir -p "$RUNNER_TEMP/synced" && echo "synced by the install job" > "$RUNNER_TEMP/synced/hello.txt"
+          axiom-mesh sync add "$RUNNER_TEMP/synced" --create InstallFiles
+          for _ in $(seq 1 60); do axiom-mesh history InstallFiles | grep -q version && break; sleep 0.5; done
+          axiom-mesh history InstallFiles | grep -q version
 
       # STRUCTURAL-DEBT.md 14: the daemon logs at start how a rename in its store is made durable; on Linux it must have
       # fsynced the store directory.
@@ -177,6 +184,16 @@ jobs:
           if (-not $channels.Contains("Install")) { throw "chat list does not show the Channel; is axiom-mesh-chat connected?" }
           & $cli chat send Install --text "hello through the chat service"
           if (-not (& $cli chat show Install | Out-String).Contains("hello through the chat service")) { throw "chat show does not show the message" }
+          # The sync service likewise: connected, and a folder added with a new Archive becomes a Version.
+          for ($i = 0; $i -lt 60; $i++) { & $cli sync list *> $null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep -Milliseconds 500 }
+          if (-not (& $cli services --json | Out-String).Contains('"name": "sync"')) { throw "services does not list sync" }
+          $synced = Join-Path $env:RUNNER_TEMP "synced"
+          New-Item -ItemType Directory -Force -Path $synced | Out-Null
+          Set-Content -Path (Join-Path $synced "hello.txt") -Value "synced by the install job"
+          & $cli sync add $synced --create InstallFiles
+          if ($LASTEXITCODE -ne 0) { throw "sync add failed" }
+          for ($i = 0; $i -lt 60; $i++) { if ((& $cli history InstallFiles | Out-String).Contains("version")) { break }; Start-Sleep -Milliseconds 500 }
+          if (-not (& $cli history InstallFiles | Out-String).Contains("version")) { throw "the synced folder did not become a Version; is axiom-mesh-sync connected?" }
           Get-ChildItem "$env:AXIOM_MESH_HOME\logs" | Get-Content | Select-String "directory flush"
 
       # STRUCTURAL-DEBT.md 37: a second local account cannot open the pipe the Host's owner-only access list guards. The

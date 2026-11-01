@@ -253,13 +253,16 @@ internal sealed class SyncStore
             return Task.CompletedTask;
         return WriteAsync(async context =>
         {
+            // The rows a binding holds are few (a run releases them at its end): read them once, then only add.
             EntitySet<PutRow> set = context.Set<PutRow>();
-            foreach (ObjectHash hash in hashes.Distinct())
+            HashSet<ObjectHash> held = [.. (await set.ReadOnlyQuery().Where(PutRow.Columns.Binding == binding).ToListAsync(cancellationToken).ConfigureAwait(false))
+                .Select(r => new ObjectHash(RowBytes.Hash(r.Hash)))];
+            foreach (ObjectHash hash in hashes)
             {
+                if (!held.Add(hash))
+                    continue;
                 byte[] value = RowBytes.Of(hash.Value);
-                byte[] key = RowBytes.Keyed(binding, value);
-                if (await set.FindAsync(key, cancellationToken).ConfigureAwait(false) is null)
-                    set.Add(new PutRow { Key = key, Binding = binding, Hash = value });
+                set.Add(new PutRow { Key = RowBytes.Keyed(binding, value), Binding = binding, Hash = value });
             }
 
             return true;

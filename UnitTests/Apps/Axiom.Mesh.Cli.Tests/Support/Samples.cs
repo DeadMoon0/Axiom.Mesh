@@ -139,4 +139,61 @@ internal static class Samples
         Payload = payload,
         Redacted = redacted,
     };
+    /// <summary>Two bindings as the sync service lists them: one in sync, one read-only with local changes and a problem.</summary>
+    public static IReadOnlyList<Sync.Binding> Bindings { get; } =
+    [
+        new Sync.Binding
+        {
+            Directory = "/home/alice/shared",
+            PackageId = Photos,
+            Label = "main",
+            Symlinks = Sync.SymlinkPolicy.AsFile,
+            Ignore = ["node_modules", "*.tmp"],
+            State = Sync.BindingState.InSync,
+            Rights = GrantRights.Write,
+            Base = new ObjectHash(Id(0x31)),
+            Head = new ObjectHash(Id(0x32)),
+            Leaves = 1,
+            Files = 1_204,
+            Bytes = 734_003_200,
+            LastRun = Time,
+            Runs = 17,
+        },
+        new Sync.Binding
+        {
+            Directory = "/home/alice/music",
+            PackageId = Chat,
+            Label = "main",
+            Symlinks = Sync.SymlinkPolicy.Ignore,
+            State = Sync.BindingState.LocalChangesReadOnly,
+            Rights = GrantRights.Read,
+            Base = new ObjectHash(Id(0x41)),
+            Head = new ObjectHash(Id(0x42)),
+            Leaves = 2,
+            Files = 12,
+            Bytes = 52_428_800,
+            LocalChanges = 2,
+            Conflicts = 1,
+            LastRun = Time + 60_000,
+            Runs = 3,
+            Pending = true,
+            Error = "two files changed here are not published: this device may only read",
+        },
+    ];
+
+    /// <summary>A conflict as the sync service records it.</summary>
+    public static IReadOnlyList<Sync.Conflict> Conflicts { get; } =
+    [
+        new Sync.Conflict
+        {
+            Id = 1,
+            Directory = "/home/alice/shared",
+            Path = "docs/report.txt",
+            Kind = Sync.ConflictKind.CopyWritten,
+            CopyPath = "docs/report.conflict-d3d2d1d0.txt",
+            OtherDevice = Desktop,
+            Version = new ObjectHash(Id(0x33)),
+            At = Time,
+        },
+    ];
 }

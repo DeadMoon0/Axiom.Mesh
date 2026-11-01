@@ -116,8 +116,8 @@ public sealed class CommandLineTests
         Assert.Equal(PairingMode.AddDevice, ((PairJoinCommand)Command("pair join amp1:device:10.0.0.1:41810:KEY")).Mode);
         Assert.Equal(PairingMode.JoinUser, ((PairJoinCommand)Command("pair join amp1:user:10.0.0.1:41810:KEY")).Mode);
         Assert.Equal(["package", "create"], ((HelpCommand)Command("package create --help")).Topic);
-        Assert.Equal(new HostInstallCommand(null, false, false), Command("host install"));
-        Assert.Equal(new HostInstallCommand("d", true, true), Command("host install --daemon d --no-start --json"));
+        Assert.Equal(new HostInstallCommand(null, false, false, false), Command("host install"));
+        Assert.Equal(new HostInstallCommand("d", true, true, true), Command("host install --daemon d --no-start --no-sync --json"));
         Assert.Equal(new HostUninstallCommand(null, false), Command("host uninstall"));
     }
 

@@ -3,13 +3,13 @@ using Axiom.LDB.Entity;
 namespace Axiom.Mesh.Sync;
 
 /// <summary>
-/// What the service knows of one file of a bound directory (SYNC-SERVICE.md §10): keyed by the binding and the SHA-256 of the
-/// path, so a path of any length makes a key of 48 bytes.
+/// What the service knows of one file of a bound directory (SYNC-SERVICE.md §10): keyed by the SHA-256 of the path and the
+/// binding, so a path of any length makes a key of 48 bytes.
 /// </summary>
 [LdbEntity("SyncFingerprints")]
 internal sealed partial class FingerprintRow
 {
-    /// <summary>The binding's id and the SHA-256 of the path.</summary>
+    /// <summary>The SHA-256 of the path, then the binding's id (`RowBytes.Keyed`).</summary>
     [Key]
     [Column(MaxLength = 48)]
     public byte[] Key { get; set; } = [];

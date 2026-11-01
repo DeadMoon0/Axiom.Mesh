@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Axiom.Mesh.Local;
@@ -10,12 +11,14 @@ namespace Axiom.Mesh.Sync;
 /// <summary>
 /// Carries out a <see cref="DiskPlan"/> in a bound directory (SYNC-SERVICE.md §3 step 11, SPEC.md §11.4): deletes the deepest
 /// first (a directory only when empty), creates directories, then writes each file with
-/// <see cref="StoreFiles.WriteFileAsync"/> (every Chunk held, the size checked, a hidden temporary name renamed into place) and
-/// records its fingerprint right after, in batches, so a resumed run finds it in place and writes only what is left.
+/// <see cref="StoreFiles.WriteFileAsync"/> (every Chunk held, the size checked, a hidden temporary name renamed into place), a
+/// few at once, and records the fingerprints of each batch right after it, so a resumed run finds them in place and writes only
+/// what is left.
 /// </summary>
 internal sealed class Materialiser
 {
     private const int FingerprintBatch = 256;
+    private const int FilesAtOnce = 8;
 
     private readonly ObjectReader reader;
     private readonly SyncStore store;
@@ -52,40 +55,53 @@ internal sealed class Materialiser
             Directory.CreateDirectory(Full(path));
         await FlushAsync(cancellationToken).ConfigureAwait(false);
 
-        bool first = true;
-        foreach ((string path, FlatEntry entry) in plan.Writes)
+        // The first file alone, so a test can stop the run right after it as a crash would; then a batch at a time, a few
+        // files of it at once, each batch's fingerprints recorded before the next.
+        KeyValuePair<string, FlatEntry>[] writes = [.. plan.Writes];
+        for (int at = 0; at < writes.Length;)
         {
-            var file = new PlannedFile(path, entry.Hash, KindOf(entry.Mode), entry.Size);
-            LocalResult<ulong> result = await StoreFiles.WriteFileAsync(reader, file, spec.Directory, cancellationToken).ConfigureAwait(false);
-            if (result.Status == Status.Invalid)
+            int count = at == 0 ? 1 : Math.Min(FingerprintBatch, writes.Length - at);
+            ArraySegment<KeyValuePair<string, FlatEntry>> batch = new(writes, at, count);
+            LocalResult<ulong>[] results = new LocalResult<ulong>[count];
+            await Parallel.ForEachAsync(Enumerable.Range(0, count), new ParallelOptions { MaxDegreeOfParallelism = FilesAtOnce, CancellationToken = cancellationToken }, async (i, ct) =>
+                results[i] = await WriteAsync(batch[i].Key, batch[i].Value, ct).ConfigureAwait(false)).ConfigureAwait(false);
+            LocalResult<ulong>? failed = null;
+            for (int i = 0; i < count; i++)
             {
-                faulty.Add(path);
-                continue;
+                (string path, FlatEntry entry) = batch[i];
+                if (results[i].Status == Status.Invalid)
+                    faulty.Add(path);
+                else if (!results[i].IsOk)
+                    failed ??= results[i];
+                else
+                    Written(path, entry);
             }
 
-            if (!result.IsOk)
+            await FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            if (failed is { } failure)
             {
-                await FlushAsync(CancellationToken.None).ConfigureAwait(false);
-                if (result.Status == Status.IoError)
-                    throw new IOException(result.Error?.Message ?? $"{path} cannot be written.");
-                return (result.Status, faulty);
+                if (failure.Status == Status.IoError)
+                    throw new IOException(failure.Error?.Message ?? "A file cannot be written.");
+                return (failure.Status, faulty);
             }
 
-            var info = new FileInfo(Full(path));
-            written.Add(new Fingerprint(path, entry.Mode, (ulong)info.Length, info.LastWriteTimeUtc.Ticks, entry.Hash, long.MaxValue));
-            if (written.Count >= FingerprintBatch)
-                await FlushAsync(cancellationToken).ConfigureAwait(false);
-            if (first && crashAt(RunStep.FileWritten))
-            {
-                await FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            if (at == 0 && crashAt(RunStep.FileWritten))
                 throw new RunStoppedException(RunStep.FileWritten);
-            }
-
-            first = false;
+            at += count;
         }
 
         await FlushAsync(cancellationToken).ConfigureAwait(false);
         return (Status.Ok, faulty);
+    }
+
+    private Task<LocalResult<ulong>> WriteAsync(string path, FlatEntry entry, CancellationToken cancellationToken) =>
+        StoreFiles.WriteFileAsync(reader, new PlannedFile(path, entry.Hash, KindOf(entry.Mode), entry.Size), spec.Directory, cancellationToken);
+
+    // A file written: its fingerprint takes what the file system now says, and the largest taken time (never racy).
+    private void Written(string path, FlatEntry entry)
+    {
+        var info = new FileInfo(Full(path));
+        written.Add(new Fingerprint(path, entry.Mode, (ulong)info.Length, info.LastWriteTimeUtc.Ticks, entry.Hash, long.MaxValue));
     }
 
     private void Delete(string path)

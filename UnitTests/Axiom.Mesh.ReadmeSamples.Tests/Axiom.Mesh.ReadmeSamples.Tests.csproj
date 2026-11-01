@@ -21,6 +21,8 @@
     <ProjectReference Include="..\..\Apps\Axiom.Mesh.Cli\Axiom.Mesh.Cli.csproj" />
     <ProjectReference Include="..\..\Services\Axiom.Mesh.Chat.Client\Axiom.Mesh.Chat.Client.csproj" />
     <ProjectReference Include="..\..\Services\Axiom.Mesh.Chat\Axiom.Mesh.Chat.csproj" />
+    <ProjectReference Include="..\..\Services\Axiom.Mesh.Sync.Client\Axiom.Mesh.Sync.Client.csproj" />
+    <ProjectReference Include="..\..\Services\Axiom.Mesh.Sync\Axiom.Mesh.Sync.csproj" />
   </ItemGroup>
 
   <ItemGroup>

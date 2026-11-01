@@ -103,6 +103,27 @@ public sealed class HostInstallTests
     }
 
     /// <summary>A machine that records what the command does to it.</summary>
+    // Plan §9.4 item 4, S-D11: a config.json an older Host wrote lists no sync service; with axiom-mesh-sync beside the daemon
+    // host install adds services.sync (kinds [1], entryKinds [1]), and with --no-sync it leaves the file alone.
+    [Fact]
+    public async Task InstallAddsTheSyncServiceToAnOlderConfiguration_UnlessNoSync()
+    {
+        const string older = """{ "services": { "cli": { "external": true, "token": "11", "kinds": [1, 2], "entryKinds": [1, 2, 3] } } }""";
+        var machine = new FakeMachine(LocalPlatform.Linux) { SyncExists = true, Config = older };
+        var opted = new FakeMachine(LocalPlatform.Linux) { SyncExists = true, Config = older };
+
+        (CliExitCode exit, string output, _) = await machine.RunAsync("host", "install", "--no-start");
+        await opted.RunAsync("host", "install", "--no-start", "--no-sync");
+
+        Assert.Equal(CliExitCode.Ok, exit);
+        Assert.Contains("added the sync service to /home/alice/.axiom-mesh/config.json", output, StringComparison.Ordinal);
+        string written = machine.Written["/home/alice/.axiom-mesh/config.json"];
+        Assert.Contains("\"sync\"", written, StringComparison.Ordinal);
+        Assert.Contains("\"spawn\": \"axiom-mesh-sync\"", written, StringComparison.Ordinal);
+        Assert.Contains("\"token\": \"11\"", written, StringComparison.Ordinal);
+        Assert.False(opted.Written.ContainsKey("/home/alice/.axiom-mesh/config.json"));
+    }
+
     private sealed class FakeMachine(LocalPlatform platform)
     {
         public List<string> Ran { get; } = [];
@@ -114,6 +135,10 @@ public sealed class HostInstallTests
         public List<string> Deleted { get; } = [];
 
         public bool DaemonExists { get; init; } = true;
+
+        public bool SyncExists { get; init; }
+
+        public string? Config { get; init; }
 
         public string? Home { get; init; }
 
@@ -140,6 +165,8 @@ public sealed class HostInstallTests
                 },
                 Variables = name => name switch { "HOME" => "/home/alice", "AXIOM_MESH_HOME" => Home, _ => null },
                 CurrentDirectory = platform == LocalPlatform.Windows ? @"C:\work" : "/work",
+                ReadConfig = () => Config,
+                ConfigFile = "/home/alice/.axiom-mesh/config.json",
                 Machine = Machine(),
             };
             CliExitCode exit = await CliProgram.RunAsync(args, output, error, environment, CancellationToken.None);
@@ -170,7 +197,7 @@ public sealed class HostInstallTests
                 Deleted.Add(path);
                 return Written.ContainsKey(path);
             },
-            FileExists = _ => DaemonExists,
+            FileExists = path => path.Contains("axiom-mesh-sync", StringComparison.Ordinal) ? SyncExists : DaemonExists,
             StopProcesses = _ => Running,
         };
     }

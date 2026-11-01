@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using Axiom.Mesh.Integration.Tests.Rules;
 using Axiom.Mesh.Chat.Tests.Rules;
+using Axiom.Mesh.Sync.Tests.Rules;
 using Axiom.Mesh.Testing.Tests.Rules;
 using Axiom.Mesh.Tests.Shared;
 
@@ -53,5 +54,24 @@ public sealed class ScenarioSuiteTests
         Assert.Equal(13, scenarios.Length);
         Assert.Equal(scenarios.Order(), run.Order());
         Assert.DoesNotContain(typeof(SocketChatScenarios).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly), m => m.GetCustomAttributes<FactAttribute>().Any());
+    }
+    // The same for the sync service's suite (plan §9.4 item 5): scenarios 1 to 14 run in memory and on sockets alike.
+    [Fact]
+    public void TheSocketSuiteCompilesTheSyncScenarioFileAndRunsEveryScenarioInIt()
+    {
+        const string SyncFile = "UnitTests/Services/Axiom.Mesh.Sync.Tests/Rules/SyncScenarios.cs";
+        string project = File.ReadAllText(Path.Combine(Repository.ProjectFolder("Axiom.Mesh.Integration.Tests"), "Axiom.Mesh.Integration.Tests.csproj"));
+        string[] scenarios = [.. typeof(SyncScenarios).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(m => m.GetCustomAttributes<FactAttribute>().Any())
+            .Select(m => m.Name)];
+        string[] run = [.. typeof(SocketSyncScenarios).GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.GetCustomAttributes<FactAttribute>().Any() && m.DeclaringType == typeof(SyncScenarios))
+            .Select(m => m.Name)];
+
+        Assert.Contains("..\\..\\" + SyncFile.Replace('/', '\\'), project, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(Repository.Root, SyncFile)));
+        Assert.Equal(14, scenarios.Length);
+        Assert.Equal(scenarios.Order(), run.Order());
+        Assert.DoesNotContain(typeof(SocketSyncScenarios).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly), m => m.GetCustomAttributes<FactAttribute>().Any());
     }
 }

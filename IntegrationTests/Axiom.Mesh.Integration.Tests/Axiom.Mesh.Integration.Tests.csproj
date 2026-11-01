@@ -17,12 +17,15 @@
     <!-- The chat service, run in process over the real pipe (SocketChatScenarios) and spawned by a real Host as its own
          program from the apphost the build puts beside its assembly (ChatProcessTests). -->
     <ProjectReference Include="..\..\Services\Axiom.Mesh.Chat\Axiom.Mesh.Chat.csproj" />
+    <!-- The sync service, run in process over the real pipe (SocketSyncScenarios, SyncFloorTests). -->
+    <ProjectReference Include="..\..\Services\Axiom.Mesh.Sync\Axiom.Mesh.Sync.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- The scenario suites, unchanged: the same files the in-memory suites compile (MeshScenarios, plan §5; ChatScenarios, plan §9.3). -->
     <Compile Include="..\..\UnitTests\Axiom.Mesh.Testing.Tests\Rules\MeshScenarios.cs" Link="Rules\MeshScenarios.cs" />
     <Compile Include="..\..\UnitTests\Services\Axiom.Mesh.Chat.Tests\Rules\ChatScenarios.cs" Link="Rules\ChatScenarios.cs" />
+    <Compile Include="..\..\UnitTests\Services\Axiom.Mesh.Sync.Tests\Rules\SyncScenarios.cs" Link="Rules\SyncScenarios.cs" />
   </ItemGroup>
 
 </Project>

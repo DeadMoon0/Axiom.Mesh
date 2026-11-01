@@ -7,9 +7,9 @@ name: Release
 #
 #   1. version   the tag matches every project's <Version>, and CHANGELOG.md has a section for it, or nothing runs
 #   2. test      the whole suite on Linux and Windows, unit and integration, as unit-tests.yml runs it
-#   3. binaries  per RID (linux-x64, win-x64): Native AOT publish of axiom-meshd, axiom-mesh and axiom-mesh-chat, the smoke
-#                (Scripts/aot-smoke.*, run by Scripts/package.*), one zip with the three executables, LICENSE and README.txt
-#   4. nuget     the eight libraries (Model, Protocol, Local, Discovery, Core, Service, Chat.Client, Testing) and the dotnet tool axiom-mesh,
+#   3. binaries  per RID (linux-x64, win-x64): Native AOT publish of axiom-meshd, axiom-mesh, axiom-mesh-chat and axiom-mesh-sync, the
+#                smoke (Scripts/aot-smoke.*, run by Scripts/package.*), one zip with the four executables, LICENSE and README.txt
+#   4. nuget     the nine libraries (Model, Protocol, Local, Discovery, Core, Service, Chat.Client, Sync.Client, Testing) and the dotnet tool axiom-mesh,
 #                pushed to nuget.org with Trusted Publishing: no API key secret, a short-lived key from an OIDC token
 #                (nuget.org needs a Trusted Publishing policy for this repository and this workflow file)
 #   5. release   the GitHub Release v<version>: both zips, SHA256SUMS over them, and CHANGELOG.md's section as notes
@@ -173,12 +173,13 @@ jobs:
             Axiom.Mesh.Core/Axiom.Mesh.Core.csproj \
             Axiom.Mesh.Service/Axiom.Mesh.Service.csproj \
             Services/Axiom.Mesh.Chat.Client/Axiom.Mesh.Chat.Client.csproj \
+            Services/Axiom.Mesh.Sync.Client/Axiom.Mesh.Sync.Client.csproj \
             Axiom.Mesh.Testing/Axiom.Mesh.Testing.csproj \
             Apps/Axiom.Mesh.Cli/Axiom.Mesh.Cli.csproj; do
             dotnet pack "$project" --configuration Release -p:ContinuousIntegrationBuild=true --output out
           done
           ls -l out
-          test "$(ls out/*.nupkg | wc -l)" -eq 9
+          test "$(ls out/*.nupkg | wc -l)" -eq 10
 
       - name: NuGet login (Trusted Publishing)
         uses: NuGet/login@v1

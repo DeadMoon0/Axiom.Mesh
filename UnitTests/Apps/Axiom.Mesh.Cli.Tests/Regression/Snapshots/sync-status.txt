@@ -1,0 +1,12 @@
+Directory      /home/alice/music
+Archive        c4c5c6c7c0c1c2c3cccdcecfc8c9cacbd4d5d6d7d0d1d2d3dcdddedfd8d9dadb
+Branch         main
+State          local changes kept (read-only), run queued
+Files          12, 50.0 MiB
+Head           424340414647
+Leaves         2
+Local changes  2
+Conflicts      1
+Runs           3
+Last run       2027-01-15 08:01:00Z
+Problem        two files changed here are not published: this device may only read
