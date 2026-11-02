@@ -57,6 +57,24 @@ public abstract class MeshScenarios
         Assert.True(MeshWaits.IsEstablishedWith(mesh.Node("bob-desktop"), DeviceOf("alice-laptop")));
     }
 
+    // 1b. Pair by discovery (PAIR-SPEC.md §2.4, §9.1): nobody types a code; the joining side names the showing device by the
+    // id and address its discovery heard, the handshake must present that device's key, both compare the same string,
+    // and each then knows the other user and establishes one session.
+    [Fact]
+    public async Task TwoUsersPairWithoutACode_TheJoinerNamesTheShowingDeviceDiscoveryHeard_AndEachKnowsTheOther()
+    {
+        await using IMeshFixture mesh = await StartAsync(Setup.Of("alice-laptop", "bob-desktop"));
+
+        string sas = await mesh.PairByDiscoveryAsync("alice-laptop", "bob-desktop", None);
+        await mesh.ConnectAsync("alice-laptop", "bob-desktop", None);
+
+        Assert.Matches("^[A-Z2-7]{4}-[A-Z2-7]{4}$", sas);
+        Assert.Equal("bob", NameOf(await KnownUsersAsync(mesh, "alice-laptop"), "bob-desktop"));
+        Assert.Equal("alice", NameOf(await KnownUsersAsync(mesh, "bob-desktop"), "alice-laptop"));
+        Assert.True(MeshWaits.IsEstablishedWith(mesh.Node("alice-laptop"), DeviceOf("bob-desktop")));
+        Assert.True(MeshWaits.IsEstablishedWith(mesh.Node("bob-desktop"), DeviceOf("alice-laptop")));
+    }
+
     // 2. Create (LOCAL-SPEC.md §6.3): a Package created on a device that holds the user key is owned by that user, followed
     // there, and listed by the command line.
     [Fact]

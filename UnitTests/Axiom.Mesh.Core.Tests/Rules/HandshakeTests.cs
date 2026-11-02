@@ -80,6 +80,35 @@ public sealed class HandshakeTests
         Assert.Contains("10 seconds", failed.Detail, StringComparison.Ordinal);
     }
 
+    // PAIR-SPEC §2.4, §4.2: the entering side's certificate callback admits only a key whose hash is the pinned device id,
+    // whether the device was named by a code's key or by the id discovery announced, and only on the dial it pinned.
+    [Fact]
+    public async Task TheEnteringDialAdmitsOnlyACertificateWhoseKeyHashesToThePinnedDeviceId()
+    {
+        await using TestMesh mesh = await TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop"), None);
+        TestNode alice = mesh["alice-laptop"];
+        var options = new MeshTlsOptions { Role = TlsRole.Client, Credential = () => null, Trust = () => alice.Node.Trust, Pairing = new PairingGate(), Time = mesh.Clock };
+        var dialled = new IPEndPoint(IPAddress.Parse("10.0.0.2"), 41810);
+        var other = new IPEndPoint(IPAddress.Parse("10.0.0.3"), 41810);
+        using DeviceCredential bob = DeviceCredential.Create(TestIdentity.Of("bob-desktop").DevicePkcs8(), TestIdentity.Epoch);
+        using DeviceCredential eve = DeviceCredential.Create(TestIdentity.Of("eve-device").DevicePkcs8(), TestIdentity.Epoch);
+        PairingAddress[] addresses = [new PairingAddress("10.0.0.2", 41810)];
+        PairingWindow byId = PairingWindow.Entering(PairingTarget.OfDevice(bob.Device, addresses), dialled);
+        PairingWindow byCode = PairingWindow.Entering(PairingTarget.OfCode(new PairingCode(Protocol.PairingMode.ShowUser, addresses, bob.Key)), dialled);
+
+        foreach (PairingWindow window in new[] { byId, byCode })
+        {
+            Assert.True(new PeerCheck(options, window, dialled).IsEnteringDial);
+            Assert.True(new PeerCheck(options, window, dialled).Validate(new object(), bob.Certificate, null, SslPolicyErrors.None));
+            Assert.False(new PeerCheck(options, window, dialled).Validate(new object(), eve.Certificate, null, SslPolicyErrors.None));
+            Assert.False(new PeerCheck(options, window, dialled).Validate(new object(), null, null, SslPolicyErrors.RemoteCertificateNotAvailable));
+            Assert.False(new PeerCheck(options, window, other).IsEnteringDial);
+            Assert.False(new PeerCheck(options, window, other).Validate(new object(), bob.Certificate, null, SslPolicyErrors.None));
+        }
+
+        Assert.False(new PeerCheck(options, PairingWindow.Closed, dialled).Validate(new object(), bob.Certificate, null, SslPolicyErrors.None));
+    }
+
     // §4.2, §13: no session tickets and no resumption, so every connection is a full handshake judged against the
     // rosters current at that moment; TLS 1.3 only, a client certificate required, no renegotiation. SslStream offers no
     // early data at all, so with resumption off none can be accepted.

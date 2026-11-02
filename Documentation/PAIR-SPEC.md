@@ -1,6 +1,9 @@
 # Axiom Mesh Pairing Protocol, Version 1 (axiom-mesh-pair/1)
 
-**Status:** Draft 2, 2026-10-30. Normative for the first implementation. Draft 2 records what the first
+**Status:** Draft 3, 2026-11-02. Normative for the first implementation. Draft 3 lets the entering side name the
+showing device by the id discovery announced instead of a code (§2.4, §4.2, §10), after the first two-PC run refused to
+type a code of 300 characters; the code stays for a LAN where discovery does not reach, and lists the addresses of the
+interfaces with a default route (§2.2). Draft 2 (2026-10-30) records what the first
 implementation decided where draft 1 was silent: pairing with one's own user (§2.3, §7.1), the order in which the
 two sides store, close and dial (§5.1, §6.2, §9). It specifies the exchange that
 [SPEC.md](SPEC.md) §13 and §14.4 leave to "a separate document" and that [LOCAL-SPEC.md](LOCAL-SPEC.md) §5.15 and §6.2
@@ -10,7 +13,9 @@ this way.
 
 **Abstract.** `axiom-mesh-pair/1` is the short exchange that makes two users known to each other, or adds a device to a
 user's Roster. One side shows a **code**: a line of text naming its addresses and its device key. The other side enters
-it, dials one of the addresses and pins that key in a TLS 1.3 handshake under its own ALPN. Both sides send their user
+it, or, where discovery announced the showing device, names that device by its id, and dials one of the addresses
+pinning the device in a TLS 1.3 handshake under its own ALPN: the key presented must hash to the device id the code or
+the announcement named. Both sides send their user
 key and current Roster, both screens show the same **short authentication string** derived from every key involved,
 and the pairing completes only when both users confirm that the strings match. A pairing runs one at a time per node
 and expires after 10 minutes; nothing is stored unless both users confirmed.
@@ -48,6 +53,7 @@ interpreted as described in RFC 2119 and RFC 8174 when, and only when, they appe
 | **User side** | A side that holds an identity: every mode but `ShowDevice`. |
 | **Device side** | The side being enrolled into a user's Roster: mode `ShowDevice`. It holds a device key and no user. |
 | **Code** | The text the showing side shows and the entering side is given (§2). |
+| **Target** | What the entering side was given: a code, or a device id discovery announced with the addresses it was heard at (§2.4). Either pins one device id. |
 | **SAS** | The short authentication string both users compare (§8). |
 | **Pairing connection** | The TLS connection under ALPN `axiom-mesh-pair/1` that carries one pairing. |
 
@@ -57,6 +63,7 @@ The other terms (user, device, Roster, known user, `H`, `pubkey`, the wire types
 ### 1.3 Relation to AMP/1 and the local protocol
 
 A pairing is driven by the local protocol: `StartPairing` starts it in one of the four modes of LOCAL-SPEC.md §14.10,
+`StartPairingByDevice` starts an entering side from a discovered device instead of a code (§2.4),
 `ConfirmPairing` and `CancelPairing` are the users' decisions, and `Pairing` (LOCAL-SPEC.md §5.15) shows its state,
 code and SAS to the client. This document specifies what happens between the two nodes. A pairing makes AMP/1
 possible: after it, each side holds the other user's key and Roster (or, for an enrolled device, its own user's), so
@@ -96,6 +103,11 @@ side's mesh listener (SPEC.md §4.1, default 41810), on every interface it serve
   `.` and `-`. It is always written in brackets.
 - `port` is 1 to 65 535 in decimal, without sign or leading zero.
 
+The showing side SHOULD list the addresses of the interfaces that have a default route, and only those when any has
+one: the address of a virtual switch or of a VPN adapter without a default route is not where another PC on the LAN
+reaches it, and only lengthens the code. A link-local address is listed only when no routable one exists, and the
+loopback address only when nothing else does.
+
 ### 2.3 Parsing
 
 An entering side MUST accept a code only in exactly the form §2.1 and §2.2 write: the prefix `amp1`, a known mode, at
@@ -104,6 +116,23 @@ least one and at most 8 well-formed addresses, a key of exactly 87 base64url cha
 before any connection is made. A code of mode `user` is entered in mode `JoinUser` only, one of mode `device` in mode
 `AddDevice` only. A `user` code whose key is a device of the entering side's own user is refused as well: a device of
 the own user is enrolled (`AddDevice`), never paired (§7.1).
+
+### 2.4 Naming the showing device by its id
+
+Where discovery (SPEC.md §3) announces the showing device, the entering side MAY name it by that announcement instead
+of a code: the device id the announcement claims, and the address it was heard at with the mesh port it announced (every
+address heard for that device when there were several, in the order the entering side tries them, at most 8). The pin
+is then the device id, which is `H` of the device key (SPEC.md §2.3); a code pins the same thing, since the key it
+names hashes to the id. Nothing else of the code is needed: the mode is the entering side's own, and the key is proved
+at the handshake (§4.2). The showing side changes nothing: it shows its code as ever, for an entering side that heard
+no announcement, and its announcement is the one it makes anyway.
+
+An entering side MUST refuse a device id of all zeros, which names no device (SPEC.md §3.3), and a device of its own
+user (§2.3). It SHOULD offer the user only devices that are in no Roster it holds: a device already known is not paired
+with but dialled (SPEC.md §4.4). An announcement is not authenticated (§10): the user who picks a device from a list
+picks an id and an address, and the SAS of §8 is what proves that the device at that address is the one the other user
+shows. An implementation SHOULD show which device it is about to pair with (its id, or the user's name once known)
+before the user confirms.
 
 ## 3. Modes
 
@@ -123,8 +152,9 @@ the outcome. The values of the modes are those of LOCAL-SPEC.md §14.10.
 
 ### 4.1 Dialling and listening
 
-The showing side listens on the addresses of its code, which are its mesh listener, and the entering side dials them
-in order until one completes the TLS handshake of §4.2. The connection is one TCP connection, as SPEC.md §4.1 says.
+The showing side listens on the addresses of its code, which are its mesh listener, and the entering side dials the
+addresses of its target (the code's, or those discovery heard the device at, §2.4) in order until one completes the TLS
+handshake of §4.2. The connection is one TCP connection, as SPEC.md §4.1 says.
 The entering side SHOULD stop trying when every address failed and report the pairing failed (§6.2).
 
 While a pairing is in state `Waiting` on the showing side, its listener offers the ALPN `axiom-mesh-pair/1` beside
@@ -138,9 +168,10 @@ A pairing connection is TLS 1.3 with the rules of SPEC.md §4.2 (forward-secret 
 tickets, a handshake within 10 seconds), and these differences in what is validated:
 
 - The **entering** side offers only the ALPN `axiom-mesh-pair/1` and presents its device certificate (SPEC.md §2.4).
-  It MUST accept the server certificate only if its subject public key equals the key of the code (§2.1), and nothing
-  else about the certificate is checked. A different key closes the connection without a byte: it is not the device
-  whose code the user was given.
+  It MUST accept the server certificate only if `H` of its subject public key equals the pinned device id: `H` of the
+  key of the code (§2.1), or the id of the device named by §2.4; nothing else about the certificate is checked. A
+  different key closes the connection without a byte, before any pairing frame: it is not the device whose code the
+  user was given, or whose id discovery announced.
 - The **showing** side MUST require a client certificate, and under ALPN `axiom-mesh-pair/1` accepts any certificate
   whose subject public key is a `pubkey` on P-256: it does not know the entering side yet, which is what the SAS (§8)
   is for. It MUST NOT accept an unknown key under ALPN `axiom-mesh/1`, where SPEC.md §4.3 applies unchanged.
@@ -340,11 +371,18 @@ under `axiom-mesh/1` as any node does (SPEC.md §4.4).
 
 ## 10. Security considerations
 
-- **The code is the trust anchor.** The entering side pins the device key of the code (§4.2), so a man in the middle
-  cannot answer for the showing side without its private key. The code is not secret, but it must reach the entering
-  user unaltered: shown on the other user's screen, read off a QR code in person, or copied over a channel both trust.
-  An altered code would pin the attacker's key; the SAS then still differs (below), but users who skip the comparison
-  would pair with the attacker.
+- **The pin is the trust anchor.** The entering side pins the device id of the code or of the announcement (§4.2),
+  so a man in the middle cannot answer for the showing side without its private key. The code is not secret, but it
+  must reach the entering user unaltered: shown on the other user's screen, read off a QR code in person, or copied
+  over a channel both trust. An altered code would pin the attacker's key; the SAS then still differs (below), but
+  users who skip the comparison would pair with the attacker.
+- **A discovered id is a weaker anchor than a code.** An announcement (SPEC.md §3) is not authenticated: anyone on the
+  network can announce any device id at any address. Pinning the id still binds the handshake to the key of the device
+  the user meant, so a party that announces another device's id cannot complete the handshake without that device's
+  private key. What it can do is announce its own id and hope the user picks it, which is the altered code again: the
+  SAS on its screen is not the one on the intended user's, and the users do not confirm. An entering side that pins a
+  discovered id therefore relies on the comparison as every side does (§6.2), and SHOULD show the user which device it
+  picked (§2.4).
 - **The SAS is the check for the showing side.** The showing side cannot know who connects; anyone on the network who
   sees the code may connect while the pairing waits. The SAS covers both user keys and both TLS keys, so a party that
   connects in place of the intended one produces a string that no screen of the intended user shows, and its user does
@@ -399,7 +437,9 @@ SPEC.md §14.4; the SAS domain `axiom-mesh/pair/1` (§8) is used for nothing els
 An implementation conforms to `axiom-mesh-pair/1` if it satisfies every MUST in this document. A test suite for
 conformance covers, at least: every message encoded and decoded at every byte split, and every bound refused one over
 and accepted at the bound; a code written and parsed back, and every malformed form of §2.3 refused; each check of §7.1
-and §7.2 refused on its own; the SAS equal on both sides and different when any one of the four keys is substituted,
+and §7.2 refused on its own; a device named by its id (§2.4): a handshake that presents a key whose hash is not that
+id closed before any pairing frame, and the key whose hash it is reaching `Confirm`; the SAS equal on both sides and
+different when any one of the four keys is substituted,
 including the enrolment case with one absent user key; every transition of §6.2, including `Invalid` while waiting,
 `OK` unchanged while confirming, `Busy` for a second pairing and the failure at exactly 10 minutes; and a device never
 listed again once removed.
@@ -412,6 +452,7 @@ PairHello   := version:u16 mode:u8 deviceId:id name:string(64) userKey:bytes<65>
 PairConfirm := roster:blob(4194304)
 PairCancel  := reason:u8 detail:string(256)
 code        := "amp1:" ("user" | "device") ":" address *("," address) ":" base64url(device key)
+pin         := H(the code's device key) | the device id discovery announced (§2.4); the handshake key must hash to it
 sas         := base32(H("axiom-mesh/pair/1" ‖ sort(userKeys) ‖ sort(tlsKeys)))[0..8], shown XXXX-XXXX
 ```
 
@@ -421,8 +462,10 @@ Alice (user key A, laptop L) pairs with Bob (user key B, desktop D); later she e
 
 1. **Show.** On L, Alice starts a pairing in mode `ShowUser`. L's listener now offers `axiom-mesh-pair/1`, and L shows
    `amp1:user:192.168.1.20:41810:<L's key>`.
-2. **Join.** Bob enters the code on D in mode `JoinUser`. D dials 192.168.1.20:41810 offering only
-   `axiom-mesh-pair/1`, presents its certificate and accepts L's only because its key is the code's.
+2. **Join.** D heard L's announcement (SPEC.md §3) and lists L among the devices it is not paired with; Bob picks it, and
+   D pins L's device id (§2.4). Where D heard nothing, Bob enters the code on D instead, which pins the same id. D dials
+   192.168.1.20:41810 in mode `JoinUser` offering only `axiom-mesh-pair/1`, presents its certificate and accepts L's
+   only because its key hashes to the pinned id.
 3. **Hello.** Both send `PairHello`: L with A and Alice's Roster (listing L), D with B and Bob's Roster (listing D). Each
    checks the other's by §7.1 and derives the SAS from A, B, L and D: both screens show, say, `K7QD-M2XA`.
 4. **Confirm.** Bob compares the strings with Alice and confirms on D first: D sends `PairConfirm` and waits in

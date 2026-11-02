@@ -9,7 +9,8 @@ namespace Axiom.Mesh.Core;
 /// <summary>
 /// The peer validation of one handshake (SPEC.md §4.3, PAIR-SPEC.md §4.2), in two steps. Inside the handshake, the
 /// certificate callback accepts only a key that resolves to a not-removed device of a known user's current Roster, or,
-/// while a pairing is under way, the key a pairing may present. After the handshake, <see cref="Decide"/> is the
+/// while a pairing is under way, the key a pairing may present: any P-256 key on the showing side, and on the entering
+/// side only a key whose hash is the pinned device id (PAIR-SPEC.md §2.4). After the handshake, <see cref="Decide"/> is the
 /// authority: it accepts a roster key under AMP/1's ALPN and a pairing key under the pairing ALPN, nothing else.
 /// </summary>
 /// <remarks>
@@ -74,7 +75,7 @@ internal sealed class PeerCheck
                 Amp.Alpn when known && !IsEnteringDial => string.Empty,
                 Amp.Alpn => "the peer's key is in no current roster of a known user",
                 PairProtocol.Alpn when options.Role == TlsRole.Server => now.IsShowing ? string.Empty : "no pairing waits",
-                PairProtocol.Alpn => now.IsEnteringDial(remote) && presented.Equals(now.EnteringKey) ? string.Empty : "the key is not the pairing code's",
+                PairProtocol.Alpn => now.IsEnteringDial(remote) && now.EnteringTarget!.Admits(presented) ? string.Empty : "the key is not the pinned device's",
                 "" => "no ALPN was negotiated",
                 _ => "the ALPN " + alpn + " is not spoken here",
             };
@@ -106,23 +107,22 @@ internal sealed class PeerCheck
     }
 
     // An unknown key is acceptable only to a pairing: on the showing side any P-256 key (PAIR-SPEC.md §4.2), on the
-    // entering side exactly the key of the code.
+    // entering side exactly a key whose hash is the pinned device's id: the code's key, or the id discovery announced.
     private bool MayPair(ReadOnlySpan<byte> point, out PublicKey? key)
     {
         key = null;
         if (options.Role == TlsRole.Server)
             return window.IsShowing && PublicKey.TryParse(point, out key);
-        if (!IsEnteringDial || !window.EnteringKey!.Encoded.SequenceEqual(point))
-            return false;
-        key = window.EnteringKey;
-        return true;
+        return IsEnteringDial && window.EnteringTarget!.Admits(point, out key);
     }
 
     private static string? NegotiatedSoFar(object sender)
     {
+        if (sender is not SslStream stream)
+            return null;
         try
         {
-            SslApplicationProtocol alpn = ((SslStream)sender).NegotiatedApplicationProtocol;
+            SslApplicationProtocol alpn = stream.NegotiatedApplicationProtocol;
             return alpn == default ? null : alpn.ToString();
         }
         catch (InvalidOperationException)

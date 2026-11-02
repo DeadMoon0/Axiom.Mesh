@@ -1,0 +1,2 @@
+DEVICE        USER          ADDRESSES                            LAST SEEN
+c4c5c6c7c0c1  d1d0d3d2d5d4  192.168.1.31:41810,[fe80::31]:41810  2027-01-15 08:00:05Z

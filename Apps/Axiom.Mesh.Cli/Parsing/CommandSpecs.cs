@@ -23,7 +23,7 @@ internal static class CommandSpecs
         Spec(["identity", "create"], [], [OptionSpec.Needed("--user", "name", "your display name"), OptionSpec.Needed("--device", "name", "this device's name")], "create a new user with this device as its first", a => new IdentityCreateCommand(a.Value("--user")!, a.Value("--device")!)),
 
         Spec(["pair", "show"], [], [OptionSpec.Flag("--device", "show this device's code, to be enrolled by another device of your user")], "show a code for the other side to join, then the string to compare", a => new PairShowCommand(a.Flag("--device"))),
-        Spec(["pair", "join"], [ArgumentSpec.Of("code")], [], "join the other side's code: pair the users, or add the shown device to your user", a => new PairJoinCommand(a[0])),
+        Spec(["pair", "join"], [ArgumentSpec.Optional("code|device")], [], "join the other side: a discovered device by its id (none given: list them), or its code; a device's code adds it to your user", a => new PairJoinCommand(a.Optional(0))),
         Spec(["pair", "confirm"], [], [], "confirm that both screens show the same string, and wait for the other side", _ => new PairConfirmCommand()),
         Spec(["pair", "cancel"], [], [], "cancel the current pairing on both sides", _ => new PairCancelCommand()),
         Spec(["pair", "status"], [], [], "the current or last pairing", _ => new PairStatusCommand()),

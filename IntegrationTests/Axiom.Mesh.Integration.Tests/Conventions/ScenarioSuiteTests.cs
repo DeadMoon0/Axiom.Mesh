@@ -31,7 +31,7 @@ public sealed class ScenarioSuiteTests
 
         Assert.Contains("..\\..\\" + ScenarioFile.Replace('/', '\\'), project, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(Repository.Root, ScenarioFile)));
-        Assert.Equal(15, scenarios.Length);
+        Assert.Equal(16, scenarios.Length);
         Assert.Equal(scenarios.Order(), run.Order());
         Assert.DoesNotContain(typeof(SocketScenarios).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly), m => m.GetCustomAttributes<FactAttribute>().Any());
     }

@@ -89,13 +89,17 @@ internal sealed class RealMeshFixture : IMeshFixture
 
     /// <inheritdoc />
     public async Task<string> PairAsync(string showing, string entering, CancellationToken cancellationToken) =>
-        await RunPairingAsync(showing, PairingMode.ShowUser, entering, PairingMode.JoinUser, cancellationToken).ConfigureAwait(false);
+        await RunPairingAsync(showing, PairingMode.ShowUser, entering, PairingMode.JoinUser, PairingEntry.ByCode, cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task<string> PairByDiscoveryAsync(string showing, string entering, CancellationToken cancellationToken) =>
+        await RunPairingAsync(showing, PairingMode.ShowUser, entering, PairingMode.JoinUser, PairingEntry.ByDiscovery, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async Task<string> EnrolAsync(string user, string device, CancellationToken cancellationToken)
     {
         await HoldUserKeyAsync(user, cancellationToken).ConfigureAwait(false);
-        string sas = await RunPairingAsync(device, PairingMode.ShowDevice, user, PairingMode.AddDevice, cancellationToken).ConfigureAwait(false);
+        string sas = await RunPairingAsync(device, PairingMode.ShowDevice, user, PairingMode.AddDevice, PairingEntry.ByCode, cancellationToken).ConfigureAwait(false);
         using var deadline = new CancellationTokenSource(TestMesh.Deadline);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
         await this[device].Node.WhenIdentityAsync(linked.Token).ConfigureAwait(false);
@@ -262,7 +266,7 @@ internal sealed class RealMeshFixture : IMeshFixture
         }
     }
 
-    private async Task<string> RunPairingAsync(string showing, PairingMode showMode, string entering, PairingMode enterMode, CancellationToken cancellationToken)
+    private async Task<string> RunPairingAsync(string showing, PairingMode showMode, string entering, PairingMode enterMode, PairingEntry entry, CancellationToken cancellationToken)
     {
         RealNode shower = this[showing];
         RealNode enterer = this[entering];
@@ -271,7 +275,7 @@ internal sealed class RealMeshFixture : IMeshFixture
         {
             LocalClient enter = await enterer.ConnectAsync(new LocalClientOptions { Name = "fixture pairing" }, cancellationToken).ConfigureAwait(false);
             await using (enter.ConfigureAwait(false))
-                return await MeshPairing.RunAsync((showing, shower.Node, show), showMode, (entering, enterer.Node, enter), enterMode, cancellationToken).ConfigureAwait(false);
+                return await MeshPairing.RunAsync((showing, shower.Node, show), showMode, (entering, enterer.Node, enter), enterMode, entry, cancellationToken).ConfigureAwait(false);
         }
     }
 

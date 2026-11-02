@@ -94,7 +94,7 @@ if (PairingCode.TryParse(text, out PairingCode? code)
 | root | `Amp` (ALPN, version, states, `Definition`) |
 | `Messages/` | `MeshMessage` and its sixteen messages (`Hello`, `Packages` with `PackageState`, `PackageChanged`, `Have`, `Want`, `ObjectMessage`, `NotFound`, `Cancel`, `RosterQuery`, `RosterNotFound`, `ServiceOpen`/`Accepted`/`Refused`, `Ping`, `Pong`, `Bye`), `Extension`, `MessageIds`, `ByeReason`, `Capabilities`, `ServiceRefusal` |
 | `Rules/` | `HelloRule` → `HelloOutcome`, `PeerIdentityFacts`, `RosterFollowUp`; `ListingRule` → `ListingStep`; `WantBudget`; `ObjectQueueRule` |
-| `Pairing/` | `PairProtocol`, `PairHello`, `PairConfirm`, `PairCancel`, `PairingCode`, `PairingAddress`, `Sas`, `PairingRules` → `PairPeer`, `PairingMachine` → `PairingStep`, `PairingMode`, `PairingState` |
+| `Pairing/` | `PairProtocol`, `PairHello`, `PairConfirm`, `PairCancel`, `PairingCode`, `PairingAddress`, `PairingTarget`, `Sas`, `PairingRules` → `PairPeer`, `PairingMachine` → `PairingStep`, `PairingMode`, `PairingState` |
 
 ## Rules of use
 

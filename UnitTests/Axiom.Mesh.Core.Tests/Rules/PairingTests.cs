@@ -265,6 +265,83 @@ public sealed class PairingTests
         await mesh.WaitForPairingAsync("alice-laptop", client, p => p.State == LocalPairingState.Cancelled, "Cancelled", None);
     }
 
+    // LOCAL-SPEC.md §6.2, PAIR-SPEC.md §2.4: StartPairingByDevice names the other side by a discovered device id with
+    // well-formed addresses (1 to 8; the list's bound the client enforces before it writes), in an entering mode only,
+    // and needs an identity like StartPairing; a device of the own user is enrolled, not paired, however it is named.
+    [Fact]
+    public async Task StartPairingByDeviceNeedsADeviceIdAndAddressesInAnEnteringMode_AndADeviceOfTheOwnUserIsRefused()
+    {
+        await using TestMesh mesh = await TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop", "alice-phone", "bob-desktop") with { WithoutIdentity = ["bob-desktop"] }, None);
+        LocalClient laptop = await mesh["alice-laptop"].ConnectUserAsync("cli", None);
+        LocalClient desktop = await mesh["bob-desktop"].ConnectUserAsync("cli", None);
+        DeviceId bob = mesh["bob-desktop"].Device;
+        DeviceId phone = mesh["alice-phone"].Device;
+
+        async Task<LocalResult<Pairing>> StartAsync(StartPairingByDevice request) => await laptop.SendAsync(request, None);
+        LocalResult<Pairing> noIdentity = await desktop.SendAsync(new StartPairingByDevice { Mode = LocalPairingMode.JoinUser, Device = phone, Addresses = ["10.0.0.2:41810"] }, None);
+        LocalResult<Pairing> noDevice = await StartAsync(new StartPairingByDevice { Mode = LocalPairingMode.JoinUser, Addresses = ["10.0.0.3:41810"] });
+        LocalResult<Pairing> noAddress = await StartAsync(new StartPairingByDevice { Mode = LocalPairingMode.JoinUser, Device = bob });
+        LocalResult<Pairing> badAddress = await StartAsync(new StartPairingByDevice { Mode = LocalPairingMode.JoinUser, Device = bob, Addresses = ["10.0.0.3"] });
+        LocalResult<Pairing> showing = await StartAsync(new StartPairingByDevice { Mode = LocalPairingMode.ShowUser, Device = bob, Addresses = ["10.0.0.3:41810"] });
+        LocalResult<Pairing> noMode = await StartAsync(new StartPairingByDevice { Mode = (LocalPairingMode)9, Device = bob, Addresses = ["10.0.0.3:41810"] });
+        LocalResult<Pairing> ownDevice = await StartAsync(new StartPairingByDevice { Mode = LocalPairingMode.JoinUser, Device = phone, Addresses = ["10.0.0.2:41810"] });
+
+        Assert.Equal(Status.NoIdentity, noIdentity.Status);
+        Assert.Equal((Status.Invalid, "device"), (noDevice.Status, noDevice.Error!.Detail));
+        Assert.Equal((Status.Invalid, "addresses"), (noAddress.Status, noAddress.Error!.Detail));
+        Assert.Equal((Status.Invalid, "addresses"), (badAddress.Status, badAddress.Error!.Detail));
+        Assert.Equal((Status.Invalid, "mode"), (showing.Status, showing.Error!.Detail));
+        Assert.Equal((Status.Invalid, "mode"), (noMode.Status, noMode.Error!.Detail));
+        Assert.Equal((Status.Invalid, "device"), (ownDevice.Status, ownDevice.Error!.Detail));
+        Assert.Equal(Status.NotFound, (await laptop.SendAsync(new GetPairing(), None)).Status);
+
+        Pairing started = (await StartAsync(new StartPairingByDevice { Mode = LocalPairingMode.JoinUser, Device = bob, Addresses = ["10.0.0.3:41810", "[fe80::3]:41810"] })).Value;
+        Assert.Equal((LocalPairingState.Waiting, bob, string.Empty), (started.State, started.RemoteDeviceId, started.Code));
+    }
+
+    // PAIR-SPEC.md §2.4, §4.2, §10: a device named by a discovered id is pinned by that id; a handshake that presents
+    // another key is closed before any pairing frame (the showing side keeps waiting, nothing is stored), and the key
+    // whose hash is the id reaches Confirm with the same string on both screens and pairs the users.
+    [Fact]
+    public async Task ADiscoveredDeviceIsPinnedByItsId_AnotherKeyIsRefusedBeforeAnyPairingFrame_TheRightOnePairs()
+    {
+        await using TestMesh mesh = await TestMesh.StartAsync(TestMeshOptions.Of("alice-laptop", "bob-desktop"), None);
+        LocalClient alice = await mesh["alice-laptop"].ConnectUserAsync("cli", None);
+        LocalClient bob = await mesh["bob-desktop"].ConnectUserAsync("cli", None);
+        Pairing shown = (await alice.SendAsync(new StartPairing { Mode = LocalPairingMode.ShowUser }, None)).Value;
+        string[] addresses = ["10.0.0.1:41810"];
+        DeviceId eve = TestIdentity.Of("eve-device").DeviceId;
+
+        // Alice's address, but Eve's id: the key Alice presents does not hash to it.
+        await bob.SendAsync(new StartPairingByDevice { Mode = LocalPairingMode.JoinUser, Device = eve, Addresses = addresses }, None);
+        Pairing failed = await mesh.WaitForPairingAsync("bob-desktop", bob, p => p.State == LocalPairingState.Failed, "the refusal", None);
+        Assert.Contains("no address of the device answered", failed.Failure, StringComparison.Ordinal);
+        Assert.Equal(LocalPairingState.Waiting, (await alice.SendAsync(new GetPairing(), None)).Value.State);
+        Assert.DoesNotContain(mesh["alice-laptop"].Node.Facts.Recent(), f => f.Kind == NodeFactKind.PairingChanged && f.Detail.Contains("Confirm", StringComparison.Ordinal));
+        Assert.DoesNotContain(mesh["bob-desktop"].Node.Facts.Recent(), f => f.Kind == NodeFactKind.PairingChanged && f.Detail.Contains("connection", StringComparison.Ordinal));
+
+        // Alice's id, as discovery announced it.
+        IReadOnlyList<Peer> discovered = (await bob.SendAsync(new ListDiscovered(), None)).Value;
+        Peer heard = Assert.Single(discovered, p => p.DeviceId == mesh["alice-laptop"].Device);
+        Assert.False(heard.Known);
+        Assert.Equal(addresses, heard.Addresses);
+        Pairing entered = (await bob.SendAsync(new StartPairingByDevice { Mode = LocalPairingMode.JoinUser, Device = heard.DeviceId, Addresses = heard.Addresses }, None)).Value;
+        Assert.Equal(mesh["alice-laptop"].Device, entered.RemoteDeviceId);
+
+        Pairing showing = await mesh.WaitForPairingAsync("alice-laptop", alice, p => p.State != LocalPairingState.Waiting, "the other side to connect", None);
+        Pairing joining = await mesh.WaitForPairingAsync("bob-desktop", bob, p => p.State != LocalPairingState.Waiting, "the device to answer", None);
+        Assert.Equal((LocalPairingState.Confirm, LocalPairingState.Confirm), (showing.State, joining.State));
+        Assert.Equal(showing.Sas, joining.Sas);
+        Assert.Equal(mesh["bob-desktop"].Device, showing.RemoteDeviceId);
+
+        await alice.SendAsync(new ConfirmPairing { PairingId = shown.PairingId }, None);
+        await bob.SendAsync(new ConfirmPairing { PairingId = entered.PairingId }, None);
+        await mesh.WaitForPairingAsync("bob-desktop", bob, p => p.State == LocalPairingState.Paired, "Paired", None);
+        await mesh.WaitForPairingAsync("alice-laptop", alice, p => p.State == LocalPairingState.Paired, "Paired", None);
+        Assert.True(mesh["alice-laptop"].Node.Trust.IsKnownUser(mesh["bob-desktop"].User));
+        Assert.True(mesh["bob-desktop"].Node.Trust.IsKnownUser(mesh["alice-laptop"].User));
+    }
+
     private static async Task<LocalPairingState[]> TakeAsync(Subscription<PairingChanged> events, int count)
     {
         var states = new List<LocalPairingState>();

@@ -19,7 +19,8 @@ namespace Axiom.Mesh.Core;
 /// <summary>
 /// The pairing shell (PAIR-SPEC.md; fundamentals plan §2.5): runs one <see cref="PairingMachine"/> at a time over a
 /// MeshTls connection under <c>axiom-mesh-pair/1</c>, in all four modes. It opens the <see cref="PairingWindow"/> the TLS
-/// layer reads, dials the code on the entering side, exchanges <c>PairHello</c>, derives the short authentication string,
+/// layer reads, dials the target (a code's addresses, or a discovered device's) on the entering side, exchanges
+/// <c>PairHello</c>, derives the short authentication string,
 /// takes the users' decisions from the local requests, stores the results once both confirmed, and reports every
 /// transition as a <c>PairingChanged</c> event and a fact.
 /// </summary>
@@ -52,7 +53,7 @@ internal sealed class PairingShell : IDisposable
 
     /// <summary>The shell of a node.</summary>
     /// <param name="gate">The window the TLS layer reads.</param>
-    /// <param name="dialler">Dials the code's addresses on the entering side.</param>
+    /// <param name="dialler">Dials the target's addresses on the entering side.</param>
     /// <param name="table">Dials the other side under AMP/1 after a pairing.</param>
     /// <param name="facts">Where transitions are recorded.</param>
     /// <param name="time">The node's clock: the expiry runs on it.</param>
@@ -100,22 +101,23 @@ internal sealed class PairingShell : IDisposable
     }
 
     /// <summary>
-    /// <c>StartPairing</c> (LOCAL-SPEC.md §6.2): checks the mode, starts the machine unless a pairing runs (<c>Busy</c>),
-    /// opens the window, and on the entering side starts dialling the code.
+    /// <c>StartPairing</c> and <c>StartPairingByDevice</c> (LOCAL-SPEC.md §6.2): checks the mode, starts the machine unless
+    /// a pairing runs (<c>Busy</c>), opens the window, and on the entering side starts dialling the target: the code's
+    /// addresses, or the addresses discovery announced for the named device (PAIR-SPEC.md §2.4).
     /// </summary>
-    /// <param name="mode">The mode.</param>
-    /// <param name="code">The code; empty for the showing modes.</param>
+    /// <param name="start">What the request asked for: the mode, and for an entering mode the code or the device and its addresses.</param>
     /// <param name="cancellationToken">Cancels waiting for the lock and the key store.</param>
     /// <returns>The pairing Waiting, or why it did not start.</returns>
-    public async Task<(RequestRefusal? Refusal, Pairing? Pairing)> StartAsync(LocalMode mode, string code, CancellationToken cancellationToken)
+    public async Task<(RequestRefusal? Refusal, Pairing? Pairing)> StartAsync(PairingStart start, CancellationToken cancellationToken)
     {
         MeshNode running = Node;
+        LocalMode mode = start.Mode;
         await turn.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             DateTimeOffset now = time.GetUtcNow();
             bool userKey = mode == LocalMode.AddDevice && await running.HoldsUserKeyNowAsync(cancellationToken).ConfigureAwait(false);
-            if (PairingStartRule.Check(mode, code, running.Trust, userKey, out PairingCode? entered) is { } refusal)
+            if (PairingStartRule.Check(start, running.Trust, userKey, out PairingTarget? entered) is { } refusal)
                 return (refusal, null);
             if (!PairingMachine.TryStart(current?.Machine, (MeshMode)(byte)mode, now, out PairingMachine? machine))
                 return (new RequestRefusal(Status.Busy, "A pairing runs already; confirm or cancel it first, or wait until it expires.", string.Empty), null);
@@ -313,12 +315,13 @@ internal sealed class PairingShell : IDisposable
         return name;
     }
 
-    // The entering side (PAIR-SPEC.md §4.1): the code's addresses in order, each pinned to the code's key, until one
-    // carried a pairing connection; none did, the pairing fails.
+    // The entering side (PAIR-SPEC.md §4.1): the target's addresses in order, each pinned to the target's device (the
+    // code's key by its hash, or the id discovery announced), until one carried a pairing connection; none did, the
+    // pairing fails.
     private async Task EnterAsync(PairingRun run)
     {
-        PairingCode code = run.Entered!;
-        foreach (PairingAddress address in code.Addresses)
+        PairingTarget target = run.Entered!;
+        foreach (PairingAddress address in target.Addresses)
         {
             if (run.Stopping.IsCancellationRequested || run.EverLinked)
                 break;
@@ -330,7 +333,7 @@ internal sealed class PairingShell : IDisposable
                     break;
                 var endpoint = new IPEndPoint(each, address.Port);
                 run.Dialled = endpoint;
-                gate.Set(PairingWindow.Entering(code.DeviceKey, endpoint));
+                gate.Set(PairingWindow.Entering(target, endpoint));
                 await dialler.DialPairingAsync(endpoint, run.Stopping).ConfigureAwait(false);
             }
         }
@@ -340,11 +343,13 @@ internal sealed class PairingShell : IDisposable
         {
             if (ReferenceEquals(current, run) && !run.EverLinked && !run.Machine.IsEnded)
             {
-                var refusal = new PairCancel(PairCancelReason.Unspecified, "no address of the code answered with the code's device key");
+                var refusal = new PairCancel(
+                    PairCancelReason.Unspecified,
+                    target.IsByCode ? "no address of the code answered with the code's device key" : "no address of the device answered with a key of its id");
                 await TakeAsync(run, run.Machine.OnPeerRefused(refusal, time.GetUtcNow())).ConfigureAwait(false);
             }
 
-            if (ReferenceEquals(current, run) && gate.Current.EnteringKey is not null)
+            if (ReferenceEquals(current, run) && gate.Current.EnteringTarget is not null)
                 gate.Set(PairingWindow.Closed);
         }
         finally

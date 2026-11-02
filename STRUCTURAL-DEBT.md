@@ -903,3 +903,19 @@ and a client otherwise had to poll `ListPackages` to notice a drop.
   register the scheduled task itself so the persistence actor is PowerShell, not the unknown executable, with
   `host install` kept for hand installs; submit the file to Microsoft as a false positive per release. Until then
   ACCEPTANCE.md step 1 names the allow step.
+
+## 80. Discovery says neither that a pairing is open nor the device's name
+
+- **Rule:** PAIR-SPEC.md §2.4: the entering side names the showing device from what discovery announced; ACCEPTANCE.md
+  step 3: the user on B picks A from a list without typing anything of A's.
+- **Instead:** an announcement (SPEC.md §3.1, §3.2) carries two ids and a port, nothing else: no device name and no sign
+  that a pairing waits. `pair join` therefore lists every discovered device that is in no Roster the Host holds, by id,
+  and the user tells A's apart by the id prefix `pair show` prints on A. A name or a "pairing open" field is a wire
+  change of both codecs: the broadcast datagram refuses unknown flag bits, and a DNS-SD TXT key beside `v`, `d` and `u`
+  is a new version of the record; neither can be added without a version a v1 reader ignores.
+- **Evidence:** `Discovery.Tests` (the codecs refuse what they do not know);
+  `Cli.Tests: CliScenarioTests.PairJoinWithoutACodeListsTheDiscoveredDevices_AndJoinsOneByItsIdPrefix` picks by id.
+- **Tolerated because:** on a home or office LAN the list holds one or two devices, and the prefix is on the other
+  screen; a wrong pick cannot pair without the comparison (PAIR-SPEC.md §10).
+- **Paid in:** the next discovery version, with the name the app shows and a pairing flag (SPEC.md §3), when the app
+  needs a list of names.

@@ -52,6 +52,14 @@ internal static class Samples
         new Peer { DeviceId = new DeviceId(Id(0xee)), UserId = default, Known = false, Addresses = [], Sources = PeerSources.Broadcast, FirstSeen = Time, LastSeen = Time, State = PeerState.Unknown, BackoffUntil = 0, Violations = 1 },
     ];
 
+    /// <summary>What <c>ListDiscovered</c> shows while a neighbour waits to be paired: a known device, a stranger heard at an address, a stranger without one.</summary>
+    public static IReadOnlyList<Peer> Discovered { get; } =
+    [
+        Peers[0],
+        new Peer { DeviceId = new DeviceId(Id(0xc4)), UserId = new UserId(Id(0xd1)), Known = false, Addresses = ["192.168.1.31:41810", "[fe80::31]:41810"], Sources = PeerSources.Mdns | PeerSources.Broadcast, FirstSeen = Time, LastSeen = Time + 5_000, State = PeerState.Unknown, BackoffUntil = 0, Violations = 0 },
+        Peers[1],
+    ];
+
     public static IReadOnlyList<Package> Packages { get; } =
     [
         Package(Chat, "Chat", PackageKind.Channel, Alice, PackageState.Followed, GrantRights.Write, 3),

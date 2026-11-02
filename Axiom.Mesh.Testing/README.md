@@ -10,7 +10,7 @@ in-process, travels inside this package: its own package is a dotnet tool, which
 ## Status
 
 0.1.0. `TestMesh` (trust seeding, connect, stop and start, partition, severed links, heal, `SettleAsync`, `PairAsync`,
-`EnrolAsync`, `WaitForPairingAsync`), `TestNode` (content seams: create, grant, follow, write, publish, wait for an
+`PairByDiscoveryAsync`, `EnrolAsync`, `WaitForPairingAsync`), `TestNode` (content seams: create, grant, follow, write, publish, wait for an
 Entry or object; local clients: `ConnectUserAsync`, `ConnectServiceAsync`, `ConnectInProcessAsync`, `ConnectAsync`,
 `ConnectRaw` from a `TestProcess`; the command line in-process: `CliAsync`), the published test identities, fake
 discovery, the in-memory dialler, key store and network, `ScriptedPeer` (raw AMP/1 and pairing frames over the node's
@@ -139,9 +139,9 @@ Console.WriteLine(await PairWriteAndFollowAsync(inMemory, CancellationToken.None
 | `InMemoryKeyStore` | An `IKeyStore` in memory. |
 | `ScriptedPeer` | A peer that connects (`ConnectAsync`) or is dialled (`AcceptAsync`) with any identity and speaks raw AMP/1: `SendAsync`, `SendRawAsync`, `SendFrameStartAsync` (a frame begun and never finished), `ExpectAsync<T>`, `ExpectByeAsync`, `ExpectClosedAsync`, `ExpectClosedWithoutHelloAsync`; on a connection under the pairing ALPN `SendPairAsync`, `ExpectPairAsync<T>` and `ExpectPairingClosedAsync` (a frame of any other protocol fails the expectation). |
 | `CliResult`, `CliWords` | What an in-process command line left; a command line split into arguments as a shell would. |
-| `IMeshFixture` | A running mesh of published devices as a scenario sees it, in memory or on sockets: `Clock`, `Node(name)`, `PairAsync`, `EnrolAsync`, `HoldUserKeyAsync`, `ConnectAsync`, `SettleAsync`, `WaitUntilAsync`, `ConnectUserAsync`, `ConnectCliServiceAsync`, `CliAsync`, `ConnectScriptedPeerAsync`, `StopNodeAsync`, `StartNodeAsync`. `TestMesh` implements it. |
+| `IMeshFixture` | A running mesh of published devices as a scenario sees it, in memory or on sockets: `Clock`, `Node(name)`, `PairAsync`, `PairByDiscoveryAsync`, `EnrolAsync`, `HoldUserKeyAsync`, `ConnectAsync`, `SettleAsync`, `WaitUntilAsync`, `ConnectUserAsync`, `ConnectCliServiceAsync`, `CliAsync`, `ConnectScriptedPeerAsync`, `StopNodeAsync`, `StartNodeAsync`. `TestMesh` implements it. |
 | `TestCliService` | The external service `cli` with a published token (`Token`, `Service`, `Local`), as a Host's default `config.json` lists it. |
-| `MeshWaits`, `MeshPairing` | The conditions every fixture's waits re-check (`IsEstablishedWith`, `IsSettled`), and one pairing driven over two local ports (`RunAsync`, `WaitForAsync`), shared by the in-memory and the socket fixture. |
+| `MeshWaits`, `MeshPairing` | The conditions every fixture's waits re-check (`IsEstablishedWith`, `IsSettled`), and one pairing driven over two local ports (`RunAsync` with a `PairingEntry`, `ByDiscoveryAsync`, `WaitForAsync`), shared by the in-memory and the socket fixture. |
 | `TestMeshException` | A wait that ran out, or an expectation the node did not meet, with the nodes' last facts. |
 
 ## Rules of use

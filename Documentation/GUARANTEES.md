@@ -62,6 +62,7 @@ with real TLS, a store and an index on disk and the real pipe (`Integration.Test
 | Promise | Proved by |
 |---|---|
 | Two users who pair see the same code, then know each other by the names their devices showed. | `Testing.Tests: MeshScenarios.TwoUsersWhoPairSeeTheSameCode_KnowEachOtherByName_AndEstablishOneSessionEach` |
+| Two users pair without typing a code: the joining side names the showing device by the id discovery announced, both still compare the same string, and each then knows the other. | `Testing.Tests: MeshScenarios.TwoUsersPairWithoutACode_TheJoinerNamesTheShowingDeviceDiscoveryHeard_AndEachKnowsTheOther` |
 | What one device writes reaches every device that may see it and follows it, through relays, and nothing is sent back to where it came from. | `Testing.Tests: MeshScenarios.AFollowerHoldsWhatTheOwnerWrote_AndAThirdDeviceRelaysWithoutSendingBackToTheSource` |
 | What was written while a device was offline arrives once it is back, in both directions. | `Testing.Tests: MeshScenarios.WhatOneSideWroteWhileTheOtherWasOfflineArrivesOnceItIsBack_InBothDirections` |
 | A revoked user keeps what it holds, receives the revocation, and is neither listed nor served afterwards. | `Testing.Tests: MeshScenarios.ARevokedUserKeepsWhatItHolds_ReceivesTheRevocation_AndIsNoLongerListedOrServed` |
@@ -133,6 +134,7 @@ with real TLS, a store and an index on disk and the real pipe (`Integration.Test
 | While a pairing waits, an unknown key is still refused under AMP/1's ALPN; only the pairing ALPN lets it through, and only then. | `Core.Tests: HandshakeTests.UnderTheMeshAlpnAnUnknownKeyIsRefusedWhileAPairingWaits_UnderThePairingAlpnItIsLetThrough` |
 | A pairing stores nothing unless both users confirmed: a cancel, an expiry or an altered code leaves both nodes as they were. | `Core.Tests: PairingTests.ACancelOnEitherSideEndsBothCancelled_AndNothingIsStored`, `Core.Tests: PairingTests.ACodeAlteredToEvesKeyIsRefusedAtTheHandshake_TheShowingSideKeepsWaiting_NothingIsStored`, `Core.Tests: PairingTests.ConfirmIsInvalidWhileWaiting_OkAndUnchangedWhileConfirming_ASecondPairingIsBusy_ExpiryAt10MinutesFails` |
 | A pairing connection never carries an AMP/1 frame, and a node serves one pairing connection at a time. | `Core.Tests: PairingTests.APairingConnectionCarriesNoAmp1Frame_AndASecondOneIsAnsweredBusy` |
+| A device named by its discovered id pairs only with the key whose hash is that id: another key is closed before any pairing frame, and nothing is stored. | `Core.Tests: HandshakeTests.TheEnteringDialAdmitsOnlyACertificateWhoseKeyHashesToThePinnedDeviceId`, `Core.Tests: PairingTests.ADiscoveredDeviceIsPinnedByItsId_AnotherKeyIsRefusedBeforeAnyPairingFrame_TheRightOnePairs` |
 | An enrolled device holds its user's identity but never the user key, and the user's other devices hold the Roster that lists it. | `Core.Tests: PairingTests.AddDeviceEnrolsASecondDevice_ItHoldsTheUsersIdentityAndRosterSeqPlus1OnBoth_AndEstablishesWithTheFirst` |
 | A peer that closes before its `Hello` is a refusal: the node holds its next dial back 10 seconds, doubling to 5 minutes, and redials on its own. | `Core.Tests: EstablishmentTests.ACloseAfterTheHandshakeBeforeHelloCountsAsARefusalAndBacksOff`, `Core.Tests: BackoffTests.AFailedDialWaits10SecondsThenDoublesToAtMost5Minutes` |
 | A peer's `Hello` that names another device or another user is answered `Bye(Unauthorized)` and counted against the device. | `Core.Tests: HelloTests.ADeviceIdThatIsNotTheHashOfTheTlsKeyOrNotInTheUsersCurrentRosterIsByeUnauthorized` |
@@ -196,6 +198,7 @@ with real TLS, a store and an index on disk and the real pipe (`Integration.Test
 | A withdrawn message is never shown with its text, in a table, in JSON or in `watch`. | `Cli.Tests: EntryDisplayTests.ARedactedMessageIsShownAsWithdrawnNeverItsText` |
 | Every command has help text, and a prefix that names two ids is refused naming both, never guessed. | `Cli.Tests: HelpTextTests.EveryCommandHasHelpText`, `Cli.Tests: IdMatchTests.AnAmbiguousPrefixNamesTheCandidates_AnUnknownOneSaysNoneMatches` |
 | A folder published from the command line materialises byte-equal on another device. | `Cli.Tests: CliScenarioTests.APublishedFolderMaterialisesByteEqualOnASecondNodeThatFollowsIt` |
+| `pair join` without a code lists the discovered devices that are not paired yet, pairs with one by its id prefix, and refuses in one line when there are none. | `Cli.Tests: CliScenarioTests.PairJoinWithoutACodeListsTheDiscoveredDevices_AndJoinsOneByItsIdPrefix`, `Cli.Tests: CliScenarioTests.PairJoinWithoutACodeRefusesWithAHintWhenNothingWasDiscovered_AndAnUnknownPrefixToo` |
 
 ## Install and release
 

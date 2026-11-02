@@ -41,6 +41,17 @@ public interface IMeshFixture : IAsyncDisposable
     /// <returns>The short authentication string both sides showed.</returns>
     Task<string> PairAsync(string showing, string entering, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Pairs the users of two nodes without a code (PAIR-SPEC.md §2.4): one shows, the other names the showing device by
+    /// the id and addresses discovery announced for it (<c>ListDiscovered</c>), both compare the short authentication
+    /// string and confirm.
+    /// </summary>
+    /// <param name="showing">The node that shows.</param>
+    /// <param name="entering">The node that names the showing device from what its discovery heard.</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>The short authentication string both sides showed.</returns>
+    Task<string> PairByDiscoveryAsync(string showing, string entering, CancellationToken cancellationToken);
+
     /// <summary>Enrols a node started without an identity as a new device of another node's user (PAIR-SPEC.md §9.2, §9.3).</summary>
     /// <param name="user">A node of the user; it signs the new Roster.</param>
     /// <param name="device">The node being enrolled.</param>

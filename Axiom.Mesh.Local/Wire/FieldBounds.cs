@@ -38,7 +38,7 @@ internal static class FieldBounds
     /// <summary><c>Pairing.failure</c> (§5.15).</summary>
     public const int FailureLength = 256;
 
-    /// <summary>An address <c>host:port</c> (§5.7, §5.8, §5.9, §6.6).</summary>
+    /// <summary>An address <c>host:port</c> (§5.7, §5.8, §5.9, §6.2, §6.6).</summary>
     public const int AddressLength = 256;
 
     /// <summary><c>Session.tlsSuite</c> (§5.8).</summary>
@@ -131,7 +131,7 @@ internal static class FieldBounds
     /// <summary><c>WriteEntry.references</c> and <c>Entry.references</c> (§9.4, §5.6), as in SPEC.md §8.6.</summary>
     public const int ReferencesCount = Limits.MaxEntryReferences;
 
-    /// <summary><c>Peer.addresses</c> (§5.7).</summary>
+    /// <summary><c>Peer.addresses</c> (§5.7) and <c>StartPairingByDevice.addresses</c> (§6.2).</summary>
     public const int AddressesCount = 8;
 
     /// <summary>An <c>object</c> (§3.2), as in SPEC.md §8.1.</summary>

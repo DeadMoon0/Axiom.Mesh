@@ -1,12 +1,13 @@
 using System;
 using System.IO;
+using System.Linq;
 using Axiom.Mesh.Cli.Tests.Support;
 using Axiom.Mesh.Tests.Shared;
 
 namespace Axiom.Mesh.Cli.Tests.Regression;
 
 /// <summary>
-/// The output of <c>status</c>, <c>package list</c>, <c>history</c>, <c>peers</c>, <c>services</c>, <c>chat list</c>, <c>chat show</c>, <c>sync list</c>, <c>sync status</c> and <c>sync conflicts</c>, as text and as <c>--json</c>, for fixed
+/// The output of <c>status</c>, <c>package list</c>, <c>history</c>, <c>peers</c>, <c>pair join</c> (the discovered devices), <c>services</c>, <c>chat list</c>, <c>chat show</c>, <c>sync list</c>, <c>sync status</c> and <c>sync conflicts</c>, as text and as <c>--json</c>, for fixed
 /// records: what scripts and people read today. The snapshots live in <c>Regression/Snapshots</c>.
 /// </summary>
 public sealed class OutputSnapshotTests
@@ -24,6 +25,7 @@ public sealed class OutputSnapshotTests
     [InlineData("history.json")] // history --json
     [InlineData("peers.txt")] // peers as text
     [InlineData("peers.json")] // peers --json
+    [InlineData("pair-join.txt")] // pair join without a target: the discovered devices a pairing could be with
     [InlineData("services.txt")] // services as text
     [InlineData("services.json")] // services --json
     [InlineData("chat-list.txt")] // chat list as text
@@ -52,6 +54,7 @@ public sealed class OutputSnapshotTests
         "history.json" => HistoryView.Json(Samples.History) + "\n",
         "peers.txt" => Lines(PeersView.Text(Samples.Peers)),
         "peers.json" => PeersView.Json(Samples.Peers) + "\n",
+        "pair-join.txt" => Lines(PairingView.Discovered([.. Samples.Discovered.Where(PairingView.IsJoinable)])),
         "services.txt" => Lines(ServicesView.Text(Samples.Services)),
         "services.json" => ServicesView.Json(Samples.Services) + "\n",
         "chat-list.txt" => Lines(ChatView.Channels(Samples.Channels)),

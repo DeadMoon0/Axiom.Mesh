@@ -5,7 +5,7 @@ using Axiom.Mesh.Local;
 namespace Axiom.Mesh.Core;
 
 /// <summary>
-/// The pairing requests of LOCAL-SPEC.md §6.2: <c>StartPairing</c>, <c>ConfirmPairing</c>, <c>CancelPairing</c>,
+/// The pairing requests of LOCAL-SPEC.md §6.2: <c>StartPairing</c>, <c>StartPairingByDevice</c>, <c>ConfirmPairing</c>, <c>CancelPairing</c>,
 /// <c>GetPairing</c>, served by the node's <see cref="PairingShell"/> (PAIR-SPEC.md).
 /// </summary>
 internal static class PairingRequests
@@ -18,8 +18,23 @@ internal static class PairingRequests
     /// <returns>The answer.</returns>
     public static async ValueTask<LocalAnswer> StartPairingAsync(RequestContext context, uint correlation, StartPairing request, CancellationToken cancellationToken)
     {
-        (RequestRefusal? refusal, Pairing? pairing) = await context.Node.Pairings.StartAsync(request.Mode, request.Code, cancellationToken).ConfigureAwait(false);
+        (RequestRefusal? refusal, Pairing? pairing) = await context.Node.Pairings.StartAsync(PairingStart.Of(request), cancellationToken).ConfigureAwait(false);
         return refusal?.Answer(correlation) ?? LocalAnswer.Ok<StartPairing, Pairing>(correlation, pairing!);
+    }
+
+    /// <summary>
+    /// <c>StartPairingByDevice</c> (278): a pairing in an entering mode without a code, the other side named by the device
+    /// id and addresses discovery announced (PAIR-SPEC.md §2.4), Waiting; one at a time (<c>Busy</c>).
+    /// </summary>
+    /// <param name="context">The connection and the node.</param>
+    /// <param name="correlation">The request's correlation.</param>
+    /// <param name="request">The request.</param>
+    /// <param name="cancellationToken">Cancelled when the connection ends.</param>
+    /// <returns>The answer.</returns>
+    public static async ValueTask<LocalAnswer> StartPairingByDeviceAsync(RequestContext context, uint correlation, StartPairingByDevice request, CancellationToken cancellationToken)
+    {
+        (RequestRefusal? refusal, Pairing? pairing) = await context.Node.Pairings.StartAsync(PairingStart.Of(request), cancellationToken).ConfigureAwait(false);
+        return refusal?.Answer(correlation) ?? LocalAnswer.Ok<StartPairingByDevice, Pairing>(correlation, pairing!);
     }
 
     /// <summary><c>ConfirmPairing</c> (273): this side's user confirmed that the strings match.</summary>

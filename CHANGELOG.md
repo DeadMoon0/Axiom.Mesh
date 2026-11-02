@@ -75,6 +75,28 @@ S2, the sync service:
 - `Axiom.Mesh.Core`, fixed: a `Fetch` whose change subscription lapsed (thousands of objects stored while it ran) no longer
   waits forever once every missing object has a source; it subscribes again and looks once more.
 
+S3, pairing without a code (after the first two-PC run, 2026-11-02):
+
+- **PAIR-SPEC.md draft 3.** The entering side may name the showing device by the id discovery announced instead of a
+  code (§2.4): the pin is the device id, `H` of the key the handshake must present (§4.2), and the SAS stays the check
+  on both screens (§10). A code lists the addresses of the interfaces with a default route when any has one (§2.2), so
+  a virtual switch or a VPN adapter no longer lengthens it.
+- **LOCAL-SPEC.md draft 6.** `StartPairingByDevice` (278, §6.2, decision 29): the mode, the device id and the addresses
+  `ListDiscovered` shows; `StartPairing` is unchanged (§1.5). `Documentation/vectors/local.txt` was regenerated: the new
+  sample shifts the correlation of the samples after it, no published layout changed.
+- **Command line:** `pair join` without a target lists the discovered devices not paired yet (`DEVICE`, `USER`,
+  `ADDRESSES`, `LAST SEEN`) and refuses in one line when there are none; `pair join <device id or prefix>` pairs
+  without a code; `pair join <code>` as before. `pair show` says first `on the other PC run: axiom-mesh pair join
+  <this device's id>`.
+- `Axiom.Mesh.Protocol`: `PairingTarget` (`OfCode`, `OfDevice`, `Device`, `Addresses`, `Code`, `IsByCode`, `Admits`).
+- `Axiom.Mesh.Core`: `PeerCheck` admits the server key of the entering dial by its hash against the pinned id, which
+  covers a code's key too.
+- `Axiom.Mesh.Testing`: `IMeshFixture.PairByDiscoveryAsync`, `TestMesh.PairByDiscoveryAsync`, `MeshPairing.RunAsync`
+  with a `PairingEntry` (`ByCode`, `ByDiscovery`), `MeshPairing.ByDiscoveryAsync`; scenario 1b (pair by discovery), in
+  memory and on sockets.
+- Not done: an announcement says neither that a pairing is open nor the device's name, so `pair join` lists every
+  unknown device by id (STRUCTURAL-DEBT.md 80).
+
 ## 0.1.0
 
 The first release: the Fundamentals of [the plan's phase 1a](Documentation/DESIGN.md) (DESIGN.md §17). Two desktops on

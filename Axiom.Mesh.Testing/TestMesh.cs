@@ -278,7 +278,21 @@ public sealed class TestMesh : IMeshFixture
     /// <returns>The short authentication string both sides showed.</returns>
     /// <exception cref="TestMeshException">A side refused a step, the strings differ, or a step did not happen within the deadline.</exception>
     public Task<string> PairAsync(string showing, string entering, CancellationToken cancellationToken) =>
-        RunPairingAsync(showing, PairingMode.ShowUser, entering, PairingMode.JoinUser, cancellationToken);
+        RunPairingAsync(showing, PairingMode.ShowUser, entering, PairingMode.JoinUser, PairingEntry.ByCode, cancellationToken);
+
+    /// <summary>
+    /// Pairs the users of two nodes without a code (PAIR-SPEC.md §2.4): <paramref name="showing"/> starts <c>ShowUser</c>,
+    /// <paramref name="entering"/> names the showing device by the id and addresses its discovery heard
+    /// (<c>ListDiscovered</c>), both compare the short authentication string and confirm. Waits on the nodes' facts; the
+    /// dial that follows under AMP/1 is not awaited (see <see cref="ConnectAsync"/>).
+    /// </summary>
+    /// <param name="showing">The node that shows.</param>
+    /// <param name="entering">The node that names the showing device from what its discovery heard.</param>
+    /// <param name="cancellationToken">Stops waiting.</param>
+    /// <returns>The short authentication string both sides showed.</returns>
+    /// <exception cref="TestMeshException">Discovery did not list the showing device, a side refused a step, the strings differ, or a step did not happen within the deadline.</exception>
+    public Task<string> PairByDiscoveryAsync(string showing, string entering, CancellationToken cancellationToken) =>
+        RunPairingAsync(showing, PairingMode.ShowUser, entering, PairingMode.JoinUser, PairingEntry.ByDiscovery, cancellationToken);
 
     /// <summary>
     /// Enrols a new device into the user of another node (PAIR-SPEC.md §9.2, §9.3): <paramref name="device"/>, which has no
@@ -294,7 +308,7 @@ public sealed class TestMesh : IMeshFixture
     public async Task<string> EnrolAsync(string user, string device, CancellationToken cancellationToken)
     {
         await this[user].HoldUserKeyAsync(cancellationToken).ConfigureAwait(false);
-        string sas = await RunPairingAsync(device, PairingMode.ShowDevice, user, PairingMode.AddDevice, cancellationToken).ConfigureAwait(false);
+        string sas = await RunPairingAsync(device, PairingMode.ShowDevice, user, PairingMode.AddDevice, PairingEntry.ByCode, cancellationToken).ConfigureAwait(false);
         using var deadline = new CancellationTokenSource(Deadline);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
         try
@@ -502,8 +516,9 @@ public sealed class TestMesh : IMeshFixture
         "Advance the mesh's Clock when the awaited step waits for time to pass (a backoff, a heartbeat), in steps no longer than the step needs: a dial a timer starts runs after Advance returns, and a long Advance expires its handshake.");
 
 
-    // Both sides of one pairing over their local ports: show, enter, compare, confirm (the showing side first), Paired.
-    private async Task<string> RunPairingAsync(string showing, PairingMode showMode, string entering, PairingMode enterMode, CancellationToken cancellationToken)
+    // Both sides of one pairing over their local ports: show, enter (the code, or the discovered device), compare, confirm
+    // (the showing side first), Paired.
+    private async Task<string> RunPairingAsync(string showing, PairingMode showMode, string entering, PairingMode enterMode, PairingEntry entry, CancellationToken cancellationToken)
     {
         TestNode shower = this[showing];
         TestNode enterer = this[entering];
@@ -512,7 +527,7 @@ public sealed class TestMesh : IMeshFixture
         {
             LocalClient enter = await enterer.ConnectUserAsync("test-mesh pairing", cancellationToken).ConfigureAwait(false);
             await using (enter.ConfigureAwait(false))
-                return await MeshPairing.RunAsync((showing, shower.Node, show), showMode, (entering, enterer.Node, enter), enterMode, cancellationToken).ConfigureAwait(false);
+                return await MeshPairing.RunAsync((showing, shower.Node, show), showMode, (entering, enterer.Node, enter), enterMode, entry, cancellationToken).ConfigureAwait(false);
         }
     }
 

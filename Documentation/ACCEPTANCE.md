@@ -66,11 +66,23 @@ B:  axiom-mesh identity create --user bob --device pc-b
 
 ```text
 A:  axiom-mesh pair show
-B:  axiom-mesh pair join <the code A prints>
+B:  axiom-mesh pair join
 ```
 
-**Expected:** A prints a `Code` (also boxed) and waits; once B joins, both print `Compare  XXXX-XXXX`, the same eight
-characters on both screens.
+**Expected:** A prints first `on the other PC run: axiom-mesh pair join <A's device id, 12 hex digits>`, then the
+code (also boxed), and waits. B lists the devices discovery heard that are not paired yet: one row, A's device (the
+same 12 hex digits), Alice's user id, A's LAN address and when it was last heard.
+
+```text
+B:  axiom-mesh pair join <A's device id, or its first 4 digits or more>
+```
+
+**Expected:** once B joins, both print `Compare  XXXX-XXXX`, the same eight characters on both screens; B's output
+names A's device under `Other side`.
+
+If `pair join` on B says `no device to pair with was discovered` (multicast and broadcast blocked on the LAN), wait a
+few seconds and try again; if it still does, fall back to the code: `B: axiom-mesh pair join <the code A prints>`.
+Nothing else changes.
 
 ```text
 A:  axiom-mesh pair confirm
@@ -89,8 +101,8 @@ If `peers` stays without `established` after 30 seconds (multicast or broadcast 
 address on one side: `axiom-mesh peer add <ip of the other PC>:41810`.
 
 **Pass:** both screens showed the same comparison string; `peers` shows the other PC `established` on both. Note
-whether discovery found it (mDNS or broadcast) or you needed `peer add`: that answers the manual mDNS check
-(STRUCTURAL-DEBT.md entry 2).
+whether B found A in `pair join`'s list or needed the code, and whether `peers` found it (mDNS or broadcast) or you
+needed `peer add`: that answers the manual mDNS check (STRUCTURAL-DEBT.md entry 2).
 
 ## Step 4: a Channel and an Archive on A, granted to Bob
 
@@ -293,7 +305,7 @@ PC B: OS and version, LAN address, install source:
 
 Step 1  install                      pass / fail   notes:
 Step 2  identities                   pass / fail   notes:
-Step 3  pairing, same string         pass / fail   string:            discovery found the peer: mDNS / broadcast / peer add
+Step 3  pairing, same string         pass / fail   string:            B joined by: pair join list / code     discovery found the peer: mDNS / broadcast / peer add
 Step 4  packages and grants          pass / fail   notes:
 Step 5  write and publish on A       pass / fail   message entry:            version entry:
 Step 6  follow on B, same hashes     pass / fail   byte-equal files: yes / no

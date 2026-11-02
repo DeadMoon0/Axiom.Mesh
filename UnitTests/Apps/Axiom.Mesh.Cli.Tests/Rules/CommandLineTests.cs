@@ -20,7 +20,9 @@ public sealed class CommandLineTests
     [InlineData("identity create --user alice --device laptop", typeof(IdentityCreateCommand))] // identity create
     [InlineData("pair show", typeof(PairShowCommand))] // pair show for a user
     [InlineData("pair show --device", typeof(PairShowCommand))] // pair show for this device
-    [InlineData("pair join amp1:user:10.0.0.1:41810:KEY", typeof(PairJoinCommand))] // pair join
+    [InlineData("pair join amp1:user:10.0.0.1:41810:KEY", typeof(PairJoinCommand))] // pair join with a code
+    [InlineData("pair join 3f9a", typeof(PairJoinCommand))] // pair join with a discovered device's id prefix
+    [InlineData("pair join", typeof(PairJoinCommand))] // pair join alone lists the discovered devices
     [InlineData("pair confirm", typeof(PairConfirmCommand))] // pair confirm
     [InlineData("pair cancel", typeof(PairCancelCommand))] // pair cancel
     [InlineData("pair status", typeof(PairStatusCommand))] // pair status
@@ -64,7 +66,7 @@ public sealed class CommandLineTests
 
     [Theory]
     [InlineData("identity create --user alice", "missing --device <name>")] // identity create without a device name
-    [InlineData("pair join", "missing <code>")] // pair join without the code
+    [InlineData("pair join a b", "unexpected argument 'b'")] // pair join with two targets
     [InlineData("devices bob alice", "unexpected argument 'alice'")] // devices with two users
     [InlineData("dial", "missing <device|ip:port>")] // dial without a target
     [InlineData("peer add", "missing <host:port>")] // peer add without an address
@@ -115,6 +117,11 @@ public sealed class CommandLineTests
         Assert.Equal(new GrantSetCommand("Photos", "bob", true), Command("grant set Photos bob --write"));
         Assert.Equal(PairingMode.AddDevice, ((PairJoinCommand)Command("pair join amp1:device:10.0.0.1:41810:KEY")).Mode);
         Assert.Equal(PairingMode.JoinUser, ((PairJoinCommand)Command("pair join amp1:user:10.0.0.1:41810:KEY")).Mode);
+        Assert.True(((PairJoinCommand)Command("pair join amp1:user:10.0.0.1:41810:KEY")).IsCode);
+        Assert.Equal(new PairJoinCommand("3f9a"), Command("pair join 3f9a"));
+        Assert.False(((PairJoinCommand)Command("pair join 3f9a")).IsCode);
+        Assert.Equal(PairingMode.JoinUser, ((PairJoinCommand)Command("pair join 3f9a")).Mode);
+        Assert.Equal(new PairJoinCommand(null), Command("pair join"));
         Assert.Equal(["package", "create"], ((HelpCommand)Command("package create --help")).Topic);
         Assert.Equal(new HostInstallCommand(null, false, false, false), Command("host install"));
         Assert.Equal(new HostInstallCommand("d", true, true, true), Command("host install --daemon d --no-start --no-sync --json"));

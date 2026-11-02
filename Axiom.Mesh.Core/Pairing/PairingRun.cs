@@ -9,7 +9,7 @@ using LocalState = Axiom.Mesh.Local.PairingState;
 namespace Axiom.Mesh.Core;
 
 /// <summary>
-/// One pairing as the shell runs it (PAIR-SPEC.md §6): its machine, the code it shows or entered, the other side once its
+/// One pairing as the shell runs it (PAIR-SPEC.md §6): its machine, the code it shows or the target it entered, the other side once its
 /// <c>PairHello</c> passed, and the connection that carries it. Changed only by the <see cref="PairingShell"/>, one event
 /// at a time.
 /// </summary>
@@ -21,8 +21,8 @@ internal sealed class PairingRun : IDisposable
     /// <param name="id">Its id, never 0.</param>
     /// <param name="machine">Its machine, Waiting.</param>
     /// <param name="shown">The code this side shows; <see langword="null"/> on the entering side.</param>
-    /// <param name="entered">The code this side entered; <see langword="null"/> on the showing side.</param>
-    public PairingRun(uint id, PairingMachine machine, PairingCode? shown, PairingCode? entered)
+    /// <param name="entered">The target this side entered, a code or a discovered device; <see langword="null"/> on the showing side.</param>
+    public PairingRun(uint id, PairingMachine machine, PairingCode? shown, PairingTarget? entered)
     {
         Id = id;
         Machine = machine;
@@ -39,8 +39,8 @@ internal sealed class PairingRun : IDisposable
     /// <summary>The code this side shows.</summary>
     public PairingCode? Shown { get; }
 
-    /// <summary>The code this side entered.</summary>
-    public PairingCode? Entered { get; }
+    /// <summary>The target this side entered: a code, or a device discovery announced (PAIR-SPEC.md §2.4).</summary>
+    public PairingTarget? Entered { get; }
 
     /// <summary>The other side, once its <c>PairHello</c> passed the checks of PAIR-SPEC.md §7.1.</summary>
     public PairPeer? Peer { get; set; }
@@ -51,7 +51,7 @@ internal sealed class PairingRun : IDisposable
     /// <summary>Whether a pairing connection was ever attached to this pairing.</summary>
     public bool EverLinked { get; set; }
 
-    /// <summary>On the entering side, the address of the code that is dialled now or answered.</summary>
+    /// <summary>On the entering side, the address of the target that is dialled now or answered.</summary>
     public IPEndPoint? Dialled { get; set; }
 
     /// <summary>The timer that fails the pairing at its expiry.</summary>
@@ -60,7 +60,7 @@ internal sealed class PairingRun : IDisposable
     /// <summary>Cancelled when the pairing ends: the entering side stops dialling.</summary>
     public CancellationToken Stopping => stop.Token;
 
-    /// <summary>Whether this side enters the code.</summary>
+    /// <summary>Whether this side enters a target.</summary>
     public bool IsEntering => Entered is not null;
 
     /// <summary>The pairing as LOCAL-SPEC.md §5.15 shows it.</summary>
@@ -74,7 +74,7 @@ internal sealed class PairingRun : IDisposable
         Sas = Machine.Sas,
         RemoteUserId = Peer?.UserKey?.AsUserId() ?? default,
         RemoteName = Peer?.Name ?? string.Empty,
-        RemoteDeviceId = Peer?.Device ?? Entered?.DeviceKey.AsDeviceId() ?? default,
+        RemoteDeviceId = Peer?.Device ?? Entered?.Device ?? default,
         Expires = LocalRecords.Milliseconds(Machine.Expires),
         Failure = Machine.Failure,
     };

@@ -34,8 +34,10 @@ axiom-mesh history Chat
 Pair with Bob (each runs one side; both screens show the same string, compare it before you confirm):
 
 ```bash
-axiom-mesh pair show                 # Alice: prints a code, waits for Bob, prints the string to compare
-axiom-mesh pair join amp1:user:...   # Bob: enters Alice's code, prints the same string
+axiom-mesh pair show                 # Alice: says how Bob joins, prints a code too, waits, prints the string to compare
+axiom-mesh pair join                 # Bob: lists the devices discovery heard that are not paired yet, Alice's among them
+axiom-mesh pair join <alice's device id or a prefix>   # Bob: pairs without a code, prints the same string
+axiom-mesh pair join amp1:user:...   # Bob, where discovery does not reach: enters Alice's code instead
 axiom-mesh pair confirm              # both, once the strings match
 ```
 
@@ -60,7 +62,7 @@ The two-PC acceptance run, step by step with what each command prints and a run 
 ```bash
 axiom-mesh status                                    # both PCs: the Host answers
 axiom-mesh identity create --user alice --device pc-a
-axiom-mesh pair show / pair join <code> / pair confirm
+axiom-mesh pair show / pair join [<device>|<code>] / pair confirm
 axiom-mesh peers                                     # the other PC established (else: peer add <ip>:41810)
 axiom-mesh package create Family && axiom-mesh grant set Family bob
 axiom-mesh write Family --text "hello from A"
@@ -75,7 +77,7 @@ axiom-mesh grant revoke Family bob
 |---|---|
 | `status [--json]` | Whether the Host runs, who this device is, the store and the peers. |
 | `identity create --user <name> --device <name>` | A new user with this device as its first. |
-| `pair show [--device]` / `pair join <code>` / `pair confirm` / `pair cancel` / `pair status` | Pair two users, or enrol a device into your user (PAIR-SPEC.md). |
+| `pair show [--device]` / `pair join [<device>\|<code>]` / `pair confirm` / `pair cancel` / `pair status` | Pair two users (by the device discovery found, or by a code), or enrol a device into your user (PAIR-SPEC.md). `pair join` alone lists the discovered devices not paired yet. |
 | `users`, `devices [<user>]`, `peers [--discovered]`, `sessions` | Known users, a user's devices, the peer table, the established sessions; each with `--json`. |
 | `services` | The services the Host lists: name, how it proves its name (`external`, `spawned`, `in-process`), whether it is connected, its version and kinds; with `--json`. |
 | `dial <device\|ip:port>`, `peer add <host:port>`, `peer remove <host:port>` | Dial a device or an address once; static peers. |

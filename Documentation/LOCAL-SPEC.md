@@ -1,6 +1,9 @@
 # Axiom Mesh Local Protocol, Version 1 (axiom-mesh-local/1)
 
-**Status:** Draft 5, 2026-11-01. Draft 5 makes services programs of their own: the Host spawns and supervises them
+**Status:** Draft 6, 2026-11-02. Draft 6 adds `StartPairingByDevice` (278, §6.2, decision 29): an entering side
+names the other side by the device id and addresses `ListDiscovered` shows, instead of a code (PAIR-SPEC.md draft 3
+§2.4). `StartPairing` is unchanged, as §1.5 requires of a published layout.
+Draft 5, 2026-11-01. Draft 5 makes services programs of their own: the Host spawns and supervises them
 and hands each child its token, the pipe and its state directory in the environment (§2.1, §4.2, §9.1, decisions
 26 to 28); a spawned token lasts for that child's connections, one at a time, until the child exits; `ServiceCall`
 runs beside the caller's other requests (§3.4, §6.7); a `Reply` that is not the callback's layout is a violation of
@@ -200,6 +203,11 @@ brought in line:
     process and writes nothing on the Host, so it is not ordered against the caller's other requests; a `Reply` whose
     body is not the callback's reply layout, or whose status is reserved, is a violation of the service's connection,
     and its caller hears `ServiceUnavailable`.
+29. **A pairing is entered from a discovered device** (§6.2), added in draft 6: the first two-PC run (ACCEPTANCE.md
+    step 3) would not type a code of 300 characters while both Hosts already saw each other. `StartPairingByDevice`
+    names the other side by the id and addresses `ListDiscovered` (§6.6) shows; the Host pins that id at the handshake
+    exactly as it pins a code's key (PAIR-SPEC.md §2.4, §4.2), and the users compare the string as before. A new
+    request, not a field on `StartPairing` (§1.5).
 
 ## 2. Transport
 
@@ -817,7 +825,8 @@ Every request below lists its message id and the roles that may send it: **U** t
 role. A request sent by a role not listed is answered `NotPermitted`. Every request may fail with `Draining`,
 `Busy` (§12) or `Invalid` (a value that is in bounds but wrong in substance, named in `Error.detail`); only
 further errors are listed. Requests that need an identity fail with `NoIdentity` when `Identity.present` is false; those are
-`RenameDevice`, `StartPairing` in every mode but `ShowDevice` (which checks its mode itself), `ForgetUser`, every
+`RenameDevice`, `StartPairing` in every mode but `ShowDevice` (which checks its mode itself), `StartPairingByDevice`,
+`ForgetUser`, every
 request of §6.3 and §6.4, `PinObject`, `Unpin`, `ReleasePins`, `Dial`, `ServiceCall`, and `WriteEntry` (§9.4). The
 Host checks a request in this order and answers the first that fails: the role (`NotPermitted`), the identity
 (`NoIdentity`), a Draining session (`Draining`, §3.4), the confinement of user-key requests (`NotPermitted`), and
@@ -867,13 +876,21 @@ written).
 
 Pairing exchanges user keys and Rosters between two users (DESIGN.md §5.2); enrolment adds a device to the own
 user's Roster. Both are one flow from the client's view, in four modes (§14.10): the side that **shows** a code
-and the side that **enters** it, for a user or for a device. Exactly one pairing runs on a Host at a time; a
-second `StartPairing` fails with `Busy` until the first ended.
+and the side that **enters** it, for a user or for a device. The entering side names the other side by its code
+(`StartPairing`) or, without a code, by the device id and the addresses discovery announced for it
+(`StartPairingByDevice`; PAIR-SPEC.md §2.4): both start the same pairing. Exactly one pairing runs on a Host at a
+time; a second start fails with `Busy` until the first ended.
 
 ```
 StartPairing (272), U:
   mode:         u8              §14.10
   code:         string(512)     modes JoinUser and AddDevice: the code the other side showed; else empty
+  OK:   pairing: Pairing
+
+StartPairingByDevice (278), U:
+  mode:         u8              §14.10: JoinUser or AddDevice
+  device:       id              the other side's device as discovery announced it (ListDiscovered, §6.6); never all zero
+  addresses:    list<string(256)>(8)   where it listens, host:port or [ipv6]:port, in the order to try, as ListDiscovered shows them
   OK:   pairing: Pairing
 
 ConfirmPairing (273), U:
@@ -899,7 +916,9 @@ The states of a pairing, in order (§14.10): `Waiting` (this side shows `code` a
 connect, or is connecting with the code it was given), `Confirm` (both sides are connected and `sas` is set; the
 user compares it with the other side and calls `ConfirmPairing` or `CancelPairing`), `Confirming` (this side
 confirmed, the other has not yet), then `Paired`, `Failed` or `Cancelled`. A pairing `expires` 10 minutes after
-`StartPairing`, which is a failure. Every change is an event on topic `pairing` (§7.3); the `OK` body shows the
+it started, which is a failure. `StartPairingByDevice` is `Invalid` in a showing mode (`mode`), for a device id of
+all zeros (`device`), for no address, more than 8, or one that is not `host:port` (`addresses`), and, like a code
+that shows one, for a device of the own user (`device`); it needs an identity in every mode. Every change is an event on topic `pairing` (§7.3); the `OK` body shows the
 state at the time of the answer. `ConfirmPairing` and `CancelPairing` fail with `NotFound` for a pairing that is
 not the current one or has ended; `ConfirmPairing` is `Invalid` in state `Waiting`, and in state `Confirming`
 it is `OK` and changes nothing.
@@ -1835,6 +1854,7 @@ Every limit is a bound the Host MUST enforce and a client MUST respect.
 | 275 | GetPairing | Request | 6.2 |
 | 276 | ListKnownUsers | Request | 6.2 |
 | 277 | ForgetUser | Request | 6.2 |
+| 278 | StartPairingByDevice | Request | 6.2 |
 | 288 | ListDevices | Request | 6.3 |
 | 289 | RemoveDevice | Request | 6.3 |
 | 304 | ListPackages | Request | 6.4 |
@@ -2159,6 +2179,7 @@ GetIdentity    := -                                   → identity:Identity
 CreateIdentity := userName:string deviceName:string   → identity:Identity
 RenameDevice   := deviceId:id name:string             → device:Device
 StartPairing   := mode:u8 code:string                 → pairing:Pairing
+StartPairingByDevice := mode:u8 device:id addresses:list<string>   → pairing:Pairing
 ConfirmPairing | CancelPairing := pairing:u32          → pairing:Pairing;   GetPairing := - → pairing:Pairing
 ListKnownUsers := -                                   → users:list<User>
 ForgetUser     := userId:id                           → -

@@ -13,6 +13,7 @@ internal static class RequestCatalog
             RequestDescriptor.Of<CreateIdentity, Identity>("6.1"),
             RequestDescriptor.Of<RenameDevice, Device>("6.1"),
             RequestDescriptor.Of<StartPairing, Pairing>("6.2"),
+            RequestDescriptor.Of<StartPairingByDevice, Pairing>("6.2"),
             RequestDescriptor.Of<ConfirmPairing, Pairing>("6.2"),
             RequestDescriptor.Of<CancelPairing, Pairing>("6.2"),
             RequestDescriptor.Of<GetPairing, Pairing>("6.2"),

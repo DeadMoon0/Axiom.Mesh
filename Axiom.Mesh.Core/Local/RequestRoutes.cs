@@ -16,10 +16,10 @@ namespace Axiom.Mesh.Core;
 internal sealed class RequestRoutes
 {
     // §6, header: the requests that fail with NoIdentity before an identity exists. StartPairing depends on its mode
-    // (ShowDevice needs none), so its handler decides.
+    // (ShowDevice needs none), so its handler decides; StartPairingByDevice enters, which always needs one.
     private static readonly FrozenSet<ushort> NeedingIdentity = new ushort[]
     {
-        258, 277, 288, 289, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313, 314, 315, 316, 317, 318, 319, 353, 354, 357, 374, 385, 513,
+        258, 277, 278, 288, 289, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313, 314, 315, 316, 317, 318, 319, 353, 354, 357, 374, 385, 513,
     }.ToFrozenSet();
 
     // §2.2: the requests that spend the user's private key.
@@ -61,6 +61,7 @@ internal sealed class RequestRoutes
         [GetOperation.Id] = Of<GetOperation>(OperationRequests.GetOperationAsync),
         [CancelOperation.Id] = Of<CancelOperation>(OperationRequests.CancelOperationAsync),
         [StartPairing.Id] = Of<StartPairing>(PairingRequests.StartPairingAsync),
+        [StartPairingByDevice.Id] = Of<StartPairingByDevice>(PairingRequests.StartPairingByDeviceAsync),
         [ConfirmPairing.Id] = Of<ConfirmPairing>(PairingRequests.ConfirmPairingAsync),
         [CancelPairing.Id] = Of<CancelPairing>(PairingRequests.CancelPairingAsync),
         [GetPairing.Id] = Of<GetPairing>(PairingRequests.GetPairingAsync),

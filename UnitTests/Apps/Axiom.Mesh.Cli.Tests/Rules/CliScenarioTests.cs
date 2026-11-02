@@ -180,6 +180,67 @@ public sealed class CliScenarioTests
         Assert.Contains(alice.User.Value.ToHex()[..Formats.ShortId], bobKnows.Stdout, StringComparison.Ordinal);
     }
 
+    // PAIR-SPEC.md §2.4: pair join without a target lists the devices discovery heard that are not paired yet; with a prefix
+    // of one's id it pairs without a code; pair show says so first.
+    [Fact]
+    public async Task PairJoinWithoutACodeListsTheDiscoveredDevices_AndJoinsOneByItsIdPrefix()
+    {
+        await using TestMesh mesh = await CliMeshes.StartAsync(TestMeshOptions.Of("alice-laptop", "bob-desktop"));
+        TestNode alice = mesh["alice-laptop"];
+        TestNode bob = mesh["bob-desktop"];
+        LocalClient watcher = await alice.ConnectUserAsync("test", None);
+        LocalClient bobsClient = await bob.ConnectUserAsync("test", None);
+        await MeshPairing.ByDiscoveryAsync(("alice-laptop", alice.Node, watcher), ("bob-desktop", bob.Node, bobsClient), PairingMode.JoinUser, None);
+        string prefix = alice.Device.Value.ToHex()[..Formats.ShortId];
+
+        CliResult listed = await CliMeshes.OkAsync(bob.CliAsync("pair join", None));
+        Assert.Contains(prefix, listed.Stdout, StringComparison.Ordinal);
+        Assert.Contains("10.0.0.1:41810", listed.Stdout, StringComparison.Ordinal);
+        Assert.Contains("pair join <device>", listed.Stderr, StringComparison.Ordinal);
+
+        Task<CliResult> showing = alice.CliAsync("pair show", None);
+        Pairing waiting = await mesh.WaitForPairingAsync("alice-laptop", watcher, p => p.Code.Length != 0, "the code", None);
+        CliResult joined = await CliMeshes.OkAsync(bob.CliAsync("pair join " + prefix[..8], None));
+        CliResult shown = await CliMeshes.OkAsync(showing);
+
+        Assert.StartsWith("on the other PC run: axiom-mesh pair join " + prefix, shown.Stderr, StringComparison.Ordinal);
+        Assert.StartsWith(waiting.Code + "\n", shown.Stdout, StringComparison.Ordinal);
+        string sas = CliMeshes.Value(shown, "Compare");
+        Assert.Equal(sas, CliMeshes.Value(joined, "Compare"));
+        Assert.Contains("Other side", joined.Stdout, StringComparison.Ordinal);
+        Assert.Contains(prefix, joined.Stdout, StringComparison.Ordinal);
+
+        Task<CliResult> aliceConfirms = alice.CliAsync("pair confirm", None);
+        await mesh.WaitForPairingAsync("alice-laptop", watcher, p => p.State != PairingState.Confirm, "alice to confirm", None);
+        CliResult bobConfirmed = await CliMeshes.OkAsync(bob.CliAsync("pair confirm", None));
+        CliResult aliceConfirmed = await CliMeshes.OkAsync(aliceConfirms);
+
+        Assert.Equal("paired", CliMeshes.Value(bobConfirmed, "State"));
+        Assert.Equal("paired", CliMeshes.Value(aliceConfirmed, "State"));
+        CliResult known = await CliMeshes.OkAsync(bob.CliAsync("users", None));
+        Assert.Contains(alice.User.Value.ToHex()[..Formats.ShortId], known.Stdout, StringComparison.Ordinal);
+        CliResult paired = await bob.CliAsync("pair join", None);
+        Assert.Equal(CliExitCode.Refused, paired.ExitCode);
+        Assert.Contains("no device to pair with was discovered", paired.Stderr, StringComparison.Ordinal);
+    }
+
+    // PAIR-SPEC.md §2.4: where discovery heard nothing, pair join says so in one line and points at the code.
+    [Fact]
+    public async Task PairJoinWithoutACodeRefusesWithAHintWhenNothingWasDiscovered_AndAnUnknownPrefixToo()
+    {
+        await using TestMesh mesh = await CliMeshes.StartAsync(TestMeshOptions.Of("bob-desktop"));
+        TestNode bob = mesh["bob-desktop"];
+
+        CliResult nothing = await bob.CliAsync("pair join", None);
+        CliResult unknown = await bob.CliAsync("pair join 3f9a", None);
+
+        Assert.Equal(CliExitCode.Refused, nothing.ExitCode);
+        Assert.Empty(nothing.Stdout);
+        Assert.Equal("axiom-mesh: " + PairingView.NothingDiscovered, nothing.Stderr.Split('\n')[0]);
+        Assert.Equal(CliExitCode.Refused, unknown.ExitCode);
+        Assert.StartsWith("axiom-mesh: no discovered device matches '3f9a'", unknown.Stderr, StringComparison.Ordinal);
+    }
+
     // Plan §9.3 item 4, S-D5: with the chat service running, chat send attaches a file and writes, write goes through the
     // service too, chat show lists both, chat get writes the attachment byte-equal, chat withdraw hides a message; once the
     // service is gone, write falls back to the direct path and a chat command says the service is not connected.

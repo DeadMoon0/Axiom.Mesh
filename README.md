@@ -28,7 +28,7 @@ option fetch it from a release tag (`…/Axiom.Mesh/v0.1.0/install.ps1`). Then:
 
 ```text
 axiom-mesh identity create --user <your name> --device <this device>
-axiom-mesh pair show                (on one device; on the other: axiom-mesh pair join <code>)
+axiom-mesh pair show                (on one device; on the other: axiom-mesh pair join, then pair join <its device id>)
 axiom-mesh help
 ```
 
