@@ -11,7 +11,14 @@ Fill in the run log at the end as you go, then commit it (`Documentation/accepta
 - Two desktop PCs on the same LAN, Windows or Linux, in any mix: **A** (Alice) and **B** (Bob). Write down each one's
   LAN address (`ipconfig` / `ip -4 addr`).
 - The firewall lets TCP 41810 in (the mesh port), and UDP 5353 (mDNS) and UDP 41811 (broadcast) if you want discovery.
-  On Windows the first start of `axiom-meshd` may show the firewall prompt: allow private networks.
+  On Windows a Host started by the logon task shows **no** firewall prompt, and on a network marked Public every
+  inbound connection to it is dropped (the run of 2026-11-02 saw that: debt 82). Add the rule once from an
+  administrator PowerShell on each PC, after step 1:
+  `New-NetFirewallRule -DisplayName "Axiom.Mesh Host" -Direction Inbound -Program "$env:LOCALAPPDATA\Programs\Axiom.Mesh\axiom-meshd.exe" -Action Allow`.
+  Without it the run still works as long as one PC can reach the other (the mesh dials both ways), but pairing must
+  then be joined from the reachable PC, step 7 takes longer and step 10 is dialled the other way round.
+- The build scripts (`Scripts/package.ps1`, `install.ps1 -Source`) need PowerShell 7 (`pwsh`); Windows PowerShell 5.1
+  stops in the smoke.
 - A folder of a few files on A to publish, for example `photos` with two pictures and a text file in a subfolder.
 - For step 10, a second home on B for Eve (no third PC needed).
 
@@ -146,8 +153,11 @@ B:  axiom-mesh history Photos
 same Entry hash as on A, the message's text `hello from A`.
 
 ```text
-B:  axiom-mesh package materialise Photos <an empty folder, absolute or relative>
+B:  axiom-mesh package materialise Photos <a folder that does not exist yet, absolute or relative>
 ```
+
+(An existing folder, even an empty one, is refused without `--existing`; `sync add` in step 12 wants the opposite,
+debt 84.)
 
 **Expected:** the folder holds the same files as A's `photos`. Compare them, for example with
 `Get-FileHash -Recurse` on Windows or `sha256sum` on Linux on both sides.
@@ -195,7 +205,8 @@ B:  axiom-mesh history Family
 (A's listing omits it now; B keeps following what it holds), `history Family` still shows what B held before, and the
 Entry A writes after the revocation never reaches B.
 
-**Pass:** Bob is no longer served Family; what B held stays.
+**Pass:** Bob is no longer served Family; what B held stays. (Step 11 grants Bob write access again; from then on B is
+served the whole Channel, the Entry written after the revocation included. That is SPEC §9.7, not a leak.)
 
 ## Step 10: Eve is never let in
 
@@ -220,15 +231,20 @@ Then, in the same terminal:
 **Expected:** Eve's `peers` shows A refused or backed off, never `established`; on A, `axiom-mesh peers` never lists
 Eve's device as `established` (it may not list it at all: a key in no roster is closed during the handshake).
 
+If A's inbound port is blocked (see *Before you start*), dial the other way: on A, `axiom-mesh peer add <ip of B>:41820`,
+then A's Host log shows the connection "ended before the peer's Hello" and a backoff for that address, Eve's `peers` shows
+nothing, and A's `peers` never lists her. Remove the static peer afterwards with `axiom-mesh peer remove <ip of B>:41820`.
+
 **Pass:** Eve never becomes Established on A. Stop Eve's Host afterwards (Ctrl-C, or `Stop-Process -Name axiom-meshd`
 for the one started with `AXIOM_MESH_HOME` set, `kill %1` on Linux) and delete its home.
 
 ## Step 11: chat through the chat service
 
 Both PCs run `axiom-mesh-chat` beside the Host (the zip ships it; the Host starts it). On A, with the Channel `Family`
-of step 4 and Bob's write grant of step 8:
+of step 4; step 9 revoked Bob's grant, so give it back first:
 
 ```text
+axiom-mesh grant set Family bob --write
 axiom-mesh services                      # chat: spawned, connected
 axiom-mesh chat send Family --text "holiday" --file <a photo or a folder>
 ```
@@ -262,7 +278,7 @@ and step 5's binding on A, A first lets Bob write Photos (step 8 granted Family 
 ```text
 A:  axiom-mesh grant set Photos bob --write
 A:  axiom-mesh services                          # sync: spawned, connected
-B:  axiom-mesh sync add <an empty folder> --package Photos
+B:  axiom-mesh sync add <an empty folder that exists> --package Photos
 B:  axiom-mesh sync status <that folder>         # until: in sync, the same head as A's
 ```
 
@@ -271,13 +287,15 @@ both. Then, in turn:
 
 1. On B, add a file and change another; within a few seconds of the last save A's folder shows both
    (`axiom-mesh sync status` on A: the head moved, `leaves 1`).
-2. Take B off the network (pull the cable or turn Wi-Fi off). Change the **same** text file on both, differently,
-   and a **different** file on each. Reconnect.
+2. Take B off the network (pull the cable or turn Wi-Fi off; stopping B's Host with `axiom-mesh host uninstall` does
+   as well). Change the **same** text file on both, differently, and a **different** file on each. Reconnect.
 3. Within a few seconds both folders hold the same files: each different file as its side left it, and the shared file
-   as the later leaf wrote it, with the other side's version beside it as `<name>.conflict-<8 hex>.<ext>`.
-   `axiom-mesh sync conflicts` on the PC that made the merge lists it (`copy written`); the other PC has the same copy in
-   its folder.
-4. Delete the copy you do not want on either PC: it disappears on the other.
+   as the later leaf wrote it, with the other side's version beside it as `<name>.conflict-<8 hex>.<ext>` (the hex is
+   the losing device's id). `axiom-mesh sync conflicts` on the PC that made the merge lists it (`copy written`); the
+   other PC has the same copy in its folder. When both PCs reconnect at once, both merge and each writes a merge
+   Version with the same tree: `sync status` then shows `Leaves 2` and both list the conflict, until the next change
+   (debt 83).
+4. Delete the copy you do not want on either PC: it disappears on the other (the conflict row stays listed, debt 84).
 5. `axiom-mesh sync remove <folder>` on B: the files stay; `axiom-mesh sync list` no longer shows it.
 
 **Then** end `axiom-mesh-sync` on A while it writes (copy a large folder into it, then `Stop-Process -Name

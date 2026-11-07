@@ -919,3 +919,77 @@ and a client otherwise had to poll `ListPackages` to notice a drop.
   screen; a wrong pick cannot pair without the comparison (PAIR-SPEC.md §10).
 - **Paid in:** the next discovery version, with the name the app shows and a pairing flag (SPEC.md §3), when the app
   needs a list of names.
+
+## 81. A service keeps the identity its first `HelloAck` carried
+
+- **Rule:** LOCAL-SPEC.md §4.1: `HelloAck.identity` is the device's identity, absent before `CreateIdentity`; CHAT-SERVICE.md
+  §5.7 and SYNC-SERVICE.md §3: a service decides by its own device and user.
+- **Instead:** `ServiceSession.Host` is the `HelloAck` of the connection, read once. A service the Host spawned at start,
+  before `identity create`, keeps an empty identity until it reconnects: on the acceptance run of 2026-11-02 the Channel
+  owner's own device was refused `chat withdraw` (`NotYours`) until `axiom-mesh-chat` was restarted; `axiom-mesh-sync`
+  reads its own device id the same way (`SyncRun.Own`, `Publisher`).
+- **Evidence:** `Documentation/acceptance-runs/2026-11-02.md` item 1.
+- **Tolerated because:** found at the end of the run; no test covers a service connected before the identity exists.
+- **Paid in:** before `v0.2.0`: the runtime subscribes to the identity (`users` topic or a `GetIdentity` after
+  `OnConnectedAsync` and on every `UserChanged` of the own user) and exposes it as a live value; a scenario starts the
+  service before `identity create`.
+
+## 82. A Host started by the logon task gets no firewall prompt
+
+- **Rule:** ACCEPTANCE.md *Before you start*: inbound TCP 41810 open; DESIGN.md §17: two PCs pair and sync out of the box.
+- **Instead:** `host install` starts `axiom-meshd` headless (`conhost --headless`) from a scheduled task; Windows shows the
+  firewall prompt only to a program with a window, so on a Public-profile network inbound 41810 stays blocked and the
+  other PC cannot dial in. The mesh survived it (the reachable side is dialled), pairing by code had to be joined from the
+  reachable PC, the offline catch-up took 71 s instead of seconds because the dialler's backoff had doubled while the
+  peer was down, and Eve had to be dialled from A.
+- **Evidence:** `Documentation/acceptance-runs/2026-11-02.md` item 2.
+- **Tolerated because:** a firewall rule needs an administrator and `install.ps1` is deliberately non-admin.
+- **Paid in:** before 0.3.0: `host install` adds the rule when it runs elevated and prints the `New-NetFirewallRule` line
+  otherwise; `axiom-mesh status` reports whether the mesh port is reachable from the LAN; a fresh discovery announcement
+  from a peer resets its dial backoff.
+
+## 83. Two PCs that reconnect at once both write the same merge Version
+
+- **Rule:** SPEC.md §9.5 and SYNC-SERVICE.md §4: the same leaves merge to the same Tree everywhere; a merge equal to the
+  later leaf's Tree writes no Version.
+- **Instead:** both sides merged within the same second and each wrote a Version with the merge Tree (86fd614b7a1f and
+  bbd5ad6fcf43, tree 2b9844e2fc1e); correct, but `sync status` shows `in sync`, `Leaves 2` and the conflict on both until
+  the next change names both as parents.
+- **Evidence:** `Documentation/acceptance-runs/2026-11-02.md` item 5; `Sync.Tests` scenario 4 covers one merging side.
+- **Tolerated because:** nothing is lost and the next publish resolves it; the status is what confuses.
+- **Paid in:** phase 3: either the side with the lower device id waits one debounce for the other's merge before writing
+  its own, or `sync status` says "two equal leaves" instead of counting them.
+
+## 84. Conflict rows never close, and the two directory rules disagree
+
+- **Rule:** SYNC-SERVICE.md §6: a conflict is listed until the user removes one copy; ACCEPTANCE.md step 6 and 12.
+- **Instead:** the row and `Conflicts 1` stay after the copy was deleted on either PC; `package materialise` refuses an
+  existing empty folder, `sync add` refuses a missing one.
+- **Evidence:** `Documentation/acceptance-runs/2026-11-02.md` items 5 and 15.
+- **Tolerated because:** cosmetic; the folders were right.
+- **Paid in:** phase 3: a conflict row closes when its copy is gone from the Tree; both commands accept an empty folder
+  whether it exists or not.
+
+## 85. A pairing join into a blocked port holds the Host busy for minutes
+
+- **Rule:** PAIR-SPEC.md §6.3: a pairing that is not final at its expiry fails; LOCAL-SPEC.md §6.2 `StartPairing` is
+  `Busy` while one runs.
+- **Instead:** the entering side dials every address of the code in turn and each connect into a firewall waits for the
+  TCP timeout (about 20 s on Windows), six addresses in the run; `pair show` on that PC was `Busy` meanwhile and
+  `pair cancel` printed "Pairing 2 is not the current one, or has ended" for the join that had just ended.
+- **Evidence:** `Documentation/acceptance-runs/2026-11-02.md` item 3.
+- **Tolerated because:** pairing by discovery (debt 80, commit e180e0a) dials one known address.
+- **Paid in:** phase 3: a connect deadline of a few seconds per address, the first reachable address wins, and `pair
+  cancel`/`pair show` explain a join still dialling.
+
+## 86. The TLS scan on CI sees a session ticket
+
+- **Rule:** SPEC.md §4.2: no session tickets, no 0-RTT; `MeshTls` sets `AllowTlsResume = false` in both roles.
+- **Instead:** the first run of `tls-scan.yml` (ubuntu, testssl.sh 3.2 against `Conformance/Axiom.Mesh.TlsScan`) reports
+  "A session ticket was issued … valid for 7200 seconds"; `Documentation/CONFORMANCE.md` claims §4.2 by
+  `TlsConformanceTests`, which run in process on Windows (SChannel). On Linux .NET's `SslStream` over OpenSSL may send a
+  `NewSessionTicket` although resumption is refused.
+- **Evidence:** the `tls-scan` run on f4a2cc8.
+- **Tolerated because:** a ticket the server never accepts opens no resumption, but the spec says none is issued.
+- **Paid in:** before `v0.2.0`: reproduce on Linux, set `SSL_OP_NO_TICKET` through `SslServerAuthenticationOptions`
+  (or disable tickets on the `SslStream` context), re-run the scan.
