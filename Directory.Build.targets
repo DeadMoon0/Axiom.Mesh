@@ -1,0 +1,13 @@
+<Project>
+
+  <!-- Native AOT compiler: the pack the SDK bundles (10.0.10 and 8.0.29 under SDK 10.0.302) carries advisory
+       GHSA-p3jp-9v83-76w9, which TreatWarningsAsErrors turns into NU1903 at every AOT restore. Updating the known pack is
+       the SDK's own route (an explicit package reference is refused by the ILCompiler targets); the runtime pack follows.
+       Each inner build updates every row to its own framework's version; only the row of that framework is read.
+       Drop this once the SDK in global.json bundles 10.0.14 and 8.0.33 or later. -->
+  <ItemGroup>
+    <KnownILCompilerPack Update="Microsoft.DotNet.ILCompiler" Condition="'$(TargetFramework)' == 'net10.0'" ILCompilerPackVersion="10.0.14" />
+    <KnownILCompilerPack Update="Microsoft.DotNet.ILCompiler" Condition="'$(TargetFramework)' == 'net8.0'" ILCompilerPackVersion="8.0.33" />
+  </ItemGroup>
+
+</Project>
