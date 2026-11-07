@@ -33,7 +33,7 @@ internal sealed class MeshTlsLayer : ITransportLayer
         DeviceCredential credential = options.Credential()
             ?? throw new AuthenticationException("This device has no device key yet, so it has no certificate to present.");
         var check = new PeerCheck(options, options.Pairing.Current, connection.Remote);
-        var tls = new SslStream(stream, leaveInnerStreamOpen: false);
+        SslStream tls = options.Role == TlsRole.Server && OpenSslTickets.Applies ? ServerStreamIssuingNoTicket(stream) : new SslStream(stream, leaveInnerStreamOpen: false);
         try
         {
             using (ConnectionDeadline deadline = connection.ArmDeadline(Handshake))
@@ -101,6 +101,16 @@ internal sealed class MeshTlsLayer : ITransportLayer
         CertificateChainPolicy = NoChainChecks(),
         RemoteCertificateValidationCallback = validate,
     };
+
+    // SPEC.md §4.2, no session ticket: on OpenSSL the server's ticket count is set to zero while it writes its first flight,
+    // the only moment between the handle's creation and the client's Finished (OpenSslTickets says why).
+    private static SslStream ServerStreamIssuingNoTicket(Stream stream)
+    {
+        var hook = new FirstWriteHook(stream);
+        var tls = new SslStream(hook, leaveInnerStreamOpen: false);
+        hook.Arm(() => OpenSslTickets.IssueNone(tls));
+        return tls;
+    }
 
     // The key is pinned, so no chain counts (SPEC.md §4.3): build none against the system's stores, fetch nothing.
     private static X509ChainPolicy NoChainChecks() => new()

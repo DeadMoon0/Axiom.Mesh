@@ -102,6 +102,11 @@ S3, pairing without a code (after the first two-PC run, 2026-11-02):
   `withdraw` and Sync's Versions decide by it; a sync run on a Host without an identity ends `Error` and writes nothing.
 - Not done: an announcement says neither that a pairing is open nor the device's name, so `pair join` lists every
   unknown device by id (STRUCTURAL-DEBT.md 80).
+- `Axiom.Mesh.Core`, fixed (STRUCTURAL-DEBT.md 86, the first `tls-scan` run): on Linux the mesh port issued a TLS 1.3
+  session ticket SPEC.md §4.2 forbids, because .NET's `AllowTlsResume = false` sets only `SSL_OP_NO_TICKET`, which in
+  TLS 1.3 means a stateful ticket, not none. The server handshake now sets its ticket count to zero
+  (`SSL_set_num_tickets`) on OpenSSL; Windows is unchanged. Proved on Linux by
+  `TlsConformanceTests.OnLinuxTheMeshPortIssuesNoSessionTicket`.
 
 ## 0.1.0
 

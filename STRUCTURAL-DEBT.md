@@ -979,12 +979,27 @@ run without an identity ends `Error` before it reads a byte. `Service.Tests: Ide
 
 ## 86. The TLS scan on CI sees a session ticket
 
-- **Rule:** SPEC.md §4.2: no session tickets, no 0-RTT; `MeshTls` sets `AllowTlsResume = false` in both roles.
-- **Instead:** the first run of `tls-scan.yml` (ubuntu, testssl.sh 3.2 against `Conformance/Axiom.Mesh.TlsScan`) reports
-  "A session ticket was issued … valid for 7200 seconds"; `Documentation/CONFORMANCE.md` claims §4.2 by
-  `TlsConformanceTests`, which run in process on Windows (SChannel). On Linux .NET's `SslStream` over OpenSSL may send a
-  `NewSessionTicket` although resumption is refused.
-- **Evidence:** the `tls-scan` run on f4a2cc8.
-- **Tolerated because:** a ticket the server never accepts opens no resumption, but the spec says none is issued.
-- **Paid in:** before `v0.2.0`: reproduce on Linux, set `SSL_OP_NO_TICKET` through `SslServerAuthenticationOptions`
-  (or disable tickets on the `SslStream` context), re-run the scan.
+Paid in S3: .NET's `AllowTlsResume = false` sets only `SSL_OP_NO_TICKET` on OpenSSL (`CryptoNative_SslCtxSetCaching`,
+dotnet/runtime `pal_ssl.c`, release/8.0 and release/10.0), which in TLS 1.3 means a stateful ticket, not none
+(OpenSSL `SSL_CTX_set_options(3)`); no option of `SslServerAuthenticationOptions`, `AppContext` switch or environment
+variable reaches `SSL_set_num_tickets`. `OpenSslTickets.IssueNone` calls it with zero on the handle `SslStream` keeps in
+its private `_securityContext`, from a `FirstWriteHook` under the server stream, while the first flight is written.
+Reproduced and proved in a container (Ubuntu 24.04, OpenSSL 3.0.13, net8.0 and net10.0): `Integration.Tests:
+TlsConformanceTests.OnLinuxTheMeshPortIssuesNoSessionTicket` and `OnLinuxTheRecordCountSeesTheTwoTicketsABareSslStreamServerStillIssues`;
+testssl.sh 3.2 and `check.py` as `tls-scan.yml` runs them pass there ("Session Ticket RFC 5077 hint: no"). What remains
+is entry 87.
+
+## 87. No session ticket on Linux rests on a private field of `SslStream`
+
+- **Rule:** SPEC.md §4.2: session tickets MUST NOT be issued, and a rule of the spec is kept through what the runtime
+  offers publicly, not through its private fields.
+- **Instead:** `OpenSslTickets` reads `SslStream`'s private `_securityContext` by reflection and calls
+  `SSL_set_num_tickets` in the libssl the runtime mapped (entry 86 says why nothing public does it). A runtime that renames
+  the field or drops the export fails every server handshake on Linux with an `AuthenticationException` naming §4.2,
+  rather than issue a ticket; the two `OnLinux` facts of `TlsConformanceTests` tell first.
+- **Evidence:** `Axiom.Mesh.Core/Transport/OpenSslTickets.cs`.
+- **Tolerated because:** the field has the same name in .NET 8 and .NET 10, the export exists since OpenSSL 1.1.1 (where
+  TLS 1.3 begins), and the failure is loud and closed.
+- **Paid in:** when `SslServerAuthenticationOptions` gains a ticket switch (dotnet/runtime), or when the CI scan runs on
+  a runtime where `OnLinuxTheRecordCountSeesTheTwoTicketsABareSslStreamServerStillIssues` fails, which means
+  `AllowTlsResume = false` suffices: drop `OpenSslTickets`, `FirstWriteHook` and this entry.
