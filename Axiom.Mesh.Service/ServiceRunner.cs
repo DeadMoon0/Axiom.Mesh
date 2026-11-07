@@ -16,8 +16,9 @@ namespace Axiom.Mesh.Service;
 /// (<c>AXIOM_MESH_SERVICE_TOKEN</c>, else the configuration's for a service run by hand); register every kind; plan the
 /// catch-up against the cursor; tell the service; page with <c>ListStored</c> while the gap is large, then subscribe to its
 /// Entries from where it stands and to its Packages; hand each event to the service one at a time, advancing the cursor
-/// after each Entry; on a lapse subscribe again from the next store sequence; on <c>Drain</c> finish the Entry in hand and
-/// say <c>Bye</c>; reconnect by <see cref="ReconnectRule"/> until stopped.
+/// after each Entry; on a lapse subscribe again from the next store sequence; keep the Host's identity current
+/// (<see cref="IdentityWatch"/>); on <c>Drain</c> finish the Entry in hand and say <c>Bye</c>; reconnect by
+/// <see cref="ReconnectRule"/> until stopped.
 /// </summary>
 internal sealed class ServiceRunner
 {
@@ -172,6 +173,7 @@ internal sealed class ServiceRunner
                 IndexCursor cursor = await state.ReadCursorAsync(stop).ConfigureAwait(false);
                 IndexCatchUp plan = IndexCatchUp.Plan(cursor.Epoch, cursor.LastSeq, epoch);
                 session = new ServiceSession(definition, client, epoch, plan, state, log);
+                await using IdentityWatch identity = await IdentityWatch.StartAsync(session, log, stop).ConfigureAwait(false);
                 ServiceLog.Connected(log, definition.Name, client.Host.HostVersion, plan.FromSeq, plan.DiscardIndex);
                 await service.OnConnectedAsync(session, stop).ConfigureAwait(false);
 
@@ -443,7 +445,4 @@ internal sealed class ServiceRunner
 
         public static Registration Refused { get; } = new(false, default, 0, ServiceExitCode.Configuration);
     }
-
-    // A request the loop needs was refused: the session ends and the runtime reconnects.
-    private sealed class RequestFailedException(string message) : Exception(message);
 }

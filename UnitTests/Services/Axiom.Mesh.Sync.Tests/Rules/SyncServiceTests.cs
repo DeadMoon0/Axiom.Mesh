@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -42,6 +43,33 @@ public sealed class SyncServiceTests
         Assert.Equal((1ul, false), (early.Runs, early.Pending));
         Assert.NotEqual(first.Head, published.Head);
         Assert.Equal(1ul, published.Files);
+    }
+
+    // §3 step 8, LOCAL-SPEC.md §9.1: a service spawned before identity create writes its Versions as the device the identity
+    // names once it exists, not as the zero device its HelloAck carried.
+    [Fact]
+    public async Task AServiceRunningBeforeIdentityCreatePublishesAsTheDeviceCreatedAfterwards()
+    {
+        await using TestMesh mesh = await TestMesh.StartAsync(
+            TestMeshOptions.Of(Alice) with { Local = TestServices.With(TestCliService.Local, SyncProgram.Definition), WithoutIdentity = [Alice] },
+            None);
+        using var folders = new Folders();
+        folders.Write("alice/report.txt", "Alice's");
+        await using RunningService sync = await RunAsync(mesh, Alice);
+        Identity created = await mesh.CreateIdentityAsync(Alice, "Alice", "laptop", None);
+        await using LocalClient app = await mesh[Alice].ConnectUserAsync("sync-test", None);
+        LocalResult<Package> own = await app.SendAsync(new CreatePackage { Kind = PackageKind.Archive, Name = "Own" }, None);
+        Assert.True(own.IsOk, own.ToString());
+        PackageId archive = own.Value.PackageId;
+        string directory = folders.Path("alice");
+
+        await BindAsync(mesh, Alice, directory, archive);
+        Binding published = await SettledAsync(mesh, Alice, directory, b => b.Runs >= 1 && b.Head != default);
+        IReadOnlyList<Entry> versions = await VersionsAsync(mesh, Alice, archive);
+
+        Assert.Equal((BindingState.InSync, 1ul, string.Empty), (published.State, published.Files, published.Error));
+        Assert.Equal([created.DeviceId], versions.Select(v => v.DeviceId));
+        Assert.NotEqual(default, created.DeviceId);
     }
 
     // §7: each method refuses what it cannot do with the status the document names.

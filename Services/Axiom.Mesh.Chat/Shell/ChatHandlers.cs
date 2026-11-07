@@ -152,9 +152,11 @@ internal sealed class ChatHandlers
 
     private async Task<Answer<WithdrawReply>> WithdrawAsync(WithdrawRequest request, CancellationToken deadline)
     {
+        // The identity as it stands, not the HelloAck's: the service may have been spawned before identity create.
+        if (session.Service.Identity is not { } own)
+            return ErrorText.Refused(Verdict.Refuse(ChatStatus.NotYours, "This Host has no identity yet, so none of its devices wrote or owns anything; create one with axiom-mesh identity create.", "message"));
         MessageRow? target = await session.Index.MessageAsync(request.Message, deadline).ConfigureAwait(false);
         ChannelRow? channel = target is null ? null : await session.Index.ChannelAsync(new PackageId(RowBytes.Hash(target.Package)), deadline).ConfigureAwait(false);
-        Identity own = session.Service.Host.Identity;
         Verdict verdict = WithdrawRule.Check(
             target is not null && channel is not null,
             target?.Redacted ?? false,

@@ -31,7 +31,12 @@ internal sealed class RecordingService(TestEchoService inner) : IMeshService
 
     public int Disconnects;
 
+    private ServiceSession? session;
+
     public ServiceDefinition Definition => inner.Definition;
+
+    /// <summary>The session the runtime handed over last; <see langword="null"/> before the first connection.</summary>
+    public ServiceSession? Session => Volatile.Read(ref session);
 
     /// <summary>The next time the Entry with this store sequence is handed over, the handler throws (once).</summary>
     public void FailOnceAt(ulong storeSeq) => Volatile.Write(ref failOn, (int)storeSeq);
@@ -39,6 +44,7 @@ internal sealed class RecordingService(TestEchoService inner) : IMeshService
     public Task OnConnectedAsync(ServiceSession session, CancellationToken cancellationToken)
     {
         Plans.Enqueue(session.CatchUp);
+        Volatile.Write(ref this.session, session);
         return inner.OnConnectedAsync(session, cancellationToken);
     }
 

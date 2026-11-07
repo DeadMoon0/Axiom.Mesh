@@ -8,11 +8,13 @@ namespace Axiom.Mesh.Service;
 
 /// <summary>
 /// One connection of a service to its Host, as the runtime hands it to the service's handlers: the client to send requests
-/// on, what the Host said in its <c>HelloAck</c>, the catch-up plan, the state and the log. Made by the runtime for each
-/// connection; the service never opens one itself.
+/// on, what the Host said in its <c>HelloAck</c>, the Host's identity as it stands now, the catch-up plan, the state and
+/// the log. Made by the runtime for each connection; the service never opens one itself.
 /// </summary>
 public sealed class ServiceSession
 {
+    private Identity? identity;
+
     internal ServiceSession(ServiceDefinition definition, LocalClient client, Hash32 storeEpoch, IndexCatchUp catchUp, ServiceState state, ILogger log)
     {
         Definition = definition;
@@ -21,6 +23,7 @@ public sealed class ServiceSession
         CatchUp = catchUp;
         State = state;
         Log = log;
+        identity = client.Host.Identity.Present ? client.Host.Identity : null;
     }
 
     /// <summary>Who the service is.</summary>
@@ -29,8 +32,19 @@ public sealed class ServiceSession
     /// <summary>The connection, in the service role: <c>WriteEntry</c>, <c>PutObject</c>, <c>ListHistory</c> and every request marked S.</summary>
     public LocalClient Client { get; }
 
-    /// <summary>What the Host said: its version, flags, identity, store epoch and newest store sequence.</summary>
+    /// <summary>
+    /// What the Host said when the connection opened: its version, flags, store epoch and newest store sequence. Its
+    /// <c>Identity</c> is the identity at that moment only; a decision by the own device or user reads <see cref="Identity"/>.
+    /// </summary>
     public HelloAck Host => Client.Host;
+
+    /// <summary>
+    /// The Host's identity as it stands now (LOCAL-SPEC.md §6.1), kept current by the runtime over topic <c>users</c> and
+    /// <c>GetIdentity</c>: a service the Host spawned at start connects before <c>CreateIdentity</c> and sees the identity
+    /// once it is created, a renamed device and every later Roster. <see langword="null"/> while the Host has none; a
+    /// handler that decides by the own device or user refuses or waits then, it never reads zero ids.
+    /// </summary>
+    public Identity? Identity => Volatile.Read(ref identity);
 
     /// <summary>The store epoch this session indexes under (LOCAL-SPEC.md §9.3), from the last <c>RegisterKind</c>.</summary>
     public Hash32 StoreEpoch { get; }
@@ -52,6 +66,8 @@ public sealed class ServiceSession
     /// <returns>Ok, or why the Host refused it (<c>NotFound</c>, <c>KindNotRegistered</c>, <c>Invalid</c>).</returns>
     public ValueTask<LocalResult<NoContent>> EmitAsync(string eventName, PackageId package, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken) =>
         Client.SendAsync(new Emit { Event = eventName, PackageId = package, Payload = payload }, cancellationToken);
+
+    internal void SetIdentity(Identity? current) => Volatile.Write(ref identity, current);
 
     /// <inheritdoc />
     public override string ToString() => $"session of {Definition.Name} on {Host.HostVersion}";

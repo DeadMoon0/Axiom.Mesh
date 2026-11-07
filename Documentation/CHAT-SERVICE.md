@@ -133,7 +133,10 @@ then releases its pins on the objects its `attach` jobs put for them (LOCAL-SPEC
 Request `message hash`. Reply `key EntryKey` (the Redaction's). The service writes a Redaction (PAYLOADS.md §4) whose
 `redacts` and `target` name the message. Only the device that wrote the message or a device of the Channel's owner may
 (SPEC.md §9.4); the Host would store any other Redaction without honouring it, so the service checks first: `NotYours`.
-Not indexed: `NotAMessage`; withdrawn already: `Withdrawn`.
+Not indexed: `NotAMessage`; withdrawn already: `Withdrawn`. The own device and user are the Host's identity as it stands
+(`ServiceSession.Identity`, which the runtime keeps current over topic `users`, LOCAL-SPEC.md §9.1), not the `HelloAck`'s:
+a service spawned before `identity create` withdraws like one started after it. A Host without an identity has no device
+that wrote or owns anything: `NotYours`.
 
 ### 5.8 `attach`
 

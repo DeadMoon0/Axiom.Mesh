@@ -38,6 +38,7 @@ internal static class Publisher
 
     /// <summary>Writes a Version, or finds the leaf of this device that already names the Tree.</summary>
     /// <param name="client">The service's connection.</param>
+    /// <param name="own">This device, from the identity as it stands.</param>
     /// <param name="versions">The Archive's Versions now.</param>
     /// <param name="package">The Archive.</param>
     /// <param name="label">The branch.</param>
@@ -46,10 +47,9 @@ internal static class Publisher
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>The Entry written; <see langword="null"/> when a leaf of this device already names the Tree (<see cref="OwnLeaf"/> finds it).</returns>
     /// <exception cref="IOException">The Host refused the write.</exception>
-    public static async Task<Entry?> WriteAsync(LocalClient client, IReadOnlyDictionary<ObjectHash, VersionFact> versions, PackageId package, string label, ObjectHash tree, IReadOnlyList<ObjectHash> parents, CancellationToken cancellationToken)
+    public static async Task<Entry?> WriteAsync(LocalClient client, DeviceId own, IReadOnlyDictionary<ObjectHash, VersionFact> versions, PackageId package, string label, ObjectHash tree, IReadOnlyList<ObjectHash> parents, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(client);
-        DeviceId own = client.Host.Identity.DeviceId;
         if (Leaves.Of(versions, label).Any(l => l.Key.Device == own && l.Tree == tree))
             return null;
         var version = new VersionPayload { Tree = tree, Label = label, Prerelease = string.Empty, Notes = string.Empty };

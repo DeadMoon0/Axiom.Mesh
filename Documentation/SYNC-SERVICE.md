@@ -84,7 +84,9 @@ in the runtime's stream, a change of the Package, `bind` and `scan`.
 7. **Plan** (`SyncPlanner`): Nothing, Publish, Pull, MergeChain, PublishThenMerge, FirstSync or PullReadOnly (§8).
 8. **Publish**: the Trees put; a `Version { tree, label, "", "" }` written with its parents named explicitly and ascending,
    `references = [tree]`; then the base (`baseTree`, `baseLeaves`) committed. Never a Version whose Tree equals the Tree of a
-   leaf this device already wrote: that leaf stands for it.
+   leaf this device already wrote: that leaf stands for it. "This device" is the Host's identity as the run starts
+   (`ServiceSession.Identity`, kept current by the runtime, LOCAL-SPEC.md §9.1), never the `HelloAck`'s; a run on a Host
+   that has no identity yet ends `Error` before it reads a byte, so no Version ever names the zero device.
 9. **Merge** the two leaves lowest in the total order, again while more remain (§8); the Trees of every leaf are fetched
    first (`Fetch`, recursive; the binding waits as `WaitingForObjects` when no peer supplies them, and tries again after 2 s,
    doubling to at most a minute). A merge Version is written before the directory changes.

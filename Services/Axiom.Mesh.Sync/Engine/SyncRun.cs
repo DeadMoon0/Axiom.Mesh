@@ -62,7 +62,9 @@ internal sealed class SyncRun
 
     private LocalClient Client => session.Client;
 
-    private DeviceId Own => session.Host.Identity.DeviceId;
+    // This device, from the identity as it stands when the run starts (never the HelloAck's, which a service spawned before
+    // identity create saw empty); a run without one ends before it reads a byte.
+    private DeviceId Own { get; set; }
 
     /// <summary>Runs.</summary>
     /// <param name="cancellationToken">Cancelled when the binding ends, the service stops or the connection is lost.</param>
@@ -83,6 +85,9 @@ internal sealed class SyncRun
 
     private async Task<RunOutcome> StepsAsync(CancellationToken cancellationToken)
     {
+        if (session.Identity is not { } identity)
+            return RunOutcome.Failed(BindingState.Error, "this Host has no identity yet; create one with axiom-mesh identity create");
+        Own = identity.DeviceId;
         LocalResult<Package> package = await Client.SendAsync(new GetPackage { PackageId = spec.Package }, cancellationToken).ConfigureAwait(false);
         if (!package.IsOk || package.Value.State != PackageState.Followed)
             return RunOutcome.Failed(BindingState.Error, "the Archive is not followed on this Host; follow it again, or remove the binding");
@@ -322,7 +327,7 @@ internal sealed class SyncRun
 
     private async Task<VersionFact> WriteVersionAsync(IReadOnlyDictionary<ObjectHash, VersionFact> dag, ObjectHash tree, IReadOnlyList<ObjectHash> parents, CancellationToken cancellationToken)
     {
-        Entry? entry = await Publisher.WriteAsync(Client, dag, spec.Package, spec.Label, tree, parents, cancellationToken).ConfigureAwait(false);
+        Entry? entry = await Publisher.WriteAsync(Client, Own, dag, spec.Package, spec.Label, tree, parents, cancellationToken).ConfigureAwait(false);
         if (entry is null)
             return Publisher.OwnLeaf(dag, spec.Label, Own, tree)!;
         await versions.TakeInAsync([entry], fromStream: false, CancellationToken.None).ConfigureAwait(false);

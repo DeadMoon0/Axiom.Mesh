@@ -922,17 +922,12 @@ and a client otherwise had to poll `ListPackages` to notice a drop.
 
 ## 81. A service keeps the identity its first `HelloAck` carried
 
-- **Rule:** LOCAL-SPEC.md §4.1: `HelloAck.identity` is the device's identity, absent before `CreateIdentity`; CHAT-SERVICE.md
-  §5.7 and SYNC-SERVICE.md §3: a service decides by its own device and user.
-- **Instead:** `ServiceSession.Host` is the `HelloAck` of the connection, read once. A service the Host spawned at start,
-  before `identity create`, keeps an empty identity until it reconnects: on the acceptance run of 2026-11-02 the Channel
-  owner's own device was refused `chat withdraw` (`NotYours`) until `axiom-mesh-chat` was restarted; `axiom-mesh-sync`
-  reads its own device id the same way (`SyncRun.Own`, `Publisher`).
-- **Evidence:** `Documentation/acceptance-runs/2026-11-02.md` item 1.
-- **Tolerated because:** found at the end of the run; no test covers a service connected before the identity exists.
-- **Paid in:** before `v0.2.0`: the runtime subscribes to the identity (`users` topic or a `GetIdentity` after
-  `OnConnectedAsync` and on every `UserChanged` of the own user) and exposes it as a live value; a scenario starts the
-  service before `identity create`.
+Paid in S3 (before v0.2.0): the runtime's `IdentityWatch` subscribes to topic `users` on every connection, reads
+`GetIdentity` after the subscription's response and again on every `UserChanged` of the own user (and after a lapse), and
+`ServiceSession.Identity` is that live value, `null` while the Host has none; `ServiceSession.Host` stays the `HelloAck`
+for the store epoch and sequence (LOCAL-SPEC.md §9.1 now says so). Chat's `withdraw` and Sync's runs decide by it; a sync
+run without an identity ends `Error` before it reads a byte. `Service.Tests: IdentityTests`, `HelloAckTests`,
+`Chat.Tests: ChatServiceTests.AServiceRunningBeforeIdentityCreate…`, `Sync.Tests: SyncServiceTests.AServiceRunningBeforeIdentityCreate…`.
 
 ## 82. A Host started by the logon task gets no firewall prompt
 

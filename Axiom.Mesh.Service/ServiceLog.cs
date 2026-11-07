@@ -41,4 +41,7 @@ internal static partial class ServiceLog
 
     [LoggerMessage(EventId = 212, Level = LogLevel.Warning, Message = "the {Topic} subscription lapsed with {Dropped} events dropped; subscribing again")]
     public static partial void Lapsed(ILogger logger, string topic, uint dropped);
+
+    [LoggerMessage(EventId = 213, Level = LogLevel.Warning, Message = "GetIdentity was answered {Status}: {Message}; keeping the identity read last")]
+    public static partial void IdentityNotRead(ILogger logger, string status, string message);
 }

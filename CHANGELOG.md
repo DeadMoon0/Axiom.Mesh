@@ -94,6 +94,12 @@ S3, pairing without a code (after the first two-PC run, 2026-11-02):
 - `Axiom.Mesh.Testing`: `IMeshFixture.PairByDiscoveryAsync`, `TestMesh.PairByDiscoveryAsync`, `MeshPairing.RunAsync`
   with a `PairingEntry` (`ByCode`, `ByDiscovery`), `MeshPairing.ByDiscoveryAsync`; scenario 1b (pair by discovery), in
   memory and on sockets.
+- `Axiom.Mesh.Service`, fixed (STRUCTURAL-DEBT.md 81, acceptance run 2026-11-02 item 1): a service the Host spawned
+  before `identity create` kept the empty identity of its `HelloAck` until it reconnected, so the Channel owner's own
+  device was refused `chat withdraw` and the sync service read a zero device. `ServiceSession.Identity` is the Host's
+  identity as it stands (`null` while there is none), kept current by the runtime over topic `users` and `GetIdentity`
+  (LOCAL-SPEC.md §9.1 says so); `ServiceSession.Host` stays the `HelloAck`, for the store epoch and sequence. Chat's
+  `withdraw` and Sync's Versions decide by it; a sync run on a Host without an identity ends `Error` and writes nothing.
 - Not done: an announcement says neither that a pairing is open nor the device's name, so `pair join` lists every
   unknown device by id (STRUCTURAL-DEBT.md 80).
 

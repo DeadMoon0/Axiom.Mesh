@@ -1409,6 +1409,13 @@ own index was built against (§9.3); `Subscribe` to `entries` for its Entry kind
 the last store sequence it has indexed (after `ListStored` when the gap is large), and to `packages` for its
 Package kinds. From then on it receives everything it needs as events.
 
+`HelloAck.identity` is the identity at the moment of connecting only. A service the Host spawned at start (§4.2)
+connects before `CreateIdentity`, and a Roster of the own user changes while it runs (`RenameDevice`, enrolment);
+a service that decides by its own device or user (Chat's `withdraw`, Sync's Versions) therefore keeps its identity
+current: it subscribes to `users` and sends `GetIdentity` after the `Response` to that `Subscribe` (§3.4) and again
+on every `UserChanged` whose `user.self` is set. No further event exists for it: `UserChanged` carries the own
+user (§7.2), and `GetIdentity` is open to the service role (§6.1).
+
 ### 9.2 `RegisterKind` (512)
 
 ```

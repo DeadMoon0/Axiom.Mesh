@@ -100,6 +100,10 @@ database (the runtime's cursor is one of them).
   index.
 - Calls run off the read loop with their 60-second deadline; each is answered exactly once, never later than 120 seconds
   after it arrived (LOCAL-SPEC.md §9.8).
+- `ServiceSession.Identity` is the Host's identity as it stands (`null` while it has none), kept current over topic `users`
+  and `GetIdentity`: a service the Host spawned before `identity create` sees the identity once it exists, and every
+  Roster after it. `ServiceSession.Host` is the `HelloAck` of the connection, for the store epoch and sequence; its
+  identity is the one at connect only.
 - A lost Host is reconnected 1 s, 2 s, 4 s ... 30 s later (`ReconnectRule`); a refused name, token or version exits with
   `ServiceExitCode.Refused`, a missing token or an unusable definition with `Configuration`, a failing handler or state with
   `State`, so the Host's supervisor knows what to do. A spawned service exits `Ok` when its Host drains; one run by hand
