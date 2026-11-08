@@ -1037,4 +1037,5 @@ is entry 87.
   so neither the drive nor the flush explains it. What does is not known: candidates are LDB's `Durability.Full` commits
   (several flushes each), SChannel on loopback, the real pipe, and the 20 ms polls of the scenario waits under a starved
   scheduler. Open: a profiling run on the runner (facts with timings per object; `windows-2022` against `windows-2025`;
-  a self-hosted runner as the comparison), then the fix or the budget. Until then the job is not a gate the code can meet.
+  a self-hosted runner as the comparison), then the fix or the budget. Until then the job is not a gate the code can meet: since 2026-11-09 it runs with `continue-on-error` (the user's
+  decision), so it reports and does not gate; Linux integration and both unit jobs gate as before.

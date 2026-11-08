@@ -66,6 +66,10 @@ jobs:
       matrix:
         os: [ ubuntu-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
+    # On the hosted Windows runner the suite runs 10-30 times slower than on Linux or a laptop, with throughput that varies
+    # between runs (STRUCTURAL-DEBT.md 88: the disk flush is not the cause; what is, is being measured). Until that is
+    # settled the Windows job reports but does not gate (the user's decision, 2026-11-09); Linux gates as before.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     # Real sockets, TLS, disks and pipes: the suite is budgeted at 3 minutes per target framework; a hang must not hold the
     # runner. The first Windows run (eadc727) hit a 15-minute cap with both frameworks still running, which cancels the job
     # before its results are known; the bound below ends a hang and still lets a slow run report.
