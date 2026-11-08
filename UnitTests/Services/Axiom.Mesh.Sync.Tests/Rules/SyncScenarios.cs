@@ -210,15 +210,7 @@ public abstract class SyncScenarios
 
         RunningService stopped = await RunSyncAsync(mesh, Bob);
         await BindAsync(mesh, Bob, folders.Path("bob"), archive);
-        using (var deadline = new CancellationTokenSource(StepDeadline))
-        {
-            while (Directory.GetFiles(folders.Path("bob"), "f*.txt").Length == 0)
-            {
-                deadline.Token.ThrowIfCancellationRequested();
-                await Pause.ShortAsync();
-            }
-        }
-
+        await FirstFileAsync(mesh, Bob, folders.Path("bob"), "f*.txt");
         await stopped.DisposeAsync();
         await using RunningService resumed = await RunSyncAsync(mesh, Bob);
         await SettledAsync(mesh, Bob, folders.Path("bob"), _ => folders.Same("alice", "bob"));
@@ -558,6 +550,31 @@ public abstract class SyncScenarios
                 throw new TestMeshException($"The binding of {directory} on {node} did not settle as expected within {StepDeadline.TotalSeconds:0} s ({Folders.LastDifference}; status: {(status.IsOk ? status.Value.Bindings.SingleOrDefault() : status)}).", "Check that the node stores the Archive's Versions and that the service is connected.");
             if (connected is { } pair)
                 await mesh.ConnectAsync(pair.A, pair.B, None);
+            await Pause.ShortAsync();
+        }
+    }
+
+    // The moment a pull has written its first file into the directory, within the step deadline; a run that wrote none by
+    // then is reported with the binding's state (the Linux unit job saw this wait run out under full-suite load).
+    private async Task FirstFileAsync(IMeshFixture mesh, string node, string directory, string pattern)
+    {
+        using var deadline = new CancellationTokenSource(StepDeadline);
+        while (Directory.GetFiles(directory, pattern).Length == 0)
+        {
+            if (deadline.IsCancellationRequested)
+            {
+                string state;
+                await using (LocalClient app = await mesh.ConnectUserAsync(node, "sync-scenario", None))
+                {
+                    LocalResult<StatusReply> status = await SyncCall.SendAsync(app, new StatusRequest { Directory = directory }, None);
+                    state = status.IsOk ? string.Join(" | ", status.Value.Bindings) : status.ToString();
+                }
+
+                throw new TestMeshException(
+                    $"No file matching {pattern} appeared in {directory} on {node} within {StepDeadline.TotalSeconds:0} s; the directory holds {Directory.EnumerateFileSystemEntries(directory).Count()} entries; binding: {state}.",
+                    "Read the binding's state: WaitingForObjects names a Fetch no peer answered, Scanning or Pulling a run still in hand, InSync with no files a run that planned nothing.");
+            }
+
             await Pause.ShortAsync();
         }
     }
