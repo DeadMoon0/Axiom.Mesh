@@ -1029,4 +1029,12 @@ is entry 87.
   at 300 files and 2 MiB (`SocketSyncScenarios.Volume`), what the runner replicates within the settle; the rule the
   scenario proves is byte equality, the volume is `SyncFloorTests`' (10 000 files and 64 MiB, under `AXIOM_MESH_FLOORS=1`).
   What stays: the Windows integration job takes about 10 minutes per target framework against the plan's 3 (§6 "whole CI
-  < 12 min"). Closes when the job runs under its budget, on a faster runner or once the hosted one does.
+  < 12 min"), and its throughput varies between runs (scenario 6 at 300 files: 50 s in one run, 1 m 19 s in the next;
+  scenario 7's 200 files once trickled at under one object a second and missed the 180 s settle while the other
+  framework's run of the same test passed in 1 m 20 s; the thousand-message chat scenario 5 m 54 s to 8 m 42 s). A probe
+  (run 42507826940, workflow since removed) measured a flushed 4 KiB write at 3–7 ms on every drive of the Windows runner
+  (D:_temp, the workspace, C:, the user temp) against 0.4 ms on Linux: slower, but 400 objects would flush in 2 s,
+  so neither the drive nor the flush explains it. What does is not known: candidates are LDB's `Durability.Full` commits
+  (several flushes each), SChannel on loopback, the real pipe, and the 20 ms polls of the scenario waits under a starved
+  scheduler. Open: a profiling run on the runner (facts with timings per object; `windows-2022` against `windows-2025`;
+  a self-hosted runner as the comparison), then the fix or the budget. Until then the job is not a gate the code can meet.
