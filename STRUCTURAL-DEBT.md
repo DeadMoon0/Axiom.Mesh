@@ -1003,3 +1003,26 @@ is entry 87.
 - **Paid in:** when `SslServerAuthenticationOptions` gains a ticket switch (dotnet/runtime), or when the CI scan runs on
   a runtime where `OnLinuxTheRecordCountSeesTheTwoTicketsABareSslStreamServerStillIssues` fails, which means
   `AllowTlsResume = false` suffices: drop `OpenSslTickets`, `FirstWriteHook` and this entry.
+
+## 88. The Windows integration job on the hosted runner is red on the sync volume scenario
+
+- **Rule:** ARCHITECTURE.md rule 9 and §6 of the plan: every scenario green in memory and on sockets on both OSes, the
+  integration job under its budget.
+- **Instead:** the first runs of `integration-tests (windows-latest)` ever (eadc727, 3599ed3: every earlier push had
+  failed at the unit job) show the hosted Windows runner 10–30 times slower than a laptop or the Linux runner on every
+  scenario that flushes to disk: `SocketSyncScenarios.AlicesFolderAppearsByteEqualInBobsEmptyBoundDirectory` 21–31 s
+  (1 s on the laptop), `SocketChatScenarios.AThousandMessagesPageIdenticallyForwardAndBackward_OnBothDevices` 5 m 54 s
+  to 6 m 38 s, the suite 10 minutes per target framework against 44 s on `ubuntu-latest`. Scenario 6 of the sync suite
+  (1 000 files and 8 MiB through two real nodes, 9 s on the laptop) moves about 12 objects a second there (1 190–1 365
+  in 180 s, 710–859 while the two frameworks still ran at once) and fails the fixture's settle on both frameworks; the
+  job then reports red with 114 of 116 passed. Every other scenario passes. The job's own changes in 3599ed3 (one test
+  host at a time, every duration logged, 25 minutes, `workflow_dispatch`) made the run report instead of cancel.
+- **Evidence:** run 42433982701, job `integration-tests (windows-latest)`; `RealMeshFixture.SettleDeadline`.
+- **Tolerated because:** the slowness is the runner's file system (Defender scans every file written, the virtual disk
+  honours each flush) and not the code: the same binaries settle in seconds on Linux and on the two acceptance PCs; the
+  store writer and the sync service flush on purpose (SPEC §11.1, SYNC-SERVICE §3).
+- **Paid in:** a step in `unit-tests.yml` before the Windows integration test step that excludes the runner's workspace
+  and temp from Defender (`Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP`; the
+  runner is ephemeral and the exclusion ends with it) — a change the user decides, since it switches a scanner off for
+  the job; if that does not bring scenario 6 under the settle, the socket suite gets a smaller volume on CI and the full
+  volume stays the release floor (`SyncFloorTests`). Then this entry closes with the first green Windows integration run.
