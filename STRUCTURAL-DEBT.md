@@ -1021,8 +1021,8 @@ is entry 87.
 - **Tolerated because:** the slowness is the runner's file system (Defender scans every file written, the virtual disk
   honours each flush) and not the code: the same binaries settle in seconds on Linux and on the two acceptance PCs; the
   store writer and the sync service flush on purpose (SPEC §11.1, SYNC-SERVICE §3).
-- **Paid in:** a step in `unit-tests.yml` before the Windows integration test step that excludes the runner's workspace
-  and temp from Defender (`Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP`; the
-  runner is ephemeral and the exclusion ends with it) — a change the user decides, since it switches a scanner off for
-  the job; if that does not bring scenario 6 under the settle, the socket suite gets a smaller volume on CI and the full
-  volume stays the release floor (`SyncFloorTests`). Then this entry closes with the first green Windows integration run.
+- **Paid in:** the user decided (2026-11-08) not to touch Defender on the runner. Instead the socket suite runs scenario 6
+  at 300 files and 2 MiB (`SocketSyncScenarios.Volume`), what the runner replicates within the settle; the rule the
+  scenario proves is byte equality, the volume is `SyncFloorTests`' (10 000 files and 64 MiB, under `AXIOM_MESH_FLOORS=1`).
+  What stays: the Windows integration job takes about 10 minutes per target framework against the plan's 3 (§6 "whole CI
+  < 12 min"). Closes when the job runs under its budget, on a faster runner or once the hosted one does.
