@@ -23,11 +23,16 @@ namespace Axiom.Mesh.Integration.Tests.Support;
 /// Discovery is the one thing not taken from the operating system: there is no mDNS or broadcast in CI, and a static
 /// address names no device (SPEC.md §3.3), so the nodes announce their real endpoints on an in-process board, the claims
 /// mDNS would carry; a severed pair never hears each other's claim. Waits re-check after every fact a node records, within
-/// <see cref="TestMesh.Deadline"/> of real time; nothing sleeps.
+/// <see cref="TestMesh.Deadline"/> of real time (replication settles within <see cref="SettleDeadline"/>); nothing sleeps.
 /// </remarks>
 internal sealed class RealMeshFixture : IMeshFixture
 {
     private static readonly TimeSpan SettleRecheck = TimeSpan.FromMilliseconds(5);
+
+    // Replication on real disks with real flushes, on a shared CI runner that scans every file it writes: the thousand files
+    // of scenario 6 take minutes there and nine seconds on a laptop. The settle returns as soon as three looks agree, so the
+    // bound costs nothing when the mesh is quick; every other wait keeps the harness deadline.
+    private static readonly TimeSpan SettleDeadline = TimeSpan.FromSeconds(180);
 
     private readonly Dictionary<string, RealNode> nodes;
     private readonly string root;
@@ -162,7 +167,7 @@ internal sealed class RealMeshFixture : IMeshFixture
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            throw Timeout("replication to settle: " + string.Join(" / ", nodes.Values.Where(n => n.IsRunning).Select(n => $"{n.Name}: {n.Node.Replication}")));
+            throw Timeout(SettleDeadline, "replication to settle: " + string.Join(" / ", nodes.Values.Where(n => n.IsRunning).Select(n => $"{n.Name}: {n.Node.Replication}")));
         }
     }
 
@@ -262,7 +267,7 @@ internal sealed class RealMeshFixture : IMeshFixture
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            throw Timeout(what);
+            throw Timeout(TestMesh.Deadline, what);
         }
     }
 
@@ -279,8 +284,8 @@ internal sealed class RealMeshFixture : IMeshFixture
         }
     }
 
-    private TestMeshException Timeout(string what) => new(
-        $"Waited {TestMesh.Deadline.TotalSeconds:0} s on sockets for {what}, in vain. "
+    private TestMeshException Timeout(TimeSpan waited, string what) => new(
+        $"Waited {waited.TotalSeconds:0} s on sockets for {what}, in vain. "
             + string.Join(" ", nodes.Values.Where(n => n.IsRunning).Select(n => $"The last facts of {n.Name}: {string.Join(" | ", n.Node.Facts.Recent().TakeLast(16))}.")),
         "Read the facts: a HandshakeFailed or RefusedBeforeHello names what was refused, a BackedOff when the next dial is due.");
 }

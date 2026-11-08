@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -65,8 +66,10 @@ jobs:
       matrix:
         os: [ ubuntu-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
-    # Real sockets, TLS, disks and pipes: the suite is budgeted at 3 minutes; a hang must not hold the runner.
-    timeout-minutes: 15
+    # Real sockets, TLS, disks and pipes: the suite is budgeted at 3 minutes per target framework; a hang must not hold the
+    # runner. The first Windows run (eadc727) hit a 15-minute cap with both frameworks still running, which cancels the job
+    # before its results are known; the bound below ends a hang and still lets a slow run report.
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash
@@ -84,9 +87,13 @@ jobs:
       - name: Build
         run: dotnet build IntegrationTests/Axiom.Mesh.Integration.Tests --configuration Release
 
-      # The release floors (Category=Floor) skip themselves unless AXIOM_MESH_FLOORS=1; this run leaves it unset.
+      # The release floors (Category=Floor) skip themselves unless AXIOM_MESH_FLOORS=1; this run leaves it unset. The two
+      # target frameworks run one after the other: each test host starts real nodes on loopback with stores on disk, and two
+      # of them at once on a four-core runner contend for the disk (the hosted Windows runner scans every file written, which
+      # made scenario 6 of the sync suite take minutes against nine seconds on a laptop). The console logger names every
+      # test with its duration, so a slow runner shows where the time went.
       - name: Test
-        run: dotnet test IntegrationTests/Axiom.Mesh.Integration.Tests --configuration Release --no-build --logger "trx"
+        run: dotnet test IntegrationTests/Axiom.Mesh.Integration.Tests --configuration Release --no-build -p:TestTfmsInParallel=false --logger "trx" --logger "console;verbosity=normal"
 
       - name: Upload test results
         if: failure()
