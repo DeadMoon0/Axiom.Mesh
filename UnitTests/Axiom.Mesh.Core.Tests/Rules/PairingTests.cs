@@ -313,12 +313,17 @@ public sealed class PairingTests
         DeviceId eve = TestIdentity.Of("eve-device").DeviceId;
 
         // Alice's address, but Eve's id: the key Alice presents does not hash to it.
+        long beforeEve = mesh["alice-laptop"].Node.Facts.LastSequence;
         await bob.SendAsync(new StartPairingByDevice { Mode = LocalPairingMode.JoinUser, Device = eve, Addresses = addresses }, None);
         Pairing failed = await mesh.WaitForPairingAsync("bob-desktop", bob, p => p.State == LocalPairingState.Failed, "the refusal", None);
         Assert.Contains("no address of the device answered", failed.Failure, StringComparison.Ordinal);
         Assert.Equal(LocalPairingState.Waiting, (await alice.SendAsync(new GetPairing(), None)).Value.State);
         Assert.DoesNotContain(mesh["alice-laptop"].Node.Facts.Recent(), f => f.Kind == NodeFactKind.PairingChanged && f.Detail.Contains("Confirm", StringComparison.Ordinal));
         Assert.DoesNotContain(mesh["bob-desktop"].Node.Facts.Recent(), f => f.Kind == NodeFactKind.PairingChanged && f.Detail.Contains("connection", StringComparison.Ordinal));
+
+        // Bob refused Alice's key after the handshake, so Alice's side held that connection as its pairing link for a moment;
+        // a second dial that arrives before she sees it close is answered Busy (PAIR-SPEC.md §5.1). Wait for the close first.
+        await mesh.WaitForFactAsync("alice-laptop", f => f.Kind == NodeFactKind.Closed && f.Device == mesh["bob-desktop"].Device, beforeEve, "Alice to see the refused connection close", None);
 
         // Alice's id, as discovery announced it.
         IReadOnlyList<Peer> discovered = (await bob.SendAsync(new ListDiscovered(), None)).Value;

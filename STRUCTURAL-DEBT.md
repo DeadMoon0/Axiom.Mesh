@@ -975,7 +975,11 @@ run without an identity ends `Error` before it reads a byte. `Service.Tests: Ide
 - **Evidence:** `Documentation/acceptance-runs/2026-11-02.md` item 3.
 - **Tolerated because:** pairing by discovery (debt 80, commit e180e0a) dials one known address.
 - **Paid in:** phase 3: a connect deadline of a few seconds per address, the first reachable address wins, and `pair
-  cancel`/`pair show` explain a join still dialling.
+  cancel`/`pair show` explain a join still dialling. The same work decides the showing side's answer to a second pairing
+  connection from the device its current link already names: today it is `Busy` (PAIR-SPEC §5.1), which a join retried
+  right after a refused handshake meets while the showing side has not yet seen the refused connection close
+  (`Core.Tests: PairingTests.ADiscoveredDeviceIsPinnedByItsId…` waits for that close since a95f220's successor); a device
+  runs one pairing at a time, so the newer connection could replace the stale link as SPEC §4.5 replaces a session.
 
 ## 86. The TLS scan on CI sees a session ticket
 
