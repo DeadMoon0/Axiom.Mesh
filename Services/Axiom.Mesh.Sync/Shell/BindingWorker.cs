@@ -144,7 +144,11 @@ internal sealed class BindingWorker : IAsyncDisposable
     }
 
     /// <inheritdoc />
-    public override string ToString() => $"worker of {Spec}";
+    public override string ToString()
+    {
+        lock (gate)
+            return $"worker of {Spec}: {state}{(running ? ", a run in hand" : "")}{(queued ? ", a run queued" : "")}";
+    }
 
     // A change below the directory: the run starts once it was quiet for 2 seconds, at most 30 seconds after the first.
     private void Changed(bool lost)

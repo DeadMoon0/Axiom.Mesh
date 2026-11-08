@@ -54,7 +54,17 @@ public sealed class RunningService : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref stopping, 1) == 0)
             await stop.CancelAsync().ConfigureAwait(false);
-        await Exited.WaitAsync(TestMesh.Deadline).ConfigureAwait(false);
+        try
+        {
+            await Exited.WaitAsync(TestMesh.Deadline).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // A service that does not exit within the deadline of its stop is hung, not slow: say where it stands.
+            throw new TestMeshException(
+                $"The service {Name} did not exit within {TestMesh.Deadline.TotalSeconds:0} s of its stop: {observed}.",
+                "Read what the service holds: a handler in flight waits on the Host or the disk; none in flight means the runtime is still closing its connection.");
+        }
     }
 
     /// <inheritdoc />

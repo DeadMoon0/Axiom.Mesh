@@ -133,7 +133,11 @@ internal sealed class BindingBook
     }
 
     /// <inheritdoc />
-    public override string ToString() => $"{Count} bindings";
+    public override string ToString()
+    {
+        lock (gate)
+            return workers.Count == 0 ? "no bindings" : string.Join("; ", workers);
+    }
 
     private static StringComparison Comparison => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
